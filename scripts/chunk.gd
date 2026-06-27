@@ -123,34 +123,34 @@ func _add_prism_a(st: SurfaceTool, lx: int, ly: int, lz: int, wx: int, wz: int, 
 	if _get_neighbor(wx, ly - 1, wz, 0) == BlockTypes.Type.AIR:
 		st.set_normal(Vector3(0, -1, 0))
 		st.set_color(BlockTypes.get_color(bt, "bottom"))
-		st.add_vertex(b0); st.add_vertex(b1); st.add_vertex(b2)
+		st.add_vertex(b0); st.add_vertex(b2); st.add_vertex(b1)
 
 	# Top: neighbor is A at (wx, ly+1, wz)
 	if _get_neighbor(wx, ly + 1, wz, 0) == BlockTypes.Type.AIR:
 		st.set_normal(Vector3(0, 1, 0))
 		st.set_color(BlockTypes.get_color(bt, "top"))
-		st.add_vertex(t0); st.add_vertex(t2); st.add_vertex(t1)
+		st.add_vertex(t0); st.add_vertex(t1); st.add_vertex(t2)
 
 	# South leg (z face, normal -Z): neighbor is B at (wx, ly, wz-1)
 	if _get_neighbor(wx, ly, wz - 1, 1) == BlockTypes.Type.AIR:
 		st.set_normal(Vector3(0, 0, -1))
 		st.set_color(BlockTypes.get_color(bt, "side"))
-		st.add_vertex(b0); st.add_vertex(t0); st.add_vertex(b1)
-		st.add_vertex(b1); st.add_vertex(t0); st.add_vertex(t1)
+		st.add_vertex(b0); st.add_vertex(b1); st.add_vertex(t0)
+		st.add_vertex(b1); st.add_vertex(t1); st.add_vertex(t0)
 
 	# West leg (x face, normal -X): neighbor is B at (wx-1, ly, wz)
 	if _get_neighbor(wx - 1, ly, wz, 1) == BlockTypes.Type.AIR:
 		st.set_normal(Vector3(-1, 0, 0))
 		st.set_color(BlockTypes.get_color(bt, "side"))
-		st.add_vertex(b0); st.add_vertex(b2); st.add_vertex(t0)
-		st.add_vertex(b2); st.add_vertex(t2); st.add_vertex(t0)
+		st.add_vertex(b0); st.add_vertex(t0); st.add_vertex(b2)
+		st.add_vertex(b2); st.add_vertex(t0); st.add_vertex(t2)
 
 	# Hypotenuse: neighbor is B at (wx, ly, wz)
 	if _get_neighbor(wx, ly, wz, 1) == BlockTypes.Type.AIR:
 		st.set_normal(HYPO_NORMAL_A)
 		st.set_color(BlockTypes.get_color(bt, "side"))
-		st.add_vertex(b1); st.add_vertex(t1); st.add_vertex(b2)
-		st.add_vertex(t1); st.add_vertex(t2); st.add_vertex(b2)
+		st.add_vertex(b1); st.add_vertex(b2); st.add_vertex(t1)
+		st.add_vertex(t1); st.add_vertex(b2); st.add_vertex(t2)
 
 
 func _add_prism_b(st: SurfaceTool, lx: int, ly: int, lz: int, wx: int, wz: int, bt: int) -> void:
@@ -170,31 +170,31 @@ func _add_prism_b(st: SurfaceTool, lx: int, ly: int, lz: int, wx: int, wz: int, 
 	if _get_neighbor(wx, ly - 1, wz, 1) == BlockTypes.Type.AIR:
 		st.set_normal(Vector3(0, -1, 0))
 		st.set_color(BlockTypes.get_color(bt, "bottom"))
-		st.add_vertex(b0); st.add_vertex(b1); st.add_vertex(b2)
+		st.add_vertex(b0); st.add_vertex(b2); st.add_vertex(b1)
 
 	# Top: neighbor is B at (wx, ly+1, wz)
 	if _get_neighbor(wx, ly + 1, wz, 1) == BlockTypes.Type.AIR:
 		st.set_normal(Vector3(0, 1, 0))
 		st.set_color(BlockTypes.get_color(bt, "top"))
-		st.add_vertex(t0); st.add_vertex(t2); st.add_vertex(t1)
+		st.add_vertex(t0); st.add_vertex(t1); st.add_vertex(t2)
 
 	# East leg (x face, normal +X): neighbor is A at (wx+1, ly, wz)
 	if _get_neighbor(wx + 1, ly, wz, 0) == BlockTypes.Type.AIR:
 		st.set_normal(Vector3(1, 0, 0))
 		st.set_color(BlockTypes.get_color(bt, "side"))
-		st.add_vertex(b0); st.add_vertex(t0); st.add_vertex(b1)
-		st.add_vertex(b1); st.add_vertex(t0); st.add_vertex(t1)
+		st.add_vertex(b0); st.add_vertex(b1); st.add_vertex(t0)
+		st.add_vertex(b1); st.add_vertex(t1); st.add_vertex(t0)
 
 	# North leg (z face, normal +Z): neighbor is A at (wx, ly, wz+1)
 	if _get_neighbor(wx, ly, wz + 1, 0) == BlockTypes.Type.AIR:
 		st.set_normal(Vector3(0, 0, 1))
 		st.set_color(BlockTypes.get_color(bt, "side"))
-		st.add_vertex(b2); st.add_vertex(b1); st.add_vertex(t2)
-		st.add_vertex(b1); st.add_vertex(t1); st.add_vertex(t2)
+		st.add_vertex(b2); st.add_vertex(t2); st.add_vertex(b1)
+		st.add_vertex(b1); st.add_vertex(t2); st.add_vertex(t1)
 
 	# Hypotenuse: neighbor is A at (wx, ly, wz)
 	if _get_neighbor(wx, ly, wz, 0) == BlockTypes.Type.AIR:
 		st.set_normal(HYPO_NORMAL_B)
 		st.set_color(BlockTypes.get_color(bt, "side"))
-		st.add_vertex(b0); st.add_vertex(b2); st.add_vertex(t0)
-		st.add_vertex(b2); st.add_vertex(t2); st.add_vertex(t0)
+		st.add_vertex(b0); st.add_vertex(t0); st.add_vertex(b2)
+		st.add_vertex(b2); st.add_vertex(t0); st.add_vertex(t2)
