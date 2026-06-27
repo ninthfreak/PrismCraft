@@ -86,7 +86,7 @@ func _setup_hud() -> void:
 
 
 func _update_block_label() -> void:
-	_block_label.text = "[" + BlockTypes.get_name(current_block_type) + "]"
+	_block_label.text = "[" + BlockTypes.get_block_name(current_block_type) + "]"
 
 
 func _unhandled_input(event: InputEvent) -> void:
