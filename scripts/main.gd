@@ -11,7 +11,7 @@ func _ready() -> void:
 	# Place player above terrain at spawn point
 	var spawn_x := 8
 	var spawn_z := 8
-	var spawn_y := world_node.get_terrain_height(spawn_x, spawn_z) + 10
+	var spawn_y := world_node.get_terrain_height(spawn_x, spawn_z) + 3
 	player_node.position = Vector3(spawn_x, spawn_y, spawn_z)
 
 	world_node.load_initial_chunks(player_node.position)
