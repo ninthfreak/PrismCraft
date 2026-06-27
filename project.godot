@@ -5,7 +5,7 @@
 [application]
 
 config/name="PrismCraft"
-run/main_scene="res://scenes/main.tscn"
+run/main_scene="res://scenes/editor.tscn"
 config/features=PackedStringArray("4.3", "GL Compatibility")
 
 [display]
