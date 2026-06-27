@@ -59,172 +59,93 @@ static func _make_empty_cells(gx: int, gy: int, gz: int) -> Array:
 	return p_cells
 
 static func create_male() -> VoxelDefinition:
-	# ~1.75m tall = 56 cells, standing on y=4..y=59
+	# ~1.75m tall = 56 cells, standing on y=0..y=55
 	var def := VoxelDefinition.new()
 	var c := _make_empty_cells(32, 64, 32)
 	var S := CellTypes.Type.SOLID
 	var SKIN := 3
 	var HAIR := 1
 
-	# Feet (y 4-6)
-	_fill_box(c, 11, 4, 12, 15, 6, 20, S, 0, SKIN)
-	_fill_box(c, 17, 4, 12, 21, 6, 20, S, 0, SKIN)
-
-	# Lower legs (y 7-21)
-	_fill_box(c, 12, 7, 13, 14, 21, 19, S, 0, SKIN)
-	_fill_box(c, 18, 7, 13, 20, 21, 19, S, 0, SKIN)
-
-	# Knees (y 20-22, slightly wider)
-	_fill_box(c, 11, 20, 12, 15, 22, 20, S, 0, SKIN)
-	_fill_box(c, 17, 20, 12, 21, 22, 20, S, 0, SKIN)
-
-	# Thighs (y 23-32, thicker)
-	_fill_box(c, 10, 23, 12, 15, 32, 20, S, 0, SKIN)
-	_fill_box(c, 17, 23, 12, 22, 32, 20, S, 0, SKIN)
-
-	# Pelvis/hips (y 31-34, connects legs)
-	_fill_box(c, 10, 31, 11, 22, 34, 21, S, 0, SKIN)
-
-	# Abdomen (y 35-39)
-	_fill_box(c, 10, 35, 11, 22, 39, 21, S, 0, SKIN)
-
-	# Chest (y 40-47, broader)
-	_fill_box(c, 9, 40, 10, 23, 47, 22, S, 0, SKIN)
-
-	# Nipples
-	c[12][43][22] = [S, 0, 4]
-	c[20][43][22] = [S, 0, 4]
-
-	# Shoulders (y 46-48, widest point)
-	_fill_box(c, 7, 46, 11, 9, 48, 21, S, 0, SKIN)
-	_fill_box(c, 23, 46, 11, 25, 48, 21, S, 0, SKIN)
-
-	# Upper arms (y 37-47)
-	_fill_box(c, 5, 37, 12, 8, 47, 20, S, 0, SKIN)
-	_fill_box(c, 24, 37, 12, 27, 47, 20, S, 0, SKIN)
-
-	# Forearms (y 27-36)
-	_fill_box(c, 5, 27, 13, 8, 36, 19, S, 0, SKIN)
-	_fill_box(c, 24, 27, 13, 27, 36, 19, S, 0, SKIN)
-
-	# Hands (y 24-26)
-	_fill_box(c, 5, 24, 12, 8, 26, 19, S, 0, SKIN)
-	_fill_box(c, 24, 24, 12, 27, 26, 19, S, 0, SKIN)
-
-	# Neck (y 48-49)
-	_fill_box(c, 13, 48, 13, 19, 49, 19, S, 0, SKIN)
-
-	# Head (y 50-58)
-	_fill_box(c, 11, 50, 11, 21, 58, 21, S, 0, SKIN)
-
-	# Hair (short, top and back)
-	_fill_box(c, 11, 56, 11, 21, 59, 21, S, 0, HAIR)
-	_fill_box(c, 11, 52, 11, 21, 59, 12, S, 0, HAIR)
-
-	# Eyes (2x2 on front face)
-	_fill_box(c, 13, 55, 21, 14, 56, 21, S, 0, 6)
-	_fill_box(c, 18, 55, 21, 19, 56, 21, S, 0, 6)
-
-	# Nose
-	c[16][54][ 22] = [S, 0, SKIN]
-
-	# Mouth
-	_fill_box(c, 14, 52, 21, 18, 52, 21, S, 0, 7)
-
-	# Navel
-	c[16][37][22] = [S, 0, 4]
+	_fill_box(c, 11, 0, 12, 15, 2, 20, S, 0, SKIN)   # L foot
+	_fill_box(c, 17, 0, 12, 21, 2, 20, S, 0, SKIN)   # R foot
+	_fill_box(c, 12, 3, 13, 14, 17, 19, S, 0, SKIN)  # L shin
+	_fill_box(c, 18, 3, 13, 20, 17, 19, S, 0, SKIN)  # R shin
+	_fill_box(c, 11, 16, 12, 15, 18, 20, S, 0, SKIN) # L knee
+	_fill_box(c, 17, 16, 12, 21, 18, 20, S, 0, SKIN) # R knee
+	_fill_box(c, 10, 19, 12, 15, 28, 20, S, 0, SKIN) # L thigh
+	_fill_box(c, 17, 19, 12, 22, 28, 20, S, 0, SKIN) # R thigh
+	_fill_box(c, 10, 27, 11, 22, 30, 21, S, 0, SKIN) # Pelvis
+	_fill_box(c, 10, 31, 11, 22, 35, 21, S, 0, SKIN) # Abdomen
+	_fill_box(c, 9, 36, 10, 23, 43, 22, S, 0, SKIN)  # Chest
+	c[12][39][22] = [S, 0, 4]                          # L nipple
+	c[20][39][22] = [S, 0, 4]                          # R nipple
+	_fill_box(c, 7, 42, 11, 9, 44, 21, S, 0, SKIN)   # L shoulder
+	_fill_box(c, 23, 42, 11, 25, 44, 21, S, 0, SKIN) # R shoulder
+	_fill_box(c, 5, 33, 12, 8, 43, 20, S, 0, SKIN)   # L upper arm
+	_fill_box(c, 24, 33, 12, 27, 43, 20, S, 0, SKIN) # R upper arm
+	_fill_box(c, 5, 23, 13, 8, 32, 19, S, 0, SKIN)   # L forearm
+	_fill_box(c, 24, 23, 13, 27, 32, 19, S, 0, SKIN) # R forearm
+	_fill_box(c, 5, 20, 12, 8, 22, 19, S, 0, SKIN)   # L hand
+	_fill_box(c, 24, 20, 12, 27, 22, 19, S, 0, SKIN) # R hand
+	_fill_box(c, 13, 44, 13, 19, 45, 19, S, 0, SKIN) # Neck
+	_fill_box(c, 11, 46, 11, 21, 54, 21, S, 0, SKIN) # Head
+	_fill_box(c, 11, 52, 11, 21, 55, 21, S, 0, HAIR) # Hair top
+	_fill_box(c, 11, 48, 11, 21, 55, 12, S, 0, HAIR) # Hair back
+	_fill_box(c, 13, 51, 21, 14, 52, 21, S, 0, 6)    # L eye
+	_fill_box(c, 18, 51, 21, 19, 52, 21, S, 0, 6)    # R eye
+	c[16][50][22] = [S, 0, SKIN]                       # Nose
+	_fill_box(c, 14, 48, 21, 18, 48, 21, S, 0, 7)    # Mouth
+	c[16][33][22] = [S, 0, 4]                          # Navel
 
 	def.set_from_cells(c, 32, 64, 32, 1)
 	return def
 
 static func create_female() -> VoxelDefinition:
-	# ~1.63m tall = 52 cells, standing on y=6..y=57
+	# ~1.63m tall = 52 cells, standing on y=0..y=51
 	var def := VoxelDefinition.new()
 	var c := _make_empty_cells(32, 64, 32)
 	var S := CellTypes.Type.SOLID
 	var SKIN := 3
 	var HAIR := 1
 
-	# Feet (y 6-8)
-	_fill_box(c, 12, 6, 12, 15, 8, 20, S, 0, SKIN)
-	_fill_box(c, 17, 6, 12, 20, 8, 20, S, 0, SKIN)
-
-	# Lower legs (y 9-21)
-	_fill_box(c, 12, 9, 13, 15, 21, 19, S, 0, SKIN)
-	_fill_box(c, 17, 9, 13, 20, 21, 19, S, 0, SKIN)
-
-	# Knees (y 20-22)
-	_fill_box(c, 12, 20, 12, 15, 22, 20, S, 0, SKIN)
-	_fill_box(c, 17, 20, 12, 20, 22, 20, S, 0, SKIN)
-
-	# Thighs (y 23-31, curvier)
-	_fill_box(c, 10, 23, 12, 15, 31, 20, S, 0, SKIN)
-	_fill_box(c, 17, 23, 12, 22, 31, 20, S, 0, SKIN)
-
-	# Hips/pelvis (y 30-34, wider than male)
-	_fill_box(c, 9, 30, 10, 23, 34, 22, S, 0, SKIN)
-
-	# Waist (y 35-37, narrower)
-	_fill_box(c, 11, 35, 11, 21, 37, 21, S, 0, SKIN)
-
-	# Ribcage (y 38-41)
-	_fill_box(c, 10, 38, 10, 22, 41, 22, S, 0, SKIN)
-
-	# Chest/breasts (y 42-45)
-	_fill_box(c, 10, 42, 10, 22, 45, 21, S, 0, SKIN)
-	# Breast shape (protrudes forward)
-	_fill_box(c, 12, 42, 21, 15, 44, 22, S, 0, SKIN)
-	_fill_box(c, 17, 42, 21, 20, 44, 22, S, 0, SKIN)
-
-	# Nipples
-	c[13][43][23] = [S, 0, 4]
-	c[19][43][23] = [S, 0, 4]
-
-	# Shoulders (y 44-46, narrower than male)
-	_fill_box(c, 8, 44, 12, 10, 46, 20, S, 0, SKIN)
-	_fill_box(c, 22, 44, 12, 24, 46, 20, S, 0, SKIN)
-
-	# Upper arms (y 36-45)
-	_fill_box(c, 6, 36, 13, 9, 45, 19, S, 0, SKIN)
-	_fill_box(c, 23, 36, 13, 26, 45, 19, S, 0, SKIN)
-
-	# Forearms (y 27-35)
-	_fill_box(c, 6, 27, 13, 9, 35, 19, S, 0, SKIN)
-	_fill_box(c, 23, 27, 13, 26, 35, 19, S, 0, SKIN)
-
-	# Hands (y 24-26)
-	_fill_box(c, 6, 24, 13, 9, 26, 19, S, 0, SKIN)
-	_fill_box(c, 23, 24, 13, 26, 26, 19, S, 0, SKIN)
-
-	# Neck (y 46-47)
-	_fill_box(c, 13, 46, 13, 19, 47, 19, S, 0, SKIN)
-
-	# Head (y 48-56)
-	_fill_box(c, 11, 48, 11, 21, 56, 21, S, 0, SKIN)
-
-	# Hair (long, covering top, back, sides, hanging down)
-	_fill_box(c, 11, 54, 11, 21, 57, 21, S, 0, HAIR)
-	_fill_box(c, 11, 48, 11, 21, 57, 12, S, 0, HAIR)
-	_fill_box(c, 11, 48, 11, 12, 57, 21, S, 0, HAIR)
-	_fill_box(c, 20, 48, 11, 21, 57, 21, S, 0, HAIR)
-	# Hair hanging below head (longer sides)
-	_fill_box(c, 11, 40, 11, 12, 47, 14, S, 0, HAIR)
-	_fill_box(c, 20, 40, 11, 21, 47, 14, S, 0, HAIR)
-	# Hair down the back
-	_fill_box(c, 12, 38, 11, 20, 47, 12, S, 0, HAIR)
-
-	# Eyes (2x2 on front face)
-	_fill_box(c, 13, 53, 21, 14, 54, 21, S, 0, 6)
-	_fill_box(c, 18, 53, 21, 19, 54, 21, S, 0, 6)
-
-	# Nose
-	c[16][52][22] = [S, 0, SKIN]
-
-	# Mouth
-	_fill_box(c, 14, 50, 21, 18, 50, 21, S, 0, 7)
-
-	# Navel
-	c[16][36][22] = [S, 0, 4]
+	_fill_box(c, 12, 0, 12, 15, 2, 20, S, 0, SKIN)   # L foot
+	_fill_box(c, 17, 0, 12, 20, 2, 20, S, 0, SKIN)   # R foot
+	_fill_box(c, 12, 3, 13, 15, 15, 19, S, 0, SKIN)  # L shin
+	_fill_box(c, 17, 3, 13, 20, 15, 19, S, 0, SKIN)  # R shin
+	_fill_box(c, 12, 14, 12, 15, 16, 20, S, 0, SKIN) # L knee
+	_fill_box(c, 17, 14, 12, 20, 16, 20, S, 0, SKIN) # R knee
+	_fill_box(c, 10, 17, 12, 15, 25, 20, S, 0, SKIN) # L thigh
+	_fill_box(c, 17, 17, 12, 22, 25, 20, S, 0, SKIN) # R thigh
+	_fill_box(c, 9, 24, 10, 23, 28, 22, S, 0, SKIN)  # Hips
+	_fill_box(c, 11, 29, 11, 21, 31, 21, S, 0, SKIN) # Waist
+	_fill_box(c, 10, 32, 10, 22, 35, 22, S, 0, SKIN) # Ribcage
+	_fill_box(c, 10, 36, 10, 22, 39, 21, S, 0, SKIN) # Chest
+	_fill_box(c, 12, 36, 21, 15, 38, 22, S, 0, SKIN) # L breast
+	_fill_box(c, 17, 36, 21, 20, 38, 22, S, 0, SKIN) # R breast
+	c[13][37][23] = [S, 0, 4]                          # L nipple
+	c[19][37][23] = [S, 0, 4]                          # R nipple
+	_fill_box(c, 8, 38, 12, 10, 40, 20, S, 0, SKIN)  # L shoulder
+	_fill_box(c, 22, 38, 12, 24, 40, 20, S, 0, SKIN) # R shoulder
+	_fill_box(c, 6, 30, 13, 9, 39, 19, S, 0, SKIN)   # L upper arm
+	_fill_box(c, 23, 30, 13, 26, 39, 19, S, 0, SKIN) # R upper arm
+	_fill_box(c, 6, 21, 13, 9, 29, 19, S, 0, SKIN)   # L forearm
+	_fill_box(c, 23, 21, 13, 26, 29, 19, S, 0, SKIN) # R forearm
+	_fill_box(c, 6, 18, 13, 9, 20, 19, S, 0, SKIN)   # L hand
+	_fill_box(c, 23, 18, 13, 26, 20, 19, S, 0, SKIN) # R hand
+	_fill_box(c, 13, 40, 13, 19, 41, 19, S, 0, SKIN) # Neck
+	_fill_box(c, 11, 42, 11, 21, 50, 21, S, 0, SKIN) # Head
+	_fill_box(c, 11, 48, 11, 21, 51, 21, S, 0, HAIR) # Hair top
+	_fill_box(c, 11, 42, 11, 21, 51, 12, S, 0, HAIR) # Hair back
+	_fill_box(c, 11, 42, 11, 12, 51, 21, S, 0, HAIR) # Hair L side
+	_fill_box(c, 20, 42, 11, 21, 51, 21, S, 0, HAIR) # Hair R side
+	_fill_box(c, 11, 34, 11, 12, 41, 14, S, 0, HAIR) # L hanging
+	_fill_box(c, 20, 34, 11, 21, 41, 14, S, 0, HAIR) # R hanging
+	_fill_box(c, 12, 32, 11, 20, 41, 12, S, 0, HAIR) # Back hair
+	_fill_box(c, 13, 47, 21, 14, 48, 21, S, 0, 6)    # L eye
+	_fill_box(c, 18, 47, 21, 19, 48, 21, S, 0, 6)    # R eye
+	c[16][46][22] = [S, 0, SKIN]                       # Nose
+	_fill_box(c, 14, 44, 21, 18, 44, 21, S, 0, 7)    # Mouth
+	c[16][30][22] = [S, 0, 4]                          # Navel
 
 	def.set_from_cells(c, 32, 64, 32, 1)
 	return def
