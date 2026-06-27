@@ -117,7 +117,7 @@ func _create_and_build_chunk(cx: int, cz: int) -> void:
 
 	# Rebuild adjacent chunks for correct face culling at borders
 	for d in [Vector2i(-1, 0), Vector2i(1, 0), Vector2i(0, -1), Vector2i(0, 1)]:
-		var adj := key + d
+		var adj: Vector2i = key + d
 		if adj in chunks:
 			chunks[adj].generate_mesh()
 
