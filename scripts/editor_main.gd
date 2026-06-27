@@ -2,13 +2,13 @@ extends Node3D
 
 enum EditMode { BLOCK, CHARACTER }
 
-const CELL_RES := 16
+const CELL_RES := 32
 const CELL_SIZE := 1.0 / CELL_RES
 
 var edit_mode: int = EditMode.BLOCK
-var grid_x := 16
-var grid_y := 16
-var grid_z := 16
+var grid_x := 32
+var grid_y := 32
+var grid_z := 32
 
 var cells: Array = []
 var current_type: int = CellTypes.Type.SOLID
@@ -141,7 +141,7 @@ func _setup_ui() -> void:
 	_update_file_label()
 
 func _update_mode_label() -> void:
-	var mode_name := "BLOCK (16x16x16)" if edit_mode == EditMode.BLOCK else "CHARACTER (16x16x32)"
+	var mode_name := "BLOCK (32x32x32)" if edit_mode == EditMode.BLOCK else "CHARACTER (32x32x64)"
 	mode_label.text = "Mode: " + mode_name
 
 func _update_tool_label() -> void:
@@ -162,13 +162,13 @@ func _set_edit_mode(mode: int) -> void:
 		return
 	edit_mode = mode
 	if edit_mode == EditMode.BLOCK:
-		grid_x = 16
-		grid_y = 16
-		grid_z = 16
-	else:
-		grid_x = 16
+		grid_x = 32
 		grid_y = 32
-		grid_z = 16
+		grid_z = 32
+	else:
+		grid_x = 32
+		grid_y = 64
+		grid_z = 32
 	cursor_cell = Vector3i(-1, -1, -1)
 	cursor_mesh_instance.visible = false
 	current_file_path = ""
