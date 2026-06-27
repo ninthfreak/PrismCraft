@@ -4,7 +4,7 @@ static func _add_tri(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, normal
 	st.set_normal(normal)
 	st.set_color(color)
 	var cross_prod := (b - a).cross(c - a)
-	if cross_prod.dot(normal) > 0:
+	if cross_prod.dot(normal) < 0:
 		st.add_vertex(a)
 		st.add_vertex(b)
 		st.add_vertex(c)
