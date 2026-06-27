@@ -65,10 +65,8 @@ func _ready() -> void:
 
 func _generate_presets() -> void:
 	DirAccess.make_dir_recursive_absolute("res://definitions")
-	if not FileAccess.file_exists("res://definitions/male.tres"):
-		ResourceSaver.save(VoxelDefinition.create_male(), "res://definitions/male.tres")
-	if not FileAccess.file_exists("res://definitions/female.tres"):
-		ResourceSaver.save(VoxelDefinition.create_female(), "res://definitions/female.tres")
+	ResourceSaver.save(VoxelDefinition.create_male(), "res://definitions/male.tres")
+	ResourceSaver.save(VoxelDefinition.create_female(), "res://definitions/female.tres")
 
 func _center_camera() -> void:
 	camera.pivot = Vector3(grid_x, grid_y, grid_z) * CELL_SIZE * 0.5
