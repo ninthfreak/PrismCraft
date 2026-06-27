@@ -20,6 +20,7 @@ func _ready() -> void:
 
 	_chunk_material = StandardMaterial3D.new()
 	_chunk_material.vertex_color_use_as_albedo = true
+	_chunk_material.cull_mode = BaseMaterial3D.CULL_DISABLED
 
 
 func _process(_delta: float) -> void:

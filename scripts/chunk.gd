@@ -99,7 +99,9 @@ func generate_mesh() -> void:
 	_mesh_instance.mesh = mesh
 
 	if mesh and mesh.get_surface_count() > 0:
-		_collision_shape.shape = mesh.create_trimesh_shape()
+		var trimesh := mesh.create_trimesh_shape()
+		trimesh.backface_collision = true
+		_collision_shape.shape = trimesh
 	else:
 		_collision_shape.shape = null
 
