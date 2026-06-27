@@ -17,15 +17,13 @@ static func _add_quad(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Ve
 	_add_tri(st, a, b, c, normal, color)
 	_add_tri(st, a, c, d, normal, color)
 
-static func build_mesh(cells: Array, grid_size: int) -> ArrayMesh:
+static func build_mesh(cells: Array, gx: int, gy: int, gz: int, cell_size: float) -> ArrayMesh:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 
-	var cell_size := 1.0 / grid_size
-
-	for x in range(grid_size):
-		for y in range(grid_size):
-			for z in range(grid_size):
+	for x in range(gx):
+		for y in range(gy):
+			for z in range(gz):
 				var cell: Array = cells[x][y][z]
 				var cell_type: int = cell[0]
 				if cell_type == CellTypes.Type.EMPTY:
@@ -35,51 +33,51 @@ static func build_mesh(cells: Array, grid_size: int) -> ArrayMesh:
 				var color: Color = CellTypes.PALETTE[cell[2]]
 
 				if cell_type == CellTypes.Type.SOLID:
-					_build_cube(st, cells, grid_size, x, y, z, origin, cell_size, color)
+					_build_cube(st, cells, gx, gy, gz, x, y, z, origin, cell_size, color)
 				elif cell_type == CellTypes.Type.PRISM:
 					_build_prism(st, origin, cell_size, cell[1], color)
 
 	st.generate_tangents()
 	return st.commit()
 
-static func _is_solid_neighbor(cells: Array, grid_size: int, x: int, y: int, z: int) -> bool:
-	if x < 0 or x >= grid_size or y < 0 or y >= grid_size or z < 0 or z >= grid_size:
+static func _is_solid_neighbor(cells: Array, gx: int, gy: int, gz: int, x: int, y: int, z: int) -> bool:
+	if x < 0 or x >= gx or y < 0 or y >= gy or z < 0 or z >= gz:
 		return false
 	return cells[x][y][z][0] == CellTypes.Type.SOLID
 
-static func _build_cube(st: SurfaceTool, cells: Array, grid_size: int, cx: int, cy: int, cz: int, o: Vector3, s: float, color: Color) -> void:
+static func _build_cube(st: SurfaceTool, cells: Array, gx: int, gy: int, gz: int, cx: int, cy: int, cz: int, o: Vector3, s: float, color: Color) -> void:
 	# +Y top
-	if not _is_solid_neighbor(cells, grid_size, cx, cy + 1, cz):
+	if not _is_solid_neighbor(cells, gx, gy, gz, cx, cy + 1, cz):
 		_add_quad(st,
 			o + Vector3(0, s, 0), o + Vector3(s, s, 0),
 			o + Vector3(s, s, s), o + Vector3(0, s, s),
 			Vector3.UP, color)
 	# -Y bottom
-	if not _is_solid_neighbor(cells, grid_size, cx, cy - 1, cz):
+	if not _is_solid_neighbor(cells, gx, gy, gz, cx, cy - 1, cz):
 		_add_quad(st,
 			o + Vector3(0, 0, s), o + Vector3(s, 0, s),
 			o + Vector3(s, 0, 0), o + Vector3(0, 0, 0),
 			Vector3.DOWN, color)
 	# +X right
-	if not _is_solid_neighbor(cells, grid_size, cx + 1, cy, cz):
+	if not _is_solid_neighbor(cells, gx, gy, gz, cx + 1, cy, cz):
 		_add_quad(st,
 			o + Vector3(s, 0, 0), o + Vector3(s, s, 0),
 			o + Vector3(s, s, s), o + Vector3(s, 0, s),
 			Vector3.RIGHT, color)
 	# -X left
-	if not _is_solid_neighbor(cells, grid_size, cx - 1, cy, cz):
+	if not _is_solid_neighbor(cells, gx, gy, gz, cx - 1, cy, cz):
 		_add_quad(st,
 			o + Vector3(0, 0, s), o + Vector3(0, s, s),
 			o + Vector3(0, s, 0), o + Vector3(0, 0, 0),
 			Vector3.LEFT, color)
 	# +Z front
-	if not _is_solid_neighbor(cells, grid_size, cx, cy, cz + 1):
+	if not _is_solid_neighbor(cells, gx, gy, gz, cx, cy, cz + 1):
 		_add_quad(st,
 			o + Vector3(0, 0, s), o + Vector3(0, s, s),
 			o + Vector3(s, s, s), o + Vector3(s, 0, s),
 			Vector3.BACK, color)
 	# -Z back
-	if not _is_solid_neighbor(cells, grid_size, cx, cy, cz - 1):
+	if not _is_solid_neighbor(cells, gx, gy, gz, cx, cy, cz - 1):
 		_add_quad(st,
 			o + Vector3(s, 0, 0), o + Vector3(s, s, 0),
 			o + Vector3(0, s, 0), o + Vector3(0, 0, 0),
