@@ -1,0 +1,18 @@
+; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; but it can also be edited via text as needed.
+
+[application]
+
+config/name="PrismCraft"
+run/main_scene="res://scenes/main.tscn"
+config/features=PackedStringArray("4.3", "GL Compatibility")
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
