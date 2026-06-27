@@ -15,7 +15,7 @@ var _block_label: Label
 
 func _ready() -> void:
 	_camera = $Head/Camera3D
-	_ray = $Head/RayCast3D
+	_ray = $Head/Camera3D/RayCast3D
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 	_setup_input()
 	_setup_hud()
