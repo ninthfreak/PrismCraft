@@ -19,6 +19,11 @@ func _ready() -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 	_setup_input()
 	_setup_hud()
+	# Wait for collision shapes to register before enabling physics
+	set_physics_process(false)
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	set_physics_process(true)
 
 
 func _setup_input() -> void:
