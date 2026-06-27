@@ -14,6 +14,7 @@ var cells: Array = []
 var current_type: int = CellTypes.Type.SOLID
 var current_orientation: int = 0
 var current_color: int = 0
+var current_file_path := ""
 
 var mesh_instance: MeshInstance3D
 var collision_body: StaticBody3D
@@ -27,6 +28,10 @@ var tool_label: Label
 var coord_label: Label
 var help_label: Label
 var mode_label: Label
+var file_label: Label
+
+var save_dialog: FileDialog
+var open_dialog: FileDialog
 
 @onready var camera: Camera3D = $Camera3D
 
@@ -37,6 +42,16 @@ func _ready() -> void:
 	_rebuild_mesh()
 	_rebuild_grid()
 	_center_camera()
+	_generate_presets()
+
+func _generate_presets() -> void:
+	DirAccess.make_dir_recursive_absolute("res://definitions")
+	if not FileAccess.file_exists("res://definitions/male.tres"):
+		var male := VoxelDefinition.create_male()
+		ResourceSaver.save(male, "res://definitions/male.tres")
+	if not FileAccess.file_exists("res://definitions/female.tres"):
+		var female := VoxelDefinition.create_female()
+		ResourceSaver.save(female, "res://definitions/female.tres")
 
 func _center_camera() -> void:
 	var world_size := Vector3(grid_x, grid_y, grid_z) * CELL_SIZE
@@ -92,14 +107,38 @@ func _setup_ui() -> void:
 	coord_label.add_theme_font_size_override("font_size", 14)
 	ui_layer.add_child(coord_label)
 
+	file_label = Label.new()
+	file_label.position = Vector2(10, 80)
+	file_label.add_theme_font_size_override("font_size", 13)
+	ui_layer.add_child(file_label)
+
 	help_label = Label.new()
-	help_label.position = Vector2(10, 660)
-	help_label.add_theme_font_size_override("font_size", 12)
-	help_label.text = "LMB: Place | RMB: Remove | RMB-drag: Orbit | MMB-drag: Pan | Scroll: Zoom | Tab: Type | Q/E: Rotate | 1-8: Color | M: Mode"
+	help_label.position = Vector2(10, 640)
+	help_label.add_theme_font_size_override("font_size", 11)
+	help_label.text = "LMB: Place | RMB: Remove | RMB-drag: Orbit | MMB-drag: Pan | Scroll: Zoom\nTab: Type | Q/E: Rotate | 1-8: Color | M: Mode | Ctrl+S: Save | Ctrl+O: Open | Ctrl+N: New"
 	ui_layer.add_child(help_label)
+
+	save_dialog = FileDialog.new()
+	save_dialog.file_mode = FileDialog.FILE_MODE_SAVE_FILE
+	save_dialog.access = FileDialog.ACCESS_RESOURCES
+	save_dialog.add_filter("*.tres ; Voxel Definition")
+	save_dialog.title = "Save Definition"
+	save_dialog.size = Vector2i(700, 500)
+	save_dialog.file_selected.connect(_on_save_file_selected)
+	add_child(save_dialog)
+
+	open_dialog = FileDialog.new()
+	open_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
+	open_dialog.access = FileDialog.ACCESS_RESOURCES
+	open_dialog.add_filter("*.tres ; Voxel Definition")
+	open_dialog.title = "Open Definition"
+	open_dialog.size = Vector2i(700, 500)
+	open_dialog.file_selected.connect(_on_open_file_selected)
+	add_child(open_dialog)
 
 	_update_mode_label()
 	_update_tool_label()
+	_update_file_label()
 
 func _update_mode_label() -> void:
 	var mode_name := "BLOCK (16x16x16)" if edit_mode == EditMode.BLOCK else "CHARACTER (16x16x32)"
@@ -111,6 +150,12 @@ func _update_tool_label() -> void:
 	if current_type == CellTypes.Type.PRISM:
 		orient_str = " | Orient: " + CellTypes.get_orientation_name(current_orientation)
 	tool_label.text = "Tool: %s%s | Color: %s" % [type_name, orient_str, CellTypes.PALETTE_NAMES[current_color]]
+
+func _update_file_label() -> void:
+	if current_file_path.is_empty():
+		file_label.text = "File: (unsaved)"
+	else:
+		file_label.text = "File: " + current_file_path
 
 func _set_edit_mode(mode: int) -> void:
 	if mode == edit_mode:
@@ -126,14 +171,31 @@ func _set_edit_mode(mode: int) -> void:
 		grid_z = 16
 	cursor_cell = Vector3i(-1, -1, -1)
 	cursor_mesh_instance.visible = false
+	current_file_path = ""
 	_init_cells()
 	_rebuild_mesh()
 	_rebuild_grid()
 	_center_camera()
 	_update_mode_label()
+	_update_file_label()
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed:
+		if event.ctrl_pressed:
+			match event.keycode:
+				KEY_S:
+					_save()
+					get_viewport().set_input_as_handled()
+					return
+				KEY_O:
+					_open()
+					get_viewport().set_input_as_handled()
+					return
+				KEY_N:
+					_new()
+					get_viewport().set_input_as_handled()
+					return
+
 		match event.keycode:
 			KEY_TAB:
 				if current_type == CellTypes.Type.SOLID:
@@ -180,6 +242,68 @@ func _unhandled_input(event: InputEvent) -> void:
 func _set_color(idx: int) -> void:
 	current_color = idx
 	_update_tool_label()
+
+func _save() -> void:
+	if current_file_path.is_empty():
+		save_dialog.current_dir = "res://definitions"
+		save_dialog.popup_centered()
+	else:
+		_save_to_path(current_file_path)
+
+func _open() -> void:
+	open_dialog.current_dir = "res://definitions"
+	open_dialog.popup_centered()
+
+func _new() -> void:
+	current_file_path = ""
+	cursor_cell = Vector3i(-1, -1, -1)
+	cursor_mesh_instance.visible = false
+	_init_cells()
+	_rebuild_mesh()
+	_update_file_label()
+
+func _save_to_path(path: String) -> void:
+	DirAccess.make_dir_recursive_absolute(path.get_base_dir())
+	var def := VoxelDefinition.new()
+	def.set_from_cells(cells, grid_x, grid_y, grid_z, edit_mode)
+	var err := ResourceSaver.save(def, path)
+	if err == OK:
+		current_file_path = path
+		_update_file_label()
+	else:
+		push_error("Failed to save: " + str(err))
+
+func _on_save_file_selected(path: String) -> void:
+	if not path.ends_with(".tres"):
+		path += ".tres"
+	_save_to_path(path)
+
+func _on_open_file_selected(path: String) -> void:
+	_load_from_path(path)
+
+func _load_from_path(path: String) -> void:
+	if not ResourceLoader.exists(path):
+		push_error("File not found: " + path)
+		return
+	var def := ResourceLoader.load(path) as VoxelDefinition
+	if not def:
+		push_error("Invalid VoxelDefinition: " + path)
+		return
+
+	edit_mode = def.edit_mode
+	grid_x = def.grid_x
+	grid_y = def.grid_y
+	grid_z = def.grid_z
+	cells = def.to_cells()
+	current_file_path = path
+
+	cursor_cell = Vector3i(-1, -1, -1)
+	cursor_mesh_instance.visible = false
+	_rebuild_mesh()
+	_rebuild_grid()
+	_center_camera()
+	_update_mode_label()
+	_update_file_label()
 
 func _update_raycast() -> void:
 	if not camera:
@@ -384,7 +508,6 @@ func _rebuild_grid() -> void:
 	var wy := grid_y * CELL_SIZE
 	var wz := grid_z * CELL_SIZE
 
-	# Bottom grid lines
 	im.surface_begin(Mesh.PRIMITIVE_LINES)
 	for i in range(grid_x + 1):
 		var t := i * CELL_SIZE
@@ -396,7 +519,6 @@ func _rebuild_grid() -> void:
 		im.surface_add_vertex(Vector3(wx, 0, t))
 	im.surface_end()
 
-	# Outer box edges
 	im.surface_begin(Mesh.PRIMITIVE_LINES)
 	var box_corners: Array[Vector3] = [
 		Vector3(0, 0, 0), Vector3(wx, 0, 0), Vector3(wx, 0, wz), Vector3(0, 0, wz),
