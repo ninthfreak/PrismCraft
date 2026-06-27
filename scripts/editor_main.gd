@@ -1,6 +1,14 @@
 extends Node3D
 
-const GRID_SIZE := 8
+enum EditMode { BLOCK, CHARACTER }
+
+const CELL_RES := 16
+const CELL_SIZE := 1.0 / CELL_RES
+
+var edit_mode: int = EditMode.BLOCK
+var grid_x := 16
+var grid_y := 16
+var grid_z := 16
 
 var cells: Array = []
 var current_type: int = CellTypes.Type.SOLID
@@ -18,6 +26,7 @@ var ui_layer: CanvasLayer
 var tool_label: Label
 var coord_label: Label
 var help_label: Label
+var mode_label: Label
 
 @onready var camera: Camera3D = $Camera3D
 
@@ -27,16 +36,21 @@ func _ready() -> void:
 	_setup_ui()
 	_rebuild_mesh()
 	_rebuild_grid()
+	_center_camera()
+
+func _center_camera() -> void:
+	var world_size := Vector3(grid_x, grid_y, grid_z) * CELL_SIZE
+	camera.pivot = world_size * 0.5
 
 func _init_cells() -> void:
-	cells.resize(GRID_SIZE)
-	for x in range(GRID_SIZE):
+	cells.resize(grid_x)
+	for x in range(grid_x):
 		cells[x] = []
-		cells[x].resize(GRID_SIZE)
-		for y in range(GRID_SIZE):
+		cells[x].resize(grid_y)
+		for y in range(grid_y):
 			cells[x][y] = []
-			cells[x][y].resize(GRID_SIZE)
-			for z in range(GRID_SIZE):
+			cells[x][y].resize(grid_z)
+			for z in range(grid_z):
 				cells[x][y][z] = [CellTypes.Type.EMPTY, 0, 0]
 
 func _setup_scene() -> void:
@@ -63,23 +77,33 @@ func _setup_ui() -> void:
 	ui_layer = CanvasLayer.new()
 	add_child(ui_layer)
 
+	mode_label = Label.new()
+	mode_label.position = Vector2(10, 10)
+	mode_label.add_theme_font_size_override("font_size", 18)
+	ui_layer.add_child(mode_label)
+
 	tool_label = Label.new()
-	tool_label.position = Vector2(10, 10)
+	tool_label.position = Vector2(10, 35)
 	tool_label.add_theme_font_size_override("font_size", 16)
 	ui_layer.add_child(tool_label)
 
 	coord_label = Label.new()
-	coord_label.position = Vector2(10, 35)
+	coord_label.position = Vector2(10, 58)
 	coord_label.add_theme_font_size_override("font_size", 14)
 	ui_layer.add_child(coord_label)
 
 	help_label = Label.new()
 	help_label.position = Vector2(10, 660)
 	help_label.add_theme_font_size_override("font_size", 12)
-	help_label.text = "LMB: Place | RMB: Remove | RMB-drag: Orbit | MMB-drag: Pan | Scroll: Zoom | Tab: Type | Q/E: Rotate | 1-8: Color"
+	help_label.text = "LMB: Place | RMB: Remove | RMB-drag: Orbit | MMB-drag: Pan | Scroll: Zoom | Tab: Type | Q/E: Rotate | 1-8: Color | M: Mode"
 	ui_layer.add_child(help_label)
 
+	_update_mode_label()
 	_update_tool_label()
+
+func _update_mode_label() -> void:
+	var mode_name := "BLOCK (16x16x16)" if edit_mode == EditMode.BLOCK else "CHARACTER (16x16x32)"
+	mode_label.text = "Mode: " + mode_name
 
 func _update_tool_label() -> void:
 	var type_name := "SOLID" if current_type == CellTypes.Type.SOLID else "PRISM"
@@ -87,6 +111,26 @@ func _update_tool_label() -> void:
 	if current_type == CellTypes.Type.PRISM:
 		orient_str = " | Orient: " + CellTypes.get_orientation_name(current_orientation)
 	tool_label.text = "Tool: %s%s | Color: %s" % [type_name, orient_str, CellTypes.PALETTE_NAMES[current_color]]
+
+func _set_edit_mode(mode: int) -> void:
+	if mode == edit_mode:
+		return
+	edit_mode = mode
+	if edit_mode == EditMode.BLOCK:
+		grid_x = 16
+		grid_y = 16
+		grid_z = 16
+	else:
+		grid_x = 16
+		grid_y = 32
+		grid_z = 16
+	cursor_cell = Vector3i(-1, -1, -1)
+	cursor_mesh_instance.visible = false
+	_init_cells()
+	_rebuild_mesh()
+	_rebuild_grid()
+	_center_camera()
+	_update_mode_label()
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed:
@@ -109,6 +153,11 @@ func _unhandled_input(event: InputEvent) -> void:
 				current_orientation = (current_orientation + 1) % 12
 				_update_tool_label()
 				_update_cursor()
+			KEY_M:
+				if edit_mode == EditMode.BLOCK:
+					_set_edit_mode(EditMode.CHARACTER)
+				else:
+					_set_edit_mode(EditMode.BLOCK)
 			KEY_1: _set_color(0)
 			KEY_2: _set_color(1)
 			KEY_3: _set_color(2)
@@ -168,15 +217,14 @@ func _update_raycast() -> void:
 	coord_label.text = ""
 
 func _world_to_cell(world_pos: Vector3) -> Vector3i:
-	var cell_size := 1.0 / GRID_SIZE
 	return Vector3i(
-		int(floor(world_pos.x / cell_size)),
-		int(floor(world_pos.y / cell_size)),
-		int(floor(world_pos.z / cell_size))
+		int(floor(world_pos.x / CELL_SIZE)),
+		int(floor(world_pos.y / CELL_SIZE)),
+		int(floor(world_pos.z / CELL_SIZE))
 	)
 
 func _in_bounds(pos: Vector3i) -> bool:
-	return pos.x >= 0 and pos.x < GRID_SIZE and pos.y >= 0 and pos.y < GRID_SIZE and pos.z >= 0 and pos.z < GRID_SIZE
+	return pos.x >= 0 and pos.x < grid_x and pos.y >= 0 and pos.y < grid_y and pos.z >= 0 and pos.z < grid_z
 
 func _get_prism_vertices(origin: Vector3, s: float, orientation: int) -> Array:
 	var axis: int = orientation / 4
@@ -211,10 +259,9 @@ func _update_cursor() -> void:
 		coord_label.text = ""
 		return
 
-	var cell_size := 1.0 / GRID_SIZE
-	var margin := cell_size * 0.02
-	var pos := Vector3(cursor_cell) * cell_size - Vector3.ONE * margin
-	var size := cell_size + margin * 2.0
+	var margin := CELL_SIZE * 0.02
+	var pos := Vector3(cursor_cell) * CELL_SIZE - Vector3.ONE * margin
+	var size := CELL_SIZE + margin * 2.0
 
 	var im := ImmediateMesh.new()
 	im.surface_begin(Mesh.PRIMITIVE_LINES)
@@ -243,15 +290,12 @@ func _update_cursor() -> void:
 		var p_near: Array = verts[0]
 		var p_far: Array = verts[1]
 
-		# Near cap triangle
 		for i in range(3):
 			im.surface_add_vertex(p_near[i])
 			im.surface_add_vertex(p_near[(i + 1) % 3])
-		# Far cap triangle
 		for i in range(3):
 			im.surface_add_vertex(p_far[i])
 			im.surface_add_vertex(p_far[(i + 1) % 3])
-		# Connecting edges
 		for i in range(3):
 			im.surface_add_vertex(p_near[i])
 			im.surface_add_vertex(p_far[i])
@@ -323,7 +367,7 @@ func _try_remove() -> void:
 			_rebuild_mesh()
 
 func _rebuild_mesh() -> void:
-	var new_mesh := BlockMeshBuilder.build_mesh(cells, GRID_SIZE)
+	var new_mesh := BlockMeshBuilder.build_mesh(cells, grid_x, grid_y, grid_z, CELL_SIZE)
 	mesh_instance.mesh = new_mesh
 
 	if new_mesh and new_mesh.get_surface_count() > 0:
@@ -336,21 +380,27 @@ func _rebuild_mesh() -> void:
 
 func _rebuild_grid() -> void:
 	var im := ImmediateMesh.new()
-	var cell_size := 1.0 / GRID_SIZE
+	var wx := grid_x * CELL_SIZE
+	var wy := grid_y * CELL_SIZE
+	var wz := grid_z * CELL_SIZE
 
+	# Bottom grid lines
 	im.surface_begin(Mesh.PRIMITIVE_LINES)
-	for i in range(GRID_SIZE + 1):
-		var t := i * cell_size
+	for i in range(grid_x + 1):
+		var t := i * CELL_SIZE
 		im.surface_add_vertex(Vector3(t, 0, 0))
-		im.surface_add_vertex(Vector3(t, 0, 1))
+		im.surface_add_vertex(Vector3(t, 0, wz))
+	for i in range(grid_z + 1):
+		var t := i * CELL_SIZE
 		im.surface_add_vertex(Vector3(0, 0, t))
-		im.surface_add_vertex(Vector3(1, 0, t))
+		im.surface_add_vertex(Vector3(wx, 0, t))
 	im.surface_end()
 
+	# Outer box edges
 	im.surface_begin(Mesh.PRIMITIVE_LINES)
 	var box_corners: Array[Vector3] = [
-		Vector3(0, 0, 0), Vector3(1, 0, 0), Vector3(1, 0, 1), Vector3(0, 0, 1),
-		Vector3(0, 1, 0), Vector3(1, 1, 0), Vector3(1, 1, 1), Vector3(0, 1, 1),
+		Vector3(0, 0, 0), Vector3(wx, 0, 0), Vector3(wx, 0, wz), Vector3(0, 0, wz),
+		Vector3(0, wy, 0), Vector3(wx, wy, 0), Vector3(wx, wy, wz), Vector3(0, wy, wz),
 	]
 	var box_edges := [
 		[4,5],[5,6],[6,7],[7,4],
