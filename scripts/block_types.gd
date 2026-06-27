@@ -37,7 +37,7 @@ static func get_color(block_type: int, face: String) -> Color:
 			return Color(0.15, 0.40, 0.10)
 	return Color.MAGENTA
 
-static func get_name(block_type: int) -> String:
+static func get_block_name(block_type: int) -> String:
 	match block_type:
 		Type.GRASS: return "Grass"
 		Type.DIRT: return "Dirt"
