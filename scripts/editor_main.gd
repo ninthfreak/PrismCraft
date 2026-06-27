@@ -332,7 +332,7 @@ func _on_type_pressed(btn: BaseButton) -> void:
 	else:
 		current_type = CellTypes.Type.PRISM
 		orient_container.visible = true
-	_update_cursor()
+	_update_raycast()
 
 func _on_color_pressed(btn: BaseButton) -> void:
 	var buttons := color_group.get_buttons()
@@ -346,7 +346,7 @@ func _cycle_orientation(delta: int) -> void:
 	if current_orientation < 0:
 		current_orientation += 12
 	orient_label.text = CellTypes.get_orientation_name(current_orientation)
-	_update_cursor()
+	_update_raycast()
 
 func _set_floor(y: int) -> void:
 	floor_y = clampi(y, 0, grid_y - 1)
@@ -425,7 +425,7 @@ func _toggle_type() -> void:
 	var buttons := type_group.get_buttons()
 	buttons[0].button_pressed = current_type == CellTypes.Type.SOLID
 	buttons[1].button_pressed = current_type == CellTypes.Type.PRISM
-	_update_cursor()
+	_update_raycast()
 
 func _select_color(idx: int) -> void:
 	current_color = idx
