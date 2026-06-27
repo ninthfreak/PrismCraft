@@ -540,10 +540,6 @@ func _on_left_click() -> void:
 func _on_right_click() -> void:
 	if box_active:
 		_cancel_box()
-		return
-	if _in_bounds(target_cell) and cells[target_cell.x][target_cell.y][target_cell.z][0] != CellTypes.Type.EMPTY:
-		cells[target_cell.x][target_cell.y][target_cell.z] = [CellTypes.Type.EMPTY, 0, 0]
-		_rebuild_mesh()
 
 func _cancel_box() -> void:
 	box_active = false
