@@ -216,10 +216,11 @@ static func create_male() -> VoxelDefinition:
 	c[16][48][21] = [S, 0, SD]                       # Philtrum
 
 	# ── Hair ──
-	_fill_box(c, 12, 52, 12, 20, 55, 20, S, 0, HR)  # Top
+	_fill_box(c, 12, 53, 12, 20, 55, 20, S, 0, HR)  # Top crown
+	_fill_box(c, 13, 53, 20, 19, 54, 20, S, 0, HR)  # Front hairline
 	_fill_box(c, 12, 49, 12, 20, 55, 13, S, 0, HR)  # Back
-	_fill_box(c, 12, 52, 12, 13, 55, 20, S, 0, HR)  # L side
-	_fill_box(c, 19, 52, 12, 20, 55, 20, S, 0, HR)  # R side
+	_fill_box(c, 12, 52, 12, 13, 55, 17, S, 0, HR)  # L side (stops before face)
+	_fill_box(c, 19, 52, 12, 20, 55, 17, S, 0, HR)  # R side (stops before face)
 	_fill_box(c, 14, 55, 15, 18, 55, 18, S, 0, 14)  # Top highlight
 
 	def.set_from_cells(c, 32, 64, 32, 1)
@@ -379,13 +380,14 @@ static func create_female() -> VoxelDefinition:
 	c[14][44][21] = [S, 0, LP]; c[18][44][21] = [S, 0, LP] # Lip corners
 
 	# ── Hair (long, dark brown) ──
-	_fill_box(c, 12, 48, 12, 20, 51, 20, S, 0, HR)  # Top
+	_fill_box(c, 12, 49, 12, 20, 51, 20, S, 0, HR)  # Top crown
+	_fill_box(c, 13, 49, 20, 19, 50, 20, S, 0, HR)  # Bangs (partial, leaves face open)
 	_fill_box(c, 12, 42, 12, 20, 51, 13, S, 0, HR)  # Back
-	_fill_box(c, 12, 42, 12, 13, 51, 20, S, 0, HR)  # L side
-	_fill_box(c, 19, 42, 12, 20, 51, 20, S, 0, HR)  # R side
-	_fill_box(c, 11, 34, 12, 12, 42, 14, S, 0, HR)  # L hanging
-	_fill_box(c, 20, 34, 12, 21, 42, 14, S, 0, HR)  # R hanging
-	_fill_box(c, 13, 32, 12, 19, 42, 12, S, 0, HR)  # Back long hair
+	_fill_box(c, 12, 45, 12, 13, 51, 17, S, 0, HR)  # L side (stops before face)
+	_fill_box(c, 19, 45, 12, 20, 51, 17, S, 0, HR)  # R side (stops before face)
+	_fill_box(c, 11, 34, 12, 12, 44, 15, S, 0, HR)  # L hanging
+	_fill_box(c, 20, 34, 12, 21, 44, 15, S, 0, HR)  # R hanging
+	_fill_box(c, 13, 32, 12, 19, 44, 12, S, 0, HR)  # Back long hair
 	_fill_box(c, 14, 51, 15, 18, 51, 18, S, 0, 14)  # Top highlight
 
 	def.set_from_cells(c, 32, 64, 32, 1)
