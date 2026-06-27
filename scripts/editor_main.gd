@@ -19,6 +19,8 @@ var tool_label: Label
 var coord_label: Label
 var help_label: Label
 
+@onready var camera: Camera3D = $Camera3D
+
 func _ready() -> void:
 	_init_cells()
 	_setup_scene()
@@ -74,7 +76,7 @@ func _setup_ui() -> void:
 	help_label = Label.new()
 	help_label.position = Vector2(10, 660)
 	help_label.add_theme_font_size_override("font_size", 12)
-	help_label.text = "LMB: Place | MMB: Remove | RMB-drag: Orbit | Scroll: Zoom | Tab: Type | Q/E: Rotate | 1-8: Color"
+	help_label.text = "LMB: Place | RMB: Remove | RMB-drag: Orbit | MMB-drag: Pan | Scroll: Zoom | Tab: Type | Q/E: Rotate | 1-8: Color"
 	ui_layer.add_child(help_label)
 
 	_update_tool_label()
@@ -116,11 +118,11 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_7: _set_color(6)
 			KEY_8: _set_color(7)
 
-	if event is InputEventMouseButton and event.pressed:
-		match event.button_index:
-			MOUSE_BUTTON_LEFT:
-				_try_place()
-			MOUSE_BUTTON_MIDDLE:
+	if event is InputEventMouseButton:
+		if event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+			_try_place()
+		if not event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
+			if camera and not camera.was_orbit_drag():
 				_try_remove()
 
 	if event is InputEventMouseMotion:
@@ -131,7 +133,6 @@ func _set_color(idx: int) -> void:
 	_update_tool_label()
 
 func _update_raycast() -> void:
-	var camera := get_viewport().get_camera_3d()
 	if not camera:
 		return
 
@@ -152,7 +153,6 @@ func _update_raycast() -> void:
 			_update_cursor()
 			return
 
-	# Floor plane fallback (y = 0)
 	if dir.y < -0.001:
 		var t := -from.y / dir.y
 		if t > 0:
@@ -178,6 +178,33 @@ func _world_to_cell(world_pos: Vector3) -> Vector3i:
 func _in_bounds(pos: Vector3i) -> bool:
 	return pos.x >= 0 and pos.x < GRID_SIZE and pos.y >= 0 and pos.y < GRID_SIZE and pos.z >= 0 and pos.z < GRID_SIZE
 
+func _get_prism_vertices(origin: Vector3, s: float, orientation: int) -> Array:
+	var axis: int = orientation / 4
+	var corner: int = orientation % 4
+
+	var tri_2d: Array[Vector2]
+	match corner:
+		0: tri_2d = [Vector2(0, 0), Vector2(1, 0), Vector2(0, 1)]
+		1: tri_2d = [Vector2(1, 0), Vector2(1, 1), Vector2(0, 0)]
+		2: tri_2d = [Vector2(1, 1), Vector2(0, 1), Vector2(1, 0)]
+		_: tri_2d = [Vector2(0, 1), Vector2(0, 0), Vector2(1, 1)]
+
+	var p_near: Array[Vector3] = []
+	var p_far: Array[Vector3] = []
+	for uv in tri_2d:
+		match axis:
+			0:
+				p_near.append(origin + Vector3(uv.x * s, 0, uv.y * s))
+				p_far.append(origin + Vector3(uv.x * s, s, uv.y * s))
+			1:
+				p_near.append(origin + Vector3(0, uv.x * s, uv.y * s))
+				p_far.append(origin + Vector3(s, uv.x * s, uv.y * s))
+			_:
+				p_near.append(origin + Vector3(uv.x * s, uv.y * s, 0))
+				p_far.append(origin + Vector3(uv.x * s, uv.y * s, s))
+
+	return [p_near, p_far]
+
 func _update_cursor() -> void:
 	if not _in_bounds(cursor_cell):
 		cursor_mesh_instance.visible = false
@@ -192,26 +219,42 @@ func _update_cursor() -> void:
 	var im := ImmediateMesh.new()
 	im.surface_begin(Mesh.PRIMITIVE_LINES)
 
-	var corners: Array[Vector3] = [
-		pos,
-		pos + Vector3(size, 0, 0),
-		pos + Vector3(size, 0, size),
-		pos + Vector3(0, 0, size),
-		pos + Vector3(0, size, 0),
-		pos + Vector3(size, size, 0),
-		pos + Vector3(size, size, size),
-		pos + Vector3(0, size, size),
-	]
+	if current_type == CellTypes.Type.SOLID:
+		var corners: Array[Vector3] = [
+			pos,
+			pos + Vector3(size, 0, 0),
+			pos + Vector3(size, 0, size),
+			pos + Vector3(0, 0, size),
+			pos + Vector3(0, size, 0),
+			pos + Vector3(size, size, 0),
+			pos + Vector3(size, size, size),
+			pos + Vector3(0, size, size),
+		]
+		var edges := [
+			[0,1],[1,2],[2,3],[3,0],
+			[4,5],[5,6],[6,7],[7,4],
+			[0,4],[1,5],[2,6],[3,7],
+		]
+		for e in edges:
+			im.surface_add_vertex(corners[e[0]])
+			im.surface_add_vertex(corners[e[1]])
+	else:
+		var verts := _get_prism_vertices(pos, size, current_orientation)
+		var p_near: Array = verts[0]
+		var p_far: Array = verts[1]
 
-	var edges := [
-		[0,1],[1,2],[2,3],[3,0],
-		[4,5],[5,6],[6,7],[7,4],
-		[0,4],[1,5],[2,6],[3,7],
-	]
-
-	for e in edges:
-		im.surface_add_vertex(corners[e[0]])
-		im.surface_add_vertex(corners[e[1]])
+		# Near cap triangle
+		for i in range(3):
+			im.surface_add_vertex(p_near[i])
+			im.surface_add_vertex(p_near[(i + 1) % 3])
+		# Far cap triangle
+		for i in range(3):
+			im.surface_add_vertex(p_far[i])
+			im.surface_add_vertex(p_far[(i + 1) % 3])
+		# Connecting edges
+		for i in range(3):
+			im.surface_add_vertex(p_near[i])
+			im.surface_add_vertex(p_far[i])
 
 	im.surface_end()
 
@@ -230,7 +273,6 @@ func _try_place() -> void:
 	if not _in_bounds(cursor_cell):
 		return
 
-	var camera := get_viewport().get_camera_3d()
 	if not camera:
 		return
 
@@ -252,7 +294,6 @@ func _try_place() -> void:
 			place_cell = adjacent
 
 	if cells[place_cell.x][place_cell.y][place_cell.z][0] != CellTypes.Type.EMPTY:
-		# If clicking floor with no mesh, place at cursor
 		if _in_bounds(cursor_cell) and cells[cursor_cell.x][cursor_cell.y][cursor_cell.z][0] == CellTypes.Type.EMPTY:
 			place_cell = cursor_cell
 		else:
@@ -262,7 +303,6 @@ func _try_place() -> void:
 	_rebuild_mesh()
 
 func _try_remove() -> void:
-	var camera := get_viewport().get_camera_3d()
 	if not camera:
 		return
 
@@ -298,19 +338,15 @@ func _rebuild_grid() -> void:
 	var im := ImmediateMesh.new()
 	var cell_size := 1.0 / GRID_SIZE
 
-	# Bottom grid lines
 	im.surface_begin(Mesh.PRIMITIVE_LINES)
 	for i in range(GRID_SIZE + 1):
 		var t := i * cell_size
-		# X-parallel lines
 		im.surface_add_vertex(Vector3(t, 0, 0))
 		im.surface_add_vertex(Vector3(t, 0, 1))
-		# Z-parallel lines
 		im.surface_add_vertex(Vector3(0, 0, t))
 		im.surface_add_vertex(Vector3(1, 0, t))
 	im.surface_end()
 
-	# Outer box edges
 	im.surface_begin(Mesh.PRIMITIVE_LINES)
 	var box_corners: Array[Vector3] = [
 		Vector3(0, 0, 0), Vector3(1, 0, 0), Vector3(1, 0, 1), Vector3(0, 0, 1),
