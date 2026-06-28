@@ -25,6 +25,15 @@ var _preview_mode := false
 var _preview_light: DirectionalLight3D
 var _undo_stack: Array = []
 const MAX_UNDO := 50
+var _mirror_x := false
+var _mirror_z := false
+var _center_draw := false
+var _show_axis_overlay := false
+var axis_overlay_x: MeshInstance3D
+var axis_overlay_z: MeshInstance3D
+var mirror_cursor_instance: MeshInstance3D
+var _rect_btn: Button
+var _oval_btn: Button
 
 var box_start := Vector3i(-1, -1, -1)
 var box_active := false
@@ -108,6 +117,7 @@ func _ready() -> void:
 	_setup_ui()
 	_rebuild_mesh()
 	_rebuild_grid()
+	_rebuild_axis_overlay()
 	_center_camera()
 	_generate_presets()
 
@@ -166,6 +176,32 @@ func _setup_scene() -> void:
 	box_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	box_preview_instance.material_override = box_mat
 
+	axis_overlay_x = MeshInstance3D.new()
+	add_child(axis_overlay_x)
+	axis_overlay_x.visible = false
+	var ax_mat := StandardMaterial3D.new()
+	ax_mat.albedo_color = Color(1, 0.2, 0.2, 0.15)
+	ax_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	ax_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	ax_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	ax_mat.no_depth_test = true
+	axis_overlay_x.material_override = ax_mat
+
+	axis_overlay_z = MeshInstance3D.new()
+	add_child(axis_overlay_z)
+	axis_overlay_z.visible = false
+	var az_mat := StandardMaterial3D.new()
+	az_mat.albedo_color = Color(0.2, 0.2, 1, 0.15)
+	az_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	az_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	az_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	az_mat.no_depth_test = true
+	axis_overlay_z.material_override = az_mat
+
+	mirror_cursor_instance = MeshInstance3D.new()
+	add_child(mirror_cursor_instance)
+	mirror_cursor_instance.visible = false
+
 # ─── UI Panel ───
 
 const MENU_HEIGHT := 24
@@ -201,6 +237,11 @@ func _setup_ui() -> void:
 	view_menu = PopupMenu.new()
 	view_menu.name = "View"
 	view_menu.add_check_item("Preview Lighting", 0)
+	view_menu.add_separator()
+	view_menu.add_check_item("Axis Overlay", 1)
+	view_menu.add_separator()
+	view_menu.add_check_item("Mirror X", 2)
+	view_menu.add_check_item("Mirror Z", 3)
 	view_menu.id_pressed.connect(_on_view_menu)
 	menu_bar.add_child(view_menu)
 
@@ -243,7 +284,11 @@ func _setup_ui() -> void:
 	var tool_row1 := _add_button_row(vbox, ["Pencil", "Box Fill"], tool_group)
 	var tool_row2 := _add_button_row(vbox, ["Eraser", "Box Erase"], tool_group)
 	var _tool_row3 := _add_button_row(vbox, ["Extrude", "Smooth"], tool_group)
-	var _tool_row4 := _add_button_row(vbox, ["Line", "Rect", "Oval"], tool_group)
+	var tool_row4 := _add_button_row(vbox, ["Line", "Rect", "Oval"], tool_group)
+	_rect_btn = tool_row4[1]
+	_oval_btn = tool_row4[2]
+	_rect_btn.gui_input.connect(_on_shape_btn_gui_input)
+	_oval_btn.gui_input.connect(_on_shape_btn_gui_input)
 	tool_row1[0].button_pressed = true
 	tool_group.pressed.connect(_on_tool_pressed)
 
@@ -496,6 +541,9 @@ func _on_edit_menu(id: int) -> void:
 func _on_view_menu(id: int) -> void:
 	match id:
 		0: _toggle_preview_mode()
+		1: _toggle_axis_overlay()
+		2: _toggle_mirror_x()
+		3: _toggle_mirror_z()
 
 func _toggle_preview_mode() -> void:
 	_preview_mode = not _preview_mode
@@ -525,6 +573,172 @@ func _update_preview_light() -> void:
 	var center := Vector3(grid_x, grid_y, grid_z) * CELL_SIZE * 0.5
 	_preview_light.position = center
 	_preview_light.rotation = Vector3(pitch, yaw, 0)
+
+func _toggle_axis_overlay() -> void:
+	_show_axis_overlay = not _show_axis_overlay
+	view_menu.set_item_checked(view_menu.get_item_index(1), _show_axis_overlay)
+	_update_axis_overlay_visibility()
+
+func _toggle_mirror_x() -> void:
+	_mirror_x = not _mirror_x
+	view_menu.set_item_checked(view_menu.get_item_index(2), _mirror_x)
+	_update_axis_overlay_visibility()
+	_update_raycast()
+
+func _toggle_mirror_z() -> void:
+	_mirror_z = not _mirror_z
+	view_menu.set_item_checked(view_menu.get_item_index(3), _mirror_z)
+	_update_axis_overlay_visibility()
+	_update_raycast()
+
+func _update_axis_overlay_visibility() -> void:
+	axis_overlay_x.visible = _show_axis_overlay or _mirror_x
+	axis_overlay_z.visible = _show_axis_overlay or _mirror_z
+
+func _rebuild_axis_overlay() -> void:
+	var wy := grid_y * CELL_SIZE
+	var wx := grid_x * CELL_SIZE
+	var wz := grid_z * CELL_SIZE
+	var cx := grid_x / 2.0 * CELL_SIZE
+	var cz := grid_z / 2.0 * CELL_SIZE
+
+	var im_x := ImmediateMesh.new()
+	im_x.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
+	im_x.surface_add_vertex(Vector3(cx, 0, 0))
+	im_x.surface_add_vertex(Vector3(cx, wy, 0))
+	im_x.surface_add_vertex(Vector3(cx, wy, wz))
+	im_x.surface_add_vertex(Vector3(cx, 0, 0))
+	im_x.surface_add_vertex(Vector3(cx, wy, wz))
+	im_x.surface_add_vertex(Vector3(cx, 0, wz))
+	im_x.surface_end()
+	axis_overlay_x.mesh = im_x
+
+	var im_z := ImmediateMesh.new()
+	im_z.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
+	im_z.surface_add_vertex(Vector3(0, 0, cz))
+	im_z.surface_add_vertex(Vector3(0, wy, cz))
+	im_z.surface_add_vertex(Vector3(wx, wy, cz))
+	im_z.surface_add_vertex(Vector3(0, 0, cz))
+	im_z.surface_add_vertex(Vector3(wx, wy, cz))
+	im_z.surface_add_vertex(Vector3(wx, 0, cz))
+	im_z.surface_end()
+	axis_overlay_z.mesh = im_z
+
+func _on_shape_btn_gui_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
+		_center_draw = not _center_draw
+		_rect_btn.text = "Rect (C)" if _center_draw else "Rect"
+		_oval_btn.text = "Oval (C)" if _center_draw else "Oval"
+
+func _mirror_pos_x(pos: Vector3i) -> Vector3i:
+	return Vector3i(grid_x - 1 - pos.x, pos.y, pos.z)
+
+func _mirror_pos_z(pos: Vector3i) -> Vector3i:
+	return Vector3i(pos.x, pos.y, grid_z - 1 - pos.z)
+
+func _mirror_orientation_x(orientation: int) -> int:
+	var axis: int = orientation / 4
+	var corner: int = orientation % 4
+	if axis == 1:
+		return orientation
+	var new_corner: int
+	match corner:
+		0: new_corner = 1
+		1: new_corner = 0
+		2: new_corner = 3
+		_: new_corner = 2
+	return axis * 4 + new_corner
+
+func _mirror_orientation_z(orientation: int) -> int:
+	var axis: int = orientation / 4
+	var corner: int = orientation % 4
+	if axis == 2:
+		return orientation
+	var new_corner: int
+	match corner:
+		0: new_corner = 3
+		1: new_corner = 2
+		2: new_corner = 1
+		_: new_corner = 0
+	return axis * 4 + new_corner
+
+func _place_with_mirror(pos: Vector3i, cell_type: int, orientation: int, color_idx: int) -> void:
+	if _in_bounds(pos):
+		cells[pos.x][pos.y][pos.z] = [cell_type, orientation, color_idx]
+	if _mirror_x:
+		var mx := _mirror_pos_x(pos)
+		if _in_bounds(mx):
+			var mo := _mirror_orientation_x(orientation) if cell_type == CellTypes.Type.PRISM else orientation
+			cells[mx.x][mx.y][mx.z] = [cell_type, mo, color_idx]
+	if _mirror_z:
+		var mz := _mirror_pos_z(pos)
+		if _in_bounds(mz):
+			var mo := _mirror_orientation_z(orientation) if cell_type == CellTypes.Type.PRISM else orientation
+			cells[mz.x][mz.y][mz.z] = [cell_type, mo, color_idx]
+	if _mirror_x and _mirror_z:
+		var mxz := _mirror_pos_x(_mirror_pos_z(pos))
+		if _in_bounds(mxz):
+			var mo := orientation
+			if cell_type == CellTypes.Type.PRISM:
+				mo = _mirror_orientation_x(_mirror_orientation_z(orientation))
+			cells[mxz.x][mxz.y][mxz.z] = [cell_type, mo, color_idx]
+
+func _erase_with_mirror(pos: Vector3i) -> void:
+	if _in_bounds(pos):
+		cells[pos.x][pos.y][pos.z] = [CellTypes.Type.EMPTY, 0, 0]
+	if _mirror_x:
+		var mx := _mirror_pos_x(pos)
+		if _in_bounds(mx):
+			cells[mx.x][mx.y][mx.z] = [CellTypes.Type.EMPTY, 0, 0]
+	if _mirror_z:
+		var mz := _mirror_pos_z(pos)
+		if _in_bounds(mz):
+			cells[mz.x][mz.y][mz.z] = [CellTypes.Type.EMPTY, 0, 0]
+	if _mirror_x and _mirror_z:
+		var mxz := _mirror_pos_x(_mirror_pos_z(pos))
+		if _in_bounds(mxz):
+			cells[mxz.x][mxz.y][mxz.z] = [CellTypes.Type.EMPTY, 0, 0]
+
+func _draw_mirror_cursors(cursor_pos: Vector3i) -> void:
+	if not _mirror_x and not _mirror_z:
+		mirror_cursor_instance.visible = false
+		return
+
+	var positions: Array[Vector3i] = []
+	if _mirror_x:
+		positions.append(_mirror_pos_x(cursor_pos))
+	if _mirror_z:
+		positions.append(_mirror_pos_z(cursor_pos))
+	if _mirror_x and _mirror_z:
+		positions.append(_mirror_pos_x(_mirror_pos_z(cursor_pos)))
+
+	var im := ImmediateMesh.new()
+	im.surface_begin(Mesh.PRIMITIVE_LINES)
+
+	for mpos in positions:
+		if not _in_bounds(mpos):
+			continue
+		var margin := CELL_SIZE * 0.02
+		var pos := Vector3(mpos) * CELL_SIZE - Vector3.ONE * margin
+		var size := CELL_SIZE + margin * 2.0
+		var c: Array[Vector3] = [
+			pos, pos + Vector3(size, 0, 0), pos + Vector3(size, 0, size), pos + Vector3(0, 0, size),
+			pos + Vector3(0, size, 0), pos + Vector3(size, size, 0),
+			pos + Vector3(size, size, size), pos + Vector3(0, size, size),
+		]
+		for e in [[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]]:
+			im.surface_add_vertex(c[e[0]])
+			im.surface_add_vertex(c[e[1]])
+
+	im.surface_end()
+	mirror_cursor_instance.mesh = im
+
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0, 1, 1, 0.7)
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.no_depth_test = true
+	mirror_cursor_instance.material_override = mat
+	mirror_cursor_instance.visible = true
 
 func _on_file_menu(id: int) -> void:
 	match id:
@@ -620,6 +834,7 @@ func _do_set_edit_mode(mode: int) -> void:
 	_init_cells()
 	_rebuild_mesh()
 	_rebuild_grid()
+	_rebuild_axis_overlay()
 	_center_camera()
 	_update_file_label()
 
@@ -765,8 +980,10 @@ func _update_raycast() -> void:
 		_draw_cursor(cursor_pos)
 		cursor_mesh_instance.visible = true
 		coord_label.text = "Cell: (%d, %d, %d)" % [cursor_pos.x, cursor_pos.y, cursor_pos.z]
+		_draw_mirror_cursors(cursor_pos)
 	else:
 		cursor_mesh_instance.visible = false
+		mirror_cursor_instance.visible = false
 		coord_label.text = ""
 
 	_update_box_preview()
@@ -788,7 +1005,7 @@ func _on_left_click() -> void:
 		ToolType.PENCIL:
 			if _in_bounds(place_cell):
 				_push_undo()
-				cells[place_cell.x][place_cell.y][place_cell.z] = [current_type, current_orientation, current_color]
+				_place_with_mirror(place_cell, current_type, current_orientation, current_color)
 				_mark_dirty()
 				_rebuild_mesh()
 		ToolType.BOX:
@@ -803,7 +1020,7 @@ func _on_left_click() -> void:
 		ToolType.ERASER:
 			if _in_bounds(target_cell) and cells[target_cell.x][target_cell.y][target_cell.z][0] != CellTypes.Type.EMPTY:
 				_push_undo()
-				cells[target_cell.x][target_cell.y][target_cell.z] = [CellTypes.Type.EMPTY, 0, 0]
+				_erase_with_mirror(target_cell)
 				_mark_dirty()
 				_rebuild_mesh()
 		ToolType.BOX_ERASE:
@@ -825,13 +1042,17 @@ func _on_left_click() -> void:
 				if _in_bounds(floor_cell):
 					_push_undo()
 					var constrain := Input.is_key_pressed(KEY_SHIFT)
+					var draw_start := box_start
+					var draw_end := floor_cell
+					if _center_draw and current_tool in [ToolType.RECT, ToolType.OVAL]:
+						draw_start = Vector3i(2 * box_start.x - floor_cell.x, floor_y, 2 * box_start.z - floor_cell.z)
 					var shape_cells: Array
 					match current_tool:
-						ToolType.LINE: shape_cells = _get_line_cells(box_start, floor_cell, constrain)
-						ToolType.RECT: shape_cells = _get_rect_cells(box_start, floor_cell, constrain)
-						ToolType.OVAL: shape_cells = _get_oval_cells(box_start, floor_cell, constrain)
+						ToolType.LINE: shape_cells = _get_line_cells(draw_start, draw_end, constrain)
+						ToolType.RECT: shape_cells = _get_rect_cells(draw_start, draw_end, constrain)
+						ToolType.OVAL: shape_cells = _get_oval_cells(draw_start, draw_end, constrain)
 					for cell in shape_cells:
-						cells[cell.x][cell.y][cell.z] = [current_type, current_orientation, current_color]
+						_place_with_mirror(cell, current_type, current_orientation, current_color)
 					_mark_dirty()
 					_rebuild_mesh()
 				_cancel_box()
@@ -1288,7 +1509,7 @@ func _fill_region(a: Vector3i, b: Vector3i, cell_type: int, orientation: int, co
 	for x in range(maxi(0, mn.x), mini(grid_x, mx.x + 1)):
 		for y in range(maxi(0, mn.y), mini(grid_y, mx.y + 1)):
 			for z in range(maxi(0, mn.z), mini(grid_z, mx.z + 1)):
-				cells[x][y][z] = [cell_type, orientation, color_idx]
+				_place_with_mirror(Vector3i(x, y, z), cell_type, orientation, color_idx)
 	_mark_dirty()
 	_rebuild_mesh()
 
@@ -1299,7 +1520,7 @@ func _clear_region(a: Vector3i, b: Vector3i) -> void:
 	for x in range(maxi(0, mn.x), mini(grid_x, mx.x + 1)):
 		for y in range(maxi(0, mn.y), mini(grid_y, mx.y + 1)):
 			for z in range(maxi(0, mn.z), mini(grid_z, mx.z + 1)):
-				cells[x][y][z] = [CellTypes.Type.EMPTY, 0, 0]
+				_erase_with_mirror(Vector3i(x, y, z))
 	_mark_dirty()
 	_rebuild_mesh()
 
@@ -1501,11 +1722,15 @@ func _update_box_preview() -> void:
 
 	if current_tool in [ToolType.LINE, ToolType.RECT, ToolType.OVAL]:
 		var constrain := Input.is_key_pressed(KEY_SHIFT)
+		var draw_start := box_start
+		var draw_end := end_cell
+		if _center_draw and current_tool in [ToolType.RECT, ToolType.OVAL]:
+			draw_start = Vector3i(2 * box_start.x - end_cell.x, floor_y, 2 * box_start.z - end_cell.z)
 		var shape_cells: Array
 		match current_tool:
-			ToolType.LINE: shape_cells = _get_line_cells(box_start, end_cell, constrain)
-			ToolType.RECT: shape_cells = _get_rect_cells(box_start, end_cell, constrain)
-			ToolType.OVAL: shape_cells = _get_oval_cells(box_start, end_cell, constrain)
+			ToolType.LINE: shape_cells = _get_line_cells(draw_start, draw_end, constrain)
+			ToolType.RECT: shape_cells = _get_rect_cells(draw_start, draw_end, constrain)
+			ToolType.OVAL: shape_cells = _get_oval_cells(draw_start, draw_end, constrain)
 		_draw_shape_preview(shape_cells)
 		return
 
@@ -1889,6 +2114,7 @@ func _load_from_path(path: String) -> void:
 	buttons[1].button_pressed = edit_mode == EditMode.CHARACTER
 	_rebuild_mesh()
 	_rebuild_grid()
+	_rebuild_axis_overlay()
 	_center_camera()
 	_update_file_label()
 
