@@ -12,8 +12,8 @@ Open the project in Godot and run it (F5).
 
 ## Editor Modes
 
-- **Block** (32x32x32) -- for designing individual block definitions
-- **Character** (64x128x64) -- for designing character models at higher resolution
+- **Block** (32x32x32) -- for designing individual block definitions. Each voxel is 1/32 of a unit, so one block = 1x1x1 unit in-game.
+- **Character** (64x128x64) -- for designing character models at double resolution. The grid is 2x4x2 blocks worth of space but at 1/64 unit per voxel, so a character stands exactly **2 blocks tall** (2 units) despite the finer detail.
 
 ## Tools
 
@@ -58,7 +58,9 @@ Hold **Shift** with Line to lock to an axis, with Rectangle to force a square, o
 - **Prism cells** with 12 orientations (3 axes x 4 corners) for diagonal geometry
 - **3D view cube** in the top-right corner for quick camera orientation -- click a face to snap to that view, or drag to orbit
 - **Import PNG** to place a flat image as voxels mapped to the nearest palette colors
+- **Import Block Texture** to wrap a PNG onto all 6 faces of a solid block
 - **Import Character Sprites** to generate a rough 3D model from a front and side PNG using silhouette intersection
+- **Export OBJ** generates an optimized mesh using greedy face merging, with materials per palette color
 - **Unsaved changes protection** on New, Open, mode switch, and quit
 - **Extrude tool** with flood-fill surface detection for pushing/pulling connected faces
 - **Axis Overlay** toggle (View menu) shows semi-transparent planes at the grid center along X and Z axes
@@ -66,15 +68,25 @@ Hold **Shift** with Line to lock to an axis, with Rectangle to force a square, o
 - **Center-out drawing** for Rect and Oval tools (right-click the tool button to toggle)
 - **Character presets** (male/female) generated on startup in `res://definitions/`
 
+## Model Dimensions
+
+| Mode | Grid | Voxel Size | World Size | Notes |
+|------|------|-----------|------------|-------|
+| Block | 32x32x32 | 1/32 unit | 1x1x1 | Standard building block |
+| Character | 64x128x64 | 1/64 unit | 1x2x1 | Same height as 2 stacked blocks |
+
+Characters have double the voxel resolution of blocks in every axis, giving 4x the surface detail while occupying the same physical footprint as a 1x2x1 column of blocks.
+
 ## File Format
 
-Definitions are saved as Godot `.tres` resources using the `VoxelDefinition` class, which stores grid dimensions, edit mode, and run-length encoded cell data.
+Working definitions are saved as Godot `.tres` resources using the `VoxelDefinition` class, which stores grid dimensions, edit mode, and run-length encoded cell data. Use **Export OBJ** (File menu) to generate an optimized mesh for game use -- greedy meshing merges coplanar same-color faces into larger quads, dramatically reducing triangle count.
 
 ## Architecture
 
 - `scripts/editor_main.gd` -- main editor logic, UI, input handling, and tools
 - `scripts/cell_types.gd` -- cell type enum, palette colors, and orientation names
 - `scripts/block_mesh_builder.gd` -- generates meshes from cell arrays with face culling
+- `scripts/mesh_exporter.gd` -- exports optimized OBJ with greedy meshing and MTL palette materials
 - `scripts/voxel_definition.gd` -- resource class for saving/loading definitions
 - `scripts/orbit_camera.gd` -- orbit camera with right-click drag, pan, and zoom
 - `scripts/view_cube.gd` -- 3D orientation widget with face clicking and drag rotation
