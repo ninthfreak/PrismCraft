@@ -1,7 +1,7 @@
 extends Node3D
 
 enum EditMode { BLOCK, CHARACTER }
-enum ToolType { PENCIL, BOX, ERASER, BOX_ERASE }
+enum ToolType { PENCIL, BOX, ERASER, BOX_ERASE, EXTRUDE }
 
 const CELL_RES := 32
 const CELL_SIZE := 1.0 / CELL_RES
@@ -22,6 +22,14 @@ var floor_y: int = 0
 
 var box_start := Vector3i(-1, -1, -1)
 var box_active := false
+
+var extrude_active := false
+var extrude_cells: Array = []
+var extrude_normal := Vector3i.ZERO
+var extrude_depth := 0
+var extrude_start_mouse := Vector2.ZERO
+var extrude_pixels_per_cell := 1.0
+var extrude_screen_dir := Vector2.ZERO
 
 var place_cell := Vector3i(-1, -1, -1)
 var target_cell := Vector3i(-1, -1, -1)
@@ -157,6 +165,7 @@ func _setup_ui() -> void:
 	tool_group = ButtonGroup.new()
 	var tool_row1 := _add_button_row(vbox, ["Pencil", "Box Fill"], tool_group)
 	var tool_row2 := _add_button_row(vbox, ["Eraser", "Box Erase"], tool_group)
+	var _tool_row3 := _add_button_row(vbox, ["Extrude"], tool_group)
 	tool_row1[0].button_pressed = true
 	tool_group.pressed.connect(_on_tool_pressed)
 
@@ -262,7 +271,7 @@ func _setup_ui() -> void:
 	var help := Label.new()
 	help.position = Vector2(PANEL_WIDTH + 10, 690)
 	help.add_theme_font_size_override("font_size", 11)
-	help.text = "Ctrl+S: Save | Ctrl+O: Open | Ctrl+N: New | Up/Down: Floor | Esc: Cancel box"
+	help.text = "Ctrl+S: Save | Ctrl+O: Open | Ctrl+N: New | Up/Down: Floor | Esc: Cancel"
 	ui_layer.add_child(help)
 
 	# File dialogs
@@ -321,7 +330,9 @@ func _on_tool_pressed(btn: BaseButton) -> void:
 		"Box Fill": current_tool = ToolType.BOX
 		"Eraser": current_tool = ToolType.ERASER
 		"Box Erase": current_tool = ToolType.BOX_ERASE
+		"Extrude": current_tool = ToolType.EXTRUDE
 	_cancel_box()
+	_cancel_extrude()
 
 func _on_type_pressed(btn: BaseButton) -> void:
 	if btn.text == "Solid":
@@ -393,7 +404,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_E: _cycle_orientation(1)
 			KEY_UP: _set_floor(floor_y + 1)
 			KEY_DOWN: _set_floor(floor_y - 1)
-			KEY_ESCAPE: _cancel_box()
+			KEY_ESCAPE:
+				_cancel_box()
+				_cancel_extrude()
 			KEY_1: _select_color(0)
 			KEY_2: _select_color(1)
 			KEY_3: _select_color(2)
@@ -404,14 +417,24 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_8: _select_color(7)
 
 	if event is InputEventMouseButton:
-		if event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-			_on_left_click()
+		if event.button_index == MOUSE_BUTTON_LEFT:
+			if event.pressed:
+				if current_tool == ToolType.EXTRUDE:
+					_extrude_start(event.position)
+				else:
+					_on_left_click()
+			else:
+				if extrude_active:
+					_extrude_finish()
 		if not event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
 			if camera and not camera.was_orbit_drag():
 				_on_right_click()
 
 	if event is InputEventMouseMotion:
-		_update_raycast()
+		if extrude_active:
+			_extrude_update(event.position)
+		else:
+			_update_raycast()
 
 func _toggle_type() -> void:
 	if current_type == CellTypes.Type.SOLID:
@@ -481,7 +504,7 @@ func _update_raycast() -> void:
 
 	# Update cursor display
 	var cursor_pos: Vector3i
-	if current_tool == ToolType.ERASER or current_tool == ToolType.BOX_ERASE:
+	if current_tool == ToolType.ERASER or current_tool == ToolType.BOX_ERASE or current_tool == ToolType.EXTRUDE:
 		cursor_pos = target_cell
 	else:
 		cursor_pos = place_cell
@@ -544,7 +567,187 @@ func _on_right_click() -> void:
 func _cancel_box() -> void:
 	box_active = false
 	box_start = Vector3i(-1, -1, -1)
+	if not extrude_active:
+		box_preview_instance.visible = false
+
+func _cancel_extrude() -> void:
+	if not extrude_active:
+		return
+	extrude_active = false
+	extrude_cells.clear()
+	extrude_depth = 0
 	box_preview_instance.visible = false
+	var mat := box_preview_instance.material_override as StandardMaterial3D
+	mat.albedo_color = Color(1, 1, 0, 0.6)
+
+func _extrude_start(mouse_pos: Vector2) -> void:
+	if not camera or mouse_pos.x < PANEL_WIDTH:
+		return
+
+	var from := camera.project_ray_origin(mouse_pos)
+	var dir := camera.project_ray_normal(mouse_pos)
+	var space := get_world_3d().direct_space_state
+	var query := PhysicsRayQueryParameters3D.create(from, from + dir * 100.0)
+	var result := space.intersect_ray(query)
+
+	if not result:
+		return
+
+	var hit_pos: Vector3 = result["position"]
+	var hit_normal: Vector3 = result["normal"]
+	var cell := _world_to_cell(hit_pos - hit_normal * 0.01)
+
+	if not _in_bounds(cell) or cells[cell.x][cell.y][cell.z][0] == CellTypes.Type.EMPTY:
+		return
+
+	var normal := Vector3i(
+		int(round(hit_normal.x)),
+		int(round(hit_normal.y)),
+		int(round(hit_normal.z))
+	)
+	if normal == Vector3i.ZERO:
+		return
+
+	extrude_normal = normal
+	extrude_cells = _find_coplanar_surface(cell, normal)
+	if extrude_cells.is_empty():
+		return
+
+	extrude_depth = 0
+	extrude_active = true
+	extrude_start_mouse = mouse_pos
+
+	var world_center := Vector3(cell) * CELL_SIZE + Vector3(0.5, 0.5, 0.5) * CELL_SIZE
+	var screen_a := camera.unproject_position(world_center)
+	var screen_b := camera.unproject_position(world_center + Vector3(normal) * CELL_SIZE)
+	var screen_delta := screen_b - screen_a
+	if screen_delta.length() < 0.1:
+		extrude_pixels_per_cell = 20.0
+		extrude_screen_dir = Vector2.UP
+	else:
+		extrude_pixels_per_cell = screen_delta.length()
+		extrude_screen_dir = screen_delta.normalized()
+
+func _extrude_update(mouse_pos: Vector2) -> void:
+	var delta := mouse_pos - extrude_start_mouse
+	var projected := delta.dot(extrude_screen_dir)
+	var new_depth := int(round(projected / extrude_pixels_per_cell))
+	if new_depth != extrude_depth:
+		extrude_depth = new_depth
+		_draw_extrude_preview()
+
+func _extrude_finish() -> void:
+	if extrude_depth > 0:
+		for d in range(1, extrude_depth + 1):
+			for cell in extrude_cells:
+				var nc: Vector3i = cell + extrude_normal * d
+				if _in_bounds(nc):
+					var src: Array = cells[cell.x][cell.y][cell.z]
+					cells[nc.x][nc.y][nc.z] = [src[0], src[1], src[2]]
+	elif extrude_depth < 0:
+		for d in range(0, -extrude_depth):
+			for cell in extrude_cells:
+				var rc: Vector3i = cell - extrude_normal * d
+				if _in_bounds(rc):
+					cells[rc.x][rc.y][rc.z] = [CellTypes.Type.EMPTY, 0, 0]
+
+	var did_change := extrude_depth != 0
+	extrude_active = false
+	extrude_cells.clear()
+	extrude_depth = 0
+	box_preview_instance.visible = false
+	var mat := box_preview_instance.material_override as StandardMaterial3D
+	mat.albedo_color = Color(1, 1, 0, 0.6)
+
+	if did_change:
+		_rebuild_mesh()
+
+func _find_coplanar_surface(start: Vector3i, normal: Vector3i) -> Array:
+	var result: Array = []
+	var visited := {}
+	var queue: Array = [start]
+	visited[start] = true
+
+	var dirs: Array = []
+	if normal.x != 0:
+		dirs = [Vector3i(0, 1, 0), Vector3i(0, -1, 0), Vector3i(0, 0, 1), Vector3i(0, 0, -1)]
+	elif normal.y != 0:
+		dirs = [Vector3i(1, 0, 0), Vector3i(-1, 0, 0), Vector3i(0, 0, 1), Vector3i(0, 0, -1)]
+	else:
+		dirs = [Vector3i(1, 0, 0), Vector3i(-1, 0, 0), Vector3i(0, 1, 0), Vector3i(0, -1, 0)]
+
+	while queue.size() > 0:
+		var cell: Vector3i = queue.pop_front()
+		if not _in_bounds(cell):
+			continue
+		if cells[cell.x][cell.y][cell.z][0] == CellTypes.Type.EMPTY:
+			continue
+		var face_neighbor: Vector3i = cell + normal
+		if _in_bounds(face_neighbor) and cells[face_neighbor.x][face_neighbor.y][face_neighbor.z][0] != CellTypes.Type.EMPTY:
+			continue
+		result.append(cell)
+		for d in dirs:
+			var adj: Vector3i = cell + d
+			if not visited.has(adj):
+				visited[adj] = true
+				queue.append(adj)
+
+	return result
+
+func _draw_extrude_preview() -> void:
+	if extrude_depth == 0:
+		box_preview_instance.visible = false
+		return
+
+	var mn := Vector3i(999, 999, 999)
+	var mx := Vector3i(-1, -1, -1)
+
+	if extrude_depth > 0:
+		for d in range(1, extrude_depth + 1):
+			for cell in extrude_cells:
+				var nc: Vector3i = cell + extrude_normal * d
+				if _in_bounds(nc):
+					mn = Vector3i(mini(mn.x, nc.x), mini(mn.y, nc.y), mini(mn.z, nc.z))
+					mx = Vector3i(maxi(mx.x, nc.x), maxi(mx.y, nc.y), maxi(mx.z, nc.z))
+	else:
+		for d in range(0, -extrude_depth):
+			for cell in extrude_cells:
+				var rc: Vector3i = cell - extrude_normal * d
+				if _in_bounds(rc):
+					mn = Vector3i(mini(mn.x, rc.x), mini(mn.y, rc.y), mini(mn.z, rc.z))
+					mx = Vector3i(maxi(mx.x, rc.x), maxi(mx.y, rc.y), maxi(mx.z, rc.z))
+
+	if mx.x < 0:
+		box_preview_instance.visible = false
+		return
+
+	var world_mn := Vector3(mn) * CELL_SIZE
+	var world_mx := Vector3(mx + Vector3i.ONE) * CELL_SIZE
+
+	var im := ImmediateMesh.new()
+	im.surface_begin(Mesh.PRIMITIVE_LINES)
+	var c: Array[Vector3] = [
+		world_mn,
+		Vector3(world_mx.x, world_mn.y, world_mn.z),
+		Vector3(world_mx.x, world_mn.y, world_mx.z),
+		Vector3(world_mn.x, world_mn.y, world_mx.z),
+		Vector3(world_mn.x, world_mx.y, world_mn.z),
+		Vector3(world_mx.x, world_mx.y, world_mn.z),
+		world_mx,
+		Vector3(world_mn.x, world_mx.y, world_mx.z),
+	]
+	for e in [[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]]:
+		im.surface_add_vertex(c[e[0]])
+		im.surface_add_vertex(c[e[1]])
+	im.surface_end()
+
+	box_preview_instance.mesh = im
+	var mat := box_preview_instance.material_override as StandardMaterial3D
+	if extrude_depth > 0:
+		mat.albedo_color = Color(0, 1, 0, 0.6)
+	else:
+		mat.albedo_color = Color(1, 0, 0, 0.6)
+	box_preview_instance.visible = true
 
 func _fill_region(a: Vector3i, b: Vector3i, cell_type: int, orientation: int, color_idx: int) -> void:
 	var mn := Vector3i(mini(a.x, b.x), mini(a.y, b.y), mini(a.z, b.z))
