@@ -1,7 +1,7 @@
 extends Node3D
 
 enum EditMode { BLOCK, CHARACTER }
-enum ToolType { PENCIL, BOX, ERASER, BOX_ERASE, EXTRUDE, LINE, RECT, OVAL, SMOOTH_EDGE }
+enum ToolType { PENCIL, BOX, ERASER, BOX_ERASE, EXTRUDE, LINE, RECT, OVAL, SMOOTH_EDGE, PAINT }
 
 const CELL_RES := 32
 const CELL_SIZE := 1.0 / CELL_RES
@@ -190,7 +190,6 @@ func _setup_scene() -> void:
 	ax_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	ax_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	ax_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	ax_mat.no_depth_test = true
 	axis_overlay_x.material_override = ax_mat
 
 	axis_overlay_z = MeshInstance3D.new()
@@ -201,7 +200,6 @@ func _setup_scene() -> void:
 	az_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	az_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	az_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	az_mat.no_depth_test = true
 	axis_overlay_z.material_override = az_mat
 
 	mirror_cursor_instance = MeshInstance3D.new()
@@ -299,7 +297,7 @@ func _setup_ui() -> void:
 	# Tool
 	_add_section_label(vbox, "Tool")
 	tool_group = ButtonGroup.new()
-	var tool_row1 := _add_button_row(vbox, ["Pencil", "Box Fill"], tool_group)
+	var tool_row1 := _add_button_row(vbox, ["Pencil", "Paint", "Box Fill"], tool_group)
 	var tool_row2 := _add_button_row(vbox, ["Eraser", "Box Erase"], tool_group)
 	var _tool_row3 := _add_button_row(vbox, ["Extrude", "Smooth"], tool_group)
 	var tool_row4 := _add_button_row(vbox, ["Line", "Rect", "Oval"], tool_group)
@@ -889,6 +887,7 @@ func _on_mode_pressed(btn: BaseButton) -> void:
 func _on_tool_pressed(btn: BaseButton) -> void:
 	match btn.text:
 		"Pencil": current_tool = ToolType.PENCIL
+		"Paint": current_tool = ToolType.PAINT
 		"Box Fill": current_tool = ToolType.BOX
 		"Eraser": current_tool = ToolType.ERASER
 		"Box Erase": current_tool = ToolType.BOX_ERASE
@@ -1097,7 +1096,7 @@ func _update_raycast() -> void:
 
 	# Update cursor display
 	var cursor_pos: Vector3i
-	if current_tool == ToolType.ERASER or current_tool == ToolType.BOX_ERASE or current_tool == ToolType.EXTRUDE or current_tool == ToolType.SMOOTH_EDGE:
+	if current_tool == ToolType.ERASER or current_tool == ToolType.BOX_ERASE or current_tool == ToolType.EXTRUDE or current_tool == ToolType.SMOOTH_EDGE or current_tool == ToolType.PAINT:
 		cursor_pos = target_cell
 	else:
 		cursor_pos = place_cell
@@ -1148,6 +1147,13 @@ func _on_left_click() -> void:
 			if _in_bounds(target_cell) and cells[target_cell.x][target_cell.y][target_cell.z][0] != CellTypes.Type.EMPTY:
 				_push_undo()
 				_erase_with_mirror(target_cell)
+				_mark_dirty()
+				_rebuild_mesh()
+		ToolType.PAINT:
+			if _in_bounds(target_cell) and cells[target_cell.x][target_cell.y][target_cell.z][0] != CellTypes.Type.EMPTY:
+				_push_undo()
+				var cell: Array = cells[target_cell.x][target_cell.y][target_cell.z]
+				_place_with_mirror(target_cell, cell[0], cell[1], current_color)
 				_mark_dirty()
 				_rebuild_mesh()
 		ToolType.BOX_ERASE:
