@@ -23,6 +23,8 @@ var _unsaved_changes := false
 var _pending_action := ""
 var _preview_mode := false
 var _preview_light: DirectionalLight3D
+var _undo_stack: Array = []
+const MAX_UNDO := 50
 
 var box_start := Vector3i(-1, -1, -1)
 var box_active := false
@@ -61,6 +63,7 @@ var color_group: ButtonGroup
 
 var menu_bar: MenuBar
 var file_menu: PopupMenu
+var edit_menu: PopupMenu
 var view_menu: PopupMenu
 var view_cube: Control
 var preview_light_slider: HSlider
@@ -177,6 +180,12 @@ func _setup_ui() -> void:
 	file_menu.id_pressed.connect(_on_file_menu)
 
 	menu_bar.add_child(file_menu)
+
+	edit_menu = PopupMenu.new()
+	edit_menu.name = "Edit"
+	edit_menu.add_item("Undo", 0, KEY_MASK_CTRL | KEY_Z)
+	edit_menu.id_pressed.connect(_on_edit_menu)
+	menu_bar.add_child(edit_menu)
 
 	view_menu = PopupMenu.new()
 	view_menu.name = "View"
@@ -446,6 +455,10 @@ func _on_view_cube_changed(yaw: float, pitch: float) -> void:
 		camera.pitch = pitch
 		camera._update_transform()
 
+func _on_edit_menu(id: int) -> void:
+	match id:
+		0: _undo()
+
 func _on_view_menu(id: int) -> void:
 	match id:
 		0: _toggle_preview_mode()
@@ -553,6 +566,7 @@ func _set_edit_mode(mode: int) -> void:
 
 func _do_set_edit_mode(mode: int) -> void:
 	edit_mode = mode
+	_undo_stack.clear()
 	if edit_mode == EditMode.BLOCK:
 		grid_x = 32; grid_y = 32; grid_z = 32
 	else:
@@ -579,6 +593,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed:
 		if event.ctrl_pressed:
 			match event.keycode:
+				KEY_Z: _undo(); get_viewport().set_input_as_handled(); return
 				KEY_S: _save(); get_viewport().set_input_as_handled(); return
 				KEY_O: _open(); get_viewport().set_input_as_handled(); return
 				KEY_N: _new(); get_viewport().set_input_as_handled(); return
@@ -729,6 +744,7 @@ func _on_left_click() -> void:
 	match current_tool:
 		ToolType.PENCIL:
 			if _in_bounds(place_cell):
+				_push_undo()
 				cells[place_cell.x][place_cell.y][place_cell.z] = [current_type, current_orientation, current_color]
 				_mark_dirty()
 				_rebuild_mesh()
@@ -743,6 +759,7 @@ func _on_left_click() -> void:
 				_cancel_box()
 		ToolType.ERASER:
 			if _in_bounds(target_cell) and cells[target_cell.x][target_cell.y][target_cell.z][0] != CellTypes.Type.EMPTY:
+				_push_undo()
 				cells[target_cell.x][target_cell.y][target_cell.z] = [CellTypes.Type.EMPTY, 0, 0]
 				_mark_dirty()
 				_rebuild_mesh()
@@ -763,6 +780,7 @@ func _on_left_click() -> void:
 					box_active = true
 			else:
 				if _in_bounds(floor_cell):
+					_push_undo()
 					var constrain := Input.is_key_pressed(KEY_SHIFT)
 					var shape_cells: Array
 					match current_tool:
@@ -852,6 +870,8 @@ func _extrude_update(mouse_pos: Vector2) -> void:
 		_draw_extrude_preview()
 
 func _extrude_finish() -> void:
+	if extrude_depth != 0:
+		_push_undo()
 	if extrude_depth > 0:
 		for d in range(1, extrude_depth + 1):
 			for cell in extrude_cells:
@@ -966,6 +986,7 @@ func _draw_extrude_preview() -> void:
 	box_preview_instance.visible = true
 
 func _fill_region(a: Vector3i, b: Vector3i, cell_type: int, orientation: int, color_idx: int) -> void:
+	_push_undo()
 	var mn := Vector3i(mini(a.x, b.x), mini(a.y, b.y), mini(a.z, b.z))
 	var mx := Vector3i(maxi(a.x, b.x), maxi(a.y, b.y), maxi(a.z, b.z))
 	for x in range(maxi(0, mn.x), mini(grid_x, mx.x + 1)):
@@ -976,6 +997,7 @@ func _fill_region(a: Vector3i, b: Vector3i, cell_type: int, orientation: int, co
 	_rebuild_mesh()
 
 func _clear_region(a: Vector3i, b: Vector3i) -> void:
+	_push_undo()
 	var mn := Vector3i(mini(a.x, b.x), mini(a.y, b.y), mini(a.z, b.z))
 	var mx := Vector3i(maxi(a.x, b.x), maxi(a.y, b.y), maxi(a.z, b.z))
 	for x in range(maxi(0, mn.x), mini(grid_x, mx.x + 1)):
@@ -1262,6 +1284,7 @@ func _new() -> void:
 
 func _do_new() -> void:
 	current_file_path = ""
+	_undo_stack.clear()
 	_cancel_box()
 	place_cell = Vector3i(-1, -1, -1)
 	target_cell = Vector3i(-1, -1, -1)
@@ -1301,6 +1324,7 @@ func _on_import_file_selected(path: String) -> void:
 	if image.get_width() != grid_x or image.get_height() != grid_y:
 		image.resize(grid_x, grid_y, Image.INTERPOLATE_NEAREST)
 
+	_push_undo()
 	for px in range(image.get_width()):
 		for py in range(image.get_height()):
 			var color := image.get_pixel(px, py)
@@ -1471,6 +1495,7 @@ func _on_wizard_generate() -> void:
 
 	var flip_side := _wizard_flip_side.button_pressed
 
+	_push_undo()
 	_init_cells()
 
 	for x in range(grid_x):
@@ -1554,6 +1579,7 @@ func _load_from_path(path: String) -> void:
 	cells = def.to_cells()
 	current_file_path = path
 	_unsaved_changes = false
+	_undo_stack.clear()
 	_cancel_box()
 	place_cell = Vector3i(-1, -1, -1)
 	target_cell = Vector3i(-1, -1, -1)
@@ -1573,6 +1599,30 @@ func _load_from_path(path: String) -> void:
 func _update_file_label() -> void:
 	var name := current_file_path.get_file() if not current_file_path.is_empty() else "(unsaved)"
 	file_label.text = "File: " + name + (" *" if _unsaved_changes else "")
+
+func _push_undo() -> void:
+	var snapshot: Array = []
+	snapshot.resize(grid_x)
+	for x in range(grid_x):
+		snapshot[x] = []
+		snapshot[x].resize(grid_y)
+		for y in range(grid_y):
+			snapshot[x][y] = []
+			snapshot[x][y].resize(grid_z)
+			for z in range(grid_z):
+				snapshot[x][y][z] = cells[x][y][z].duplicate()
+	_undo_stack.append(snapshot)
+	if _undo_stack.size() > MAX_UNDO:
+		_undo_stack.pop_front()
+
+func _undo() -> void:
+	if _undo_stack.is_empty():
+		return
+	cells = _undo_stack.pop_back()
+	_rebuild_mesh()
+	if _undo_stack.is_empty():
+		_unsaved_changes = false
+		_update_file_label()
 
 func _mark_dirty() -> void:
 	if not _unsaved_changes:

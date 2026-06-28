@@ -46,6 +46,7 @@ Hold **Shift** with Line to lock to an axis, with Rectangle to force a square, o
 | Ctrl+N | New |
 | Ctrl+O | Open |
 | Ctrl+S | Save |
+| Ctrl+Z | Undo |
 | Ctrl+I | Import PNG |
 
 ## Features
