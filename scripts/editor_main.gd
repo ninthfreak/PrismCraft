@@ -72,7 +72,14 @@ var import_dialog: FileDialog
 var import_front_dialog: FileDialog
 var import_side_dialog: FileDialog
 var confirm_dialog: ConfirmationDialog
+var sprite_wizard: AcceptDialog
 var _front_image: Image
+var _side_image: Image
+var _wizard_flip_front: CheckButton
+var _wizard_flip_side: CheckButton
+var _wizard_side_option: OptionButton
+var _wizard_front_label: Label
+var _wizard_side_label: Label
 
 @onready var camera: Camera3D = $Camera3D
 
@@ -378,7 +385,7 @@ func _setup_ui() -> void:
 	import_front_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
 	import_front_dialog.access = FileDialog.ACCESS_FILESYSTEM
 	import_front_dialog.add_filter("*.png ; PNG Image")
-	import_front_dialog.title = "Import Front Sprite (facing camera)"
+	import_front_dialog.title = "Step 1: Select Front Sprite"
 	import_front_dialog.size = Vector2i(700, 500)
 	import_front_dialog.file_selected.connect(_on_front_sprite_selected)
 	add_child(import_front_dialog)
@@ -387,10 +394,12 @@ func _setup_ui() -> void:
 	import_side_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
 	import_side_dialog.access = FileDialog.ACCESS_FILESYSTEM
 	import_side_dialog.add_filter("*.png ; PNG Image")
-	import_side_dialog.title = "Import Side Sprite (profile view)"
+	import_side_dialog.title = "Step 2: Select Side Sprite"
 	import_side_dialog.size = Vector2i(700, 500)
 	import_side_dialog.file_selected.connect(_on_side_sprite_selected)
 	add_child(import_side_dialog)
+
+	_setup_sprite_wizard()
 
 	confirm_dialog = ConfirmationDialog.new()
 	confirm_dialog.title = "Unsaved Changes"
@@ -1321,34 +1330,109 @@ func _on_front_sprite_selected(path: String) -> void:
 	if _front_image.load(path) != OK:
 		_front_image = null
 		return
+	_wizard_front_label.text = "Front: " + path.get_file()
 	import_side_dialog.popup_centered()
 
 func _on_side_sprite_selected(path: String) -> void:
 	if _front_image == null:
 		return
-	var side_image := Image.new()
-	if side_image.load(path) != OK:
+	_side_image = Image.new()
+	if _side_image.load(path) != OK:
+		_side_image = null
+		return
+	_wizard_side_label.text = "Side: " + path.get_file()
+	_wizard_flip_front.button_pressed = false
+	_wizard_flip_side.button_pressed = false
+	_wizard_side_option.selected = 0
+	sprite_wizard.popup_centered()
+
+func _setup_sprite_wizard() -> void:
+	sprite_wizard = AcceptDialog.new()
+	sprite_wizard.title = "Character Sprite Import"
+	sprite_wizard.ok_button_text = "Generate"
+	sprite_wizard.size = Vector2i(340, 280)
+	sprite_wizard.confirmed.connect(_on_wizard_generate)
+	add_child(sprite_wizard)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 8)
+	sprite_wizard.add_child(vbox)
+
+	_wizard_front_label = Label.new()
+	_wizard_front_label.text = "Front: (none)"
+	_wizard_front_label.add_theme_font_size_override("font_size", 13)
+	vbox.add_child(_wizard_front_label)
+
+	_wizard_flip_front = CheckButton.new()
+	_wizard_flip_front.text = "Flip front horizontally"
+	vbox.add_child(_wizard_flip_front)
+
+	vbox.add_child(HSeparator.new())
+
+	_wizard_side_label = Label.new()
+	_wizard_side_label.text = "Side: (none)"
+	_wizard_side_label.add_theme_font_size_override("font_size", 13)
+	vbox.add_child(_wizard_side_label)
+
+	_wizard_flip_side = CheckButton.new()
+	_wizard_flip_side.text = "Flip side horizontally"
+	vbox.add_child(_wizard_flip_side)
+
+	var side_row := HBoxContainer.new()
+	side_row.add_theme_constant_override("separation", 8)
+	vbox.add_child(side_row)
+	var side_lbl := Label.new()
+	side_lbl.text = "Profile shows:"
+	side_row.add_child(side_lbl)
+	_wizard_side_option = OptionButton.new()
+	_wizard_side_option.add_item("Right side of model")
+	_wizard_side_option.add_item("Left side of model")
+	_wizard_side_option.selected = 0
+	side_row.add_child(_wizard_side_option)
+
+	vbox.add_child(HSeparator.new())
+
+	var hint := Label.new()
+	hint.text = "The front sprite determines colors.\nTransparent pixels in either sprite carve the volume."
+	hint.add_theme_font_size_override("font_size", 11)
+	hint.add_theme_color_override("font_color", Color(0.6, 0.6, 0.7))
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD
+	vbox.add_child(hint)
+
+func _on_wizard_generate() -> void:
+	if _front_image == null or _side_image == null:
 		return
 
 	var front := _front_image
+	var side := _side_image
 	_front_image = null
+	_side_image = null
 
 	if front.get_width() != grid_x or front.get_height() != grid_y:
 		front.resize(grid_x, grid_y, Image.INTERPOLATE_NEAREST)
-	if side_image.get_width() != grid_z or side_image.get_height() != grid_y:
-		side_image.resize(grid_z, grid_y, Image.INTERPOLATE_NEAREST)
+	if side.get_width() != grid_z or side.get_height() != grid_y:
+		side.resize(grid_z, grid_y, Image.INTERPOLATE_NEAREST)
+
+	var flip_front := _wizard_flip_front.button_pressed
+	var flip_side := _wizard_flip_side.button_pressed
+	var side_is_left := _wizard_side_option.selected == 1
 
 	_init_cells()
 
 	for x in range(grid_x):
+		var fx := (grid_x - 1 - x) if flip_front else x
 		for y in range(grid_y):
-			var front_pixel := front.get_pixel(x, grid_y - 1 - y)
-			var front_opaque := front_pixel.a >= 0.5
-			if not front_opaque:
+			var front_pixel := front.get_pixel(fx, grid_y - 1 - y)
+			if front_pixel.a < 0.5:
 				continue
 			var color_idx := _find_nearest_palette_color(front_pixel)
 			for z in range(grid_z):
-				var side_pixel := side_image.get_pixel(z, grid_y - 1 - y)
+				var sz := z
+				if side_is_left:
+					sz = grid_z - 1 - z
+				if flip_side:
+					sz = grid_z - 1 - sz
+				var side_pixel := side.get_pixel(sz, grid_y - 1 - y)
 				if side_pixel.a >= 0.5:
 					cells[x][y][z] = [CellTypes.Type.SOLID, 0, color_idx]
 
