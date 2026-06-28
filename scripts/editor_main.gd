@@ -411,7 +411,7 @@ func _set_edit_mode(mode: int) -> void:
 	if edit_mode == EditMode.BLOCK:
 		grid_x = 32; grid_y = 32; grid_z = 32
 	else:
-		grid_x = 32; grid_y = 64; grid_z = 32
+		grid_x = 64; grid_y = 128; grid_z = 64
 	current_file_path = ""
 	place_cell = Vector3i(-1, -1, -1)
 	target_cell = Vector3i(-1, -1, -1)
