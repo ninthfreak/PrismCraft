@@ -95,6 +95,7 @@ var save_dialog: FileDialog
 var open_dialog: FileDialog
 var import_dialog: FileDialog
 var import_block_dialog: FileDialog
+var export_dialog: FileDialog
 var import_front_dialog: FileDialog
 var import_side_dialog: FileDialog
 var confirm_dialog: ConfirmationDialog
@@ -239,6 +240,8 @@ func _setup_ui() -> void:
 	file_menu.add_item("Import PNG...", 3, KEY_MASK_CTRL | KEY_I)
 	file_menu.add_item("Import Block Texture...", 5)
 	file_menu.add_item("Import Character Sprites...", 4)
+	file_menu.add_separator()
+	file_menu.add_item("Export OBJ...", 6)
 	file_menu.id_pressed.connect(_on_file_menu)
 
 	menu_bar.add_child(file_menu)
@@ -500,6 +503,15 @@ func _setup_ui() -> void:
 	import_block_dialog.size = Vector2i(700, 500)
 	import_block_dialog.file_selected.connect(_on_block_texture_selected)
 	add_child(import_block_dialog)
+
+	export_dialog = FileDialog.new()
+	export_dialog.file_mode = FileDialog.FILE_MODE_SAVE_FILE
+	export_dialog.access = FileDialog.ACCESS_FILESYSTEM
+	export_dialog.add_filter("*.obj ; Wavefront OBJ")
+	export_dialog.title = "Export OBJ"
+	export_dialog.size = Vector2i(700, 500)
+	export_dialog.file_selected.connect(_on_export_obj_selected)
+	add_child(export_dialog)
 
 	import_front_dialog = FileDialog.new()
 	import_front_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
@@ -859,6 +871,7 @@ func _on_file_menu(id: int) -> void:
 		3: _import_png()
 		4: _import_character_sprites()
 		5: _import_block_texture()
+		6: _export_obj()
 
 func _on_mode_pressed(btn: BaseButton) -> void:
 	var target_mode := EditMode.BLOCK if btn.text == "Block" else EditMode.CHARACTER
@@ -2091,6 +2104,17 @@ func _on_block_texture_selected(path: String) -> void:
 
 	_mark_dirty()
 	_rebuild_mesh()
+
+func _export_obj() -> void:
+	export_dialog.current_dir = "res://definitions"
+	export_dialog.popup_centered()
+
+func _on_export_obj_selected(path: String) -> void:
+	var face_count := MeshExporter.export_obj(path, cells, grid_x, grid_y, grid_z, CELL_SIZE)
+	if face_count > 0:
+		dims_label.text = "Exported %d faces" % face_count
+	else:
+		dims_label.text = "Export failed"
 
 func _import_character_sprites() -> void:
 	if _unsaved_changes:

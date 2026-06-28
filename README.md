@@ -58,7 +58,9 @@ Hold **Shift** with Line to lock to an axis, with Rectangle to force a square, o
 - **Prism cells** with 12 orientations (3 axes x 4 corners) for diagonal geometry
 - **3D view cube** in the top-right corner for quick camera orientation -- click a face to snap to that view, or drag to orbit
 - **Import PNG** to place a flat image as voxels mapped to the nearest palette colors
+- **Import Block Texture** to wrap a PNG onto all 6 faces of a solid block
 - **Import Character Sprites** to generate a rough 3D model from a front and side PNG using silhouette intersection
+- **Export OBJ** generates an optimized mesh using greedy face merging, with materials per palette color
 - **Unsaved changes protection** on New, Open, mode switch, and quit
 - **Extrude tool** with flood-fill surface detection for pushing/pulling connected faces
 - **Axis Overlay** toggle (View menu) shows semi-transparent planes at the grid center along X and Z axes
@@ -75,6 +77,7 @@ Definitions are saved as Godot `.tres` resources using the `VoxelDefinition` cla
 - `scripts/editor_main.gd` -- main editor logic, UI, input handling, and tools
 - `scripts/cell_types.gd` -- cell type enum, palette colors, and orientation names
 - `scripts/block_mesh_builder.gd` -- generates meshes from cell arrays with face culling
+- `scripts/mesh_exporter.gd` -- exports optimized OBJ with greedy meshing and MTL palette materials
 - `scripts/voxel_definition.gd` -- resource class for saving/loading definitions
 - `scripts/orbit_camera.gd` -- orbit camera with right-click drag, pan, and zoom
 - `scripts/view_cube.gd` -- 3D orientation widget with face clicking and drag rotation
