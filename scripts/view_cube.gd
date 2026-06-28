@@ -41,7 +41,7 @@ func _gui_input(event: InputEvent) -> void:
 
 	if event is InputEventMouseMotion and _dragging:
 		_cube_yaw -= event.relative.x * 0.01
-		_cube_pitch = clampf(_cube_pitch - event.relative.y * 0.01, -PI * 0.45, PI * 0.45)
+		_cube_pitch = clampf(_cube_pitch + event.relative.y * 0.01, -PI * 0.45, PI * 0.45)
 		view_changed.emit(_cube_yaw, _cube_pitch)
 		queue_redraw()
 		accept_event()

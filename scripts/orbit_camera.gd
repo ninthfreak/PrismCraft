@@ -46,7 +46,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				_orbiting = true
 			if _orbiting:
 				yaw -= event.relative.x * 0.005
-				pitch = clampf(pitch - event.relative.y * 0.005, -PI * 0.45, PI * 0.45)
+				pitch = clampf(pitch + event.relative.y * 0.005, -PI * 0.45, PI * 0.45)
 				_update_transform()
 		if _panning:
 			var pan_speed := distance * 0.002
