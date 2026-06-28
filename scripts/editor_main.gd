@@ -1480,7 +1480,7 @@ func _on_wizard_generate() -> void:
 				continue
 			var color_idx := _find_nearest_palette_color(front_pixel)
 			for z in range(grid_z):
-				var sz := (grid_z - 1 - z) if flip_side else z
+				var sz := z if flip_side else (grid_z - 1 - z)
 				var side_pixel := side.get_pixel(sz, grid_y - 1 - y)
 				if side_pixel.a >= 0.5:
 					cells[x][y][z] = [CellTypes.Type.SOLID, 0, color_idx]
