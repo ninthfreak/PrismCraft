@@ -72,6 +72,7 @@ var box_preview_instance: MeshInstance3D
 var ui_layer: CanvasLayer
 var panel: PanelContainer
 var coord_label: Label
+var dims_label: Label
 var file_label: Label
 var orient_container: HBoxContainer
 var orient_label: Label
@@ -401,6 +402,11 @@ func _setup_ui() -> void:
 	coord_label = Label.new()
 	coord_label.add_theme_font_size_override("font_size", 11)
 	vbox.add_child(coord_label)
+
+	dims_label = Label.new()
+	dims_label.add_theme_font_size_override("font_size", 11)
+	dims_label.add_theme_color_override("font_color", Color(1, 1, 0.5))
+	vbox.add_child(dims_label)
 
 	vbox.add_child(HSeparator.new())
 
@@ -1160,6 +1166,7 @@ func _cancel_box() -> void:
 	box_active = false
 	box_start = Vector3i(-1, -1, -1)
 	_joint_center = Vector2i(-1, -1)
+	dims_label.text = ""
 	if not extrude_active and not smooth_active:
 		box_preview_instance.visible = false
 
@@ -1801,6 +1808,7 @@ func _draw_cursor(cell_pos: Vector3i) -> void:
 func _update_box_preview() -> void:
 	if not box_active:
 		box_preview_instance.visible = false
+		dims_label.text = ""
 		return
 
 	var end_cell: Vector3i
@@ -1814,6 +1822,7 @@ func _update_box_preview() -> void:
 
 	if not _in_bounds(end_cell):
 		box_preview_instance.visible = false
+		dims_label.text = ""
 		return
 
 	if current_tool in [ToolType.LINE, ToolType.RECT, ToolType.OVAL]:
@@ -1824,17 +1833,24 @@ func _update_box_preview() -> void:
 			ToolType.LINE: shape_cells = _get_line_cells(result[0], result[1], result[2])
 			ToolType.RECT: shape_cells = _get_rect_cells(result[0], result[1], result[2])
 			ToolType.OVAL: shape_cells = _get_oval_cells(result[0], result[1], result[2])
+		var s: Vector3i = result[0]
+		var e: Vector3i = result[1]
+		var w := absi(e.x - s.x) + 1
+		var h := absi(e.z - s.z) + 1
+		dims_label.text = "Size: %d x %d  (%d cells)" % [w, h, shape_cells.size()]
 		_draw_shape_preview(shape_cells)
 		return
 
-	var mn := Vector3(
-		mini(box_start.x, end_cell.x),
-		mini(box_start.y, end_cell.y),
-		mini(box_start.z, end_cell.z)) * CELL_SIZE
-	var mx := Vector3(
-		maxi(box_start.x, end_cell.x) + 1,
-		maxi(box_start.y, end_cell.y) + 1,
-		maxi(box_start.z, end_cell.z) + 1) * CELL_SIZE
+	var sx := mini(box_start.x, end_cell.x)
+	var sy := mini(box_start.y, end_cell.y)
+	var sz := mini(box_start.z, end_cell.z)
+	var ex := maxi(box_start.x, end_cell.x)
+	var ey := maxi(box_start.y, end_cell.y)
+	var ez := maxi(box_start.z, end_cell.z)
+	dims_label.text = "Size: %d x %d x %d" % [ex - sx + 1, ey - sy + 1, ez - sz + 1]
+
+	var mn := Vector3(sx, sy, sz) * CELL_SIZE
+	var mx := Vector3(ex + 1, ey + 1, ez + 1) * CELL_SIZE
 
 	var im := ImmediateMesh.new()
 	im.surface_begin(Mesh.PRIMITIVE_LINES)
