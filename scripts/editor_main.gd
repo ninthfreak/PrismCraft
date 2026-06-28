@@ -177,7 +177,7 @@ func _setup_ui() -> void:
 	# Menu bar
 	menu_bar = MenuBar.new()
 	menu_bar.position = Vector2.ZERO
-	menu_bar.size = Vector2(1280, MENU_HEIGHT)
+	menu_bar.size = Vector2(1920, MENU_HEIGHT)
 	ui_layer.add_child(menu_bar)
 
 	file_menu = PopupMenu.new()
@@ -214,7 +214,7 @@ func _setup_ui() -> void:
 	panel = PanelContainer.new()
 	panel.add_theme_stylebox_override("panel", panel_style)
 	panel.position = Vector2(0, MENU_HEIGHT)
-	panel.custom_minimum_size = Vector2(PANEL_WIDTH, 720 - MENU_HEIGHT)
+	panel.custom_minimum_size = Vector2(PANEL_WIDTH, 1080 - MENU_HEIGHT)
 	ui_layer.add_child(panel)
 
 	var vbox := VBoxContainer.new()
@@ -387,14 +387,14 @@ func _setup_ui() -> void:
 
 	# Help at bottom of screen
 	var help := Label.new()
-	help.position = Vector2(PANEL_WIDTH + 10, 690)
+	help.position = Vector2(PANEL_WIDTH + 10, 1050)
 	help.add_theme_font_size_override("font_size", 11)
 	help.text = "Up/Down: Floor | Tab: Toggle Type | Q/E: Rotate Prism | Ctrl+Z: Undo | Esc: Cancel"
 	ui_layer.add_child(help)
 
 	# View cube
 	view_cube = preload("res://scripts/view_cube.gd").new()
-	view_cube.position = Vector2(1280 - 110, MENU_HEIGHT + 10)
+	view_cube.position = Vector2(1920 - 110, MENU_HEIGHT + 10)
 	view_cube.size = Vector2(100, 100)
 	view_cube.view_changed.connect(_on_view_cube_changed)
 	ui_layer.add_child(view_cube)
