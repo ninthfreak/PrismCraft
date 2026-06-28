@@ -81,6 +81,8 @@ var _wizard_front_label: Label
 var _wizard_side_label: Label
 var _wizard_front_preview: TextureRect
 var _wizard_side_preview: TextureRect
+var _wizard_front_size_label: Label
+var _wizard_side_size_label: Label
 
 @onready var camera: Camera3D = $Camera3D
 
@@ -1346,8 +1348,24 @@ func _on_side_sprite_selected(path: String) -> void:
 	_wizard_side_label.text = "Side"
 	_wizard_front_preview.texture = ImageTexture.create_from_image(_front_image)
 	_wizard_front_preview.flip_h = false
+	_wizard_front_preview.custom_minimum_size = Vector2(_front_image.get_width() * 2, _front_image.get_height() * 2)
 	_wizard_side_preview.texture = ImageTexture.create_from_image(_side_image)
 	_wizard_side_preview.flip_h = false
+	_wizard_side_preview.custom_minimum_size = Vector2(_side_image.get_width() * 2, _side_image.get_height() * 2)
+	var front_perfect := _front_image.get_width() == grid_x and _front_image.get_height() == grid_y
+	var side_perfect := _side_image.get_width() == grid_z and _side_image.get_height() == grid_y
+	_wizard_front_size_label.text = "%dx%d" % [_front_image.get_width(), _front_image.get_height()]
+	if front_perfect:
+		_wizard_front_size_label.add_theme_color_override("font_color", Color(0.5, 0.8, 0.5))
+	else:
+		_wizard_front_size_label.text += " (will scale to %dx%d)" % [grid_x, grid_y]
+		_wizard_front_size_label.add_theme_color_override("font_color", Color(0.9, 0.7, 0.3))
+	_wizard_side_size_label.text = "%dx%d" % [_side_image.get_width(), _side_image.get_height()]
+	if side_perfect:
+		_wizard_side_size_label.add_theme_color_override("font_color", Color(0.5, 0.8, 0.5))
+	else:
+		_wizard_side_size_label.text += " (will scale to %dx%d)" % [grid_z, grid_y]
+		_wizard_side_size_label.add_theme_color_override("font_color", Color(0.9, 0.7, 0.3))
 	_wizard_flip_side.button_pressed = false
 	sprite_wizard.popup_centered()
 
@@ -1355,7 +1373,6 @@ func _setup_sprite_wizard() -> void:
 	sprite_wizard = AcceptDialog.new()
 	sprite_wizard.title = "Character Sprite Import"
 	sprite_wizard.ok_button_text = "Generate"
-	sprite_wizard.size = Vector2i(520, 460)
 	sprite_wizard.confirmed.connect(_on_wizard_generate)
 	add_child(sprite_wizard)
 
@@ -1365,41 +1382,38 @@ func _setup_sprite_wizard() -> void:
 
 	# Image previews side by side
 	var preview_row := HBoxContainer.new()
-	preview_row.add_theme_constant_override("separation", 16)
+	preview_row.add_theme_constant_override("separation", 12)
 	preview_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	vbox.add_child(preview_row)
 
+	# Front column
 	var front_col := VBoxContainer.new()
-	front_col.add_theme_constant_override("separation", 4)
+	front_col.add_theme_constant_override("separation", 2)
 	preview_row.add_child(front_col)
 	_wizard_front_label = Label.new()
 	_wizard_front_label.text = "Front"
 	_wizard_front_label.add_theme_font_size_override("font_size", 13)
 	_wizard_front_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	front_col.add_child(_wizard_front_label)
-	var front_panel := PanelContainer.new()
-	var front_bg := StyleBoxFlat.new()
-	front_bg.bg_color = Color(0.08, 0.08, 0.1)
-	front_bg.set_corner_radius_all(4)
-	front_panel.add_theme_stylebox_override("panel", front_bg)
-	front_panel.custom_minimum_size = Vector2(200, 256)
-	front_col.add_child(front_panel)
 	_wizard_front_preview = TextureRect.new()
-	_wizard_front_preview.expand_mode = TextureRect.EXPAND_FIT_HEIGHT_PROPORTIONAL
+	_wizard_front_preview.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	_wizard_front_preview.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	_wizard_front_preview.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	front_panel.add_child(_wizard_front_preview)
+	front_col.add_child(_wizard_front_preview)
+	_wizard_front_size_label = Label.new()
+	_wizard_front_size_label.add_theme_font_size_override("font_size", 10)
+	_wizard_front_size_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	front_col.add_child(_wizard_front_size_label)
 
+	# Side column with Front/Back edge labels
 	var side_col := VBoxContainer.new()
-	side_col.add_theme_constant_override("separation", 4)
+	side_col.add_theme_constant_override("separation", 2)
 	preview_row.add_child(side_col)
 	_wizard_side_label = Label.new()
 	_wizard_side_label.text = "Side"
 	_wizard_side_label.add_theme_font_size_override("font_size", 13)
 	_wizard_side_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	side_col.add_child(_wizard_side_label)
-
-	# Side preview with Front/Back edge labels
 	var side_outer := HBoxContainer.new()
 	side_outer.add_theme_constant_override("separation", 4)
 	side_col.add_child(side_outer)
@@ -1409,25 +1423,21 @@ func _setup_sprite_wizard() -> void:
 	side_left_lbl.add_theme_color_override("font_color", Color(0.5, 0.8, 0.5))
 	side_left_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	side_outer.add_child(side_left_lbl)
-	var side_panel := PanelContainer.new()
-	var side_bg := StyleBoxFlat.new()
-	side_bg.bg_color = Color(0.08, 0.08, 0.1)
-	side_bg.set_corner_radius_all(4)
-	side_panel.add_theme_stylebox_override("panel", side_bg)
-	side_panel.custom_minimum_size = Vector2(180, 256)
-	side_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	side_outer.add_child(side_panel)
 	_wizard_side_preview = TextureRect.new()
-	_wizard_side_preview.expand_mode = TextureRect.EXPAND_FIT_HEIGHT_PROPORTIONAL
+	_wizard_side_preview.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	_wizard_side_preview.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	_wizard_side_preview.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	side_panel.add_child(_wizard_side_preview)
+	side_outer.add_child(_wizard_side_preview)
 	var side_right_lbl := Label.new()
 	side_right_lbl.text = "B\na\nc\nk"
 	side_right_lbl.add_theme_font_size_override("font_size", 10)
 	side_right_lbl.add_theme_color_override("font_color", Color(0.8, 0.5, 0.5))
 	side_right_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	side_outer.add_child(side_right_lbl)
+	_wizard_side_size_label = Label.new()
+	_wizard_side_size_label.add_theme_font_size_override("font_size", 10)
+	_wizard_side_size_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	side_col.add_child(_wizard_side_size_label)
 
 	vbox.add_child(HSeparator.new())
 
