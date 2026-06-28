@@ -13,8 +13,8 @@ var _drag_start := Vector2.ZERO
 const FACE_VIEWS := {
 	"Front":  { "yaw": 0.0,       "pitch": 0.0 },
 	"Back":   { "yaw": PI,        "pitch": 0.0 },
-	"Left":   { "yaw": PI / 2.0,  "pitch": 0.0 },
-	"Right":  { "yaw": -PI / 2.0, "pitch": 0.0 },
+	"Left":   { "yaw": -PI / 2.0, "pitch": 0.0 },
+	"Right":  { "yaw": PI / 2.0,  "pitch": 0.0 },
 	"Top":    { "yaw": 0.0,       "pitch": PI * 0.449 },
 	"Bottom": { "yaw": 0.0,       "pitch": -PI * 0.449 },
 }

@@ -1475,7 +1475,7 @@ func _on_wizard_generate() -> void:
 
 	for x in range(grid_x):
 		for y in range(grid_y):
-			var front_pixel := front.get_pixel(x, grid_y - 1 - y)
+			var front_pixel := front.get_pixel(grid_x - 1 - x, grid_y - 1 - y)
 			if front_pixel.a < 0.5:
 				continue
 			var color_idx := _find_nearest_palette_color(front_pixel)
