@@ -938,7 +938,7 @@ func _detect_edge(hit_pos: Vector3, hit_normal: Vector3, cell: Vector3i) -> Dict
 			best_edge_normal = t
 
 	var neighbor := cell + best_edge_normal
-	var neighbor_solid := _in_bounds(neighbor) and cells[neighbor.x][neighbor.y][neighbor.z][0] != CellTypes.Type.EMPTY
+	var neighbor_solid: bool = _in_bounds(neighbor) and cells[neighbor.x][neighbor.y][neighbor.z][0] != CellTypes.Type.EMPTY
 	if neighbor_solid:
 		return {}
 
@@ -960,9 +960,9 @@ func _trace_edge_path(start: Vector3i, direction: int, na: Vector3i, nb: Vector3
 		if cells[pos.x][pos.y][pos.z][0] != CellTypes.Type.SOLID:
 			break
 		var na_neighbor := pos + na
-		var na_exposed := not _in_bounds(na_neighbor) or cells[na_neighbor.x][na_neighbor.y][na_neighbor.z][0] == CellTypes.Type.EMPTY
+		var na_exposed: bool = not _in_bounds(na_neighbor) or cells[na_neighbor.x][na_neighbor.y][na_neighbor.z][0] == CellTypes.Type.EMPTY
 		var nb_neighbor := pos + nb
-		var nb_exposed := not _in_bounds(nb_neighbor) or cells[nb_neighbor.x][nb_neighbor.y][nb_neighbor.z][0] == CellTypes.Type.EMPTY
+		var nb_exposed: bool = not _in_bounds(nb_neighbor) or cells[nb_neighbor.x][nb_neighbor.y][nb_neighbor.z][0] == CellTypes.Type.EMPTY
 		if not (na_exposed and nb_exposed):
 			break
 		path.append(pos)
