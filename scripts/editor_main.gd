@@ -76,8 +76,7 @@ var file_menu: PopupMenu
 var edit_menu: PopupMenu
 var view_menu: PopupMenu
 var view_cube: Control
-var preview_light_slider: HSlider
-var preview_light_label: Label
+var preview_light_container: VBoxContainer
 
 var save_dialog: FileDialog
 var open_dialog: FileDialog
@@ -348,21 +347,43 @@ func _setup_ui() -> void:
 
 	vbox.add_child(HSeparator.new())
 
-	# Preview lighting controls
-	preview_light_label = Label.new()
-	preview_light_label.text = "Light Angle"
-	preview_light_label.add_theme_font_size_override("font_size", 12)
-	preview_light_label.add_theme_color_override("font_color", Color(0.7, 0.7, 0.8))
-	preview_light_label.visible = false
-	vbox.add_child(preview_light_label)
-	preview_light_slider = HSlider.new()
-	preview_light_slider.min_value = -180
-	preview_light_slider.max_value = 180
-	preview_light_slider.step = 5
-	preview_light_slider.value = -45
-	preview_light_slider.visible = false
-	preview_light_slider.value_changed.connect(func(_v: float): _update_preview_light())
-	vbox.add_child(preview_light_slider)
+	# Preview lighting controls (hidden until preview mode enabled)
+	preview_light_container = VBoxContainer.new()
+	preview_light_container.add_theme_constant_override("separation", 2)
+	preview_light_container.visible = false
+	vbox.add_child(preview_light_container)
+
+	var light_title := Label.new()
+	light_title.text = "Light Direction"
+	light_title.add_theme_font_size_override("font_size", 12)
+	light_title.add_theme_color_override("font_color", Color(0.7, 0.7, 0.8))
+	preview_light_container.add_child(light_title)
+
+	var yaw_label := Label.new()
+	yaw_label.text = "Rotation"
+	yaw_label.add_theme_font_size_override("font_size", 11)
+	preview_light_container.add_child(yaw_label)
+	var yaw_slider := HSlider.new()
+	yaw_slider.name = "YawSlider"
+	yaw_slider.min_value = -180
+	yaw_slider.max_value = 180
+	yaw_slider.step = 5
+	yaw_slider.value = -45
+	yaw_slider.value_changed.connect(func(_v: float): _update_preview_light())
+	preview_light_container.add_child(yaw_slider)
+
+	var pitch_label := Label.new()
+	pitch_label.text = "Height"
+	pitch_label.add_theme_font_size_override("font_size", 11)
+	preview_light_container.add_child(pitch_label)
+	var pitch_slider := HSlider.new()
+	pitch_slider.name = "PitchSlider"
+	pitch_slider.min_value = -80
+	pitch_slider.max_value = -5
+	pitch_slider.step = 5
+	pitch_slider.value = -45
+	pitch_slider.value_changed.connect(func(_v: float): _update_preview_light())
+	preview_light_container.add_child(pitch_slider)
 
 	# Help at bottom of screen
 	var help := Label.new()
@@ -480,8 +501,7 @@ func _toggle_preview_mode() -> void:
 	_preview_mode = not _preview_mode
 	view_menu.set_item_checked(0, _preview_mode)
 	var mat := mesh_instance.material_override as StandardMaterial3D
-	preview_light_label.visible = _preview_mode
-	preview_light_slider.visible = _preview_mode
+	preview_light_container.visible = _preview_mode
 	if _preview_mode:
 		mat.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
 		if not _preview_light:
@@ -498,12 +518,13 @@ func _toggle_preview_mode() -> void:
 func _update_preview_light() -> void:
 	if not _preview_light:
 		return
-	var angle := deg_to_rad(-45.0)
-	if preview_light_slider:
-		angle = deg_to_rad(preview_light_slider.value)
+	var yaw_slider := preview_light_container.get_node("YawSlider") as HSlider
+	var pitch_slider := preview_light_container.get_node("PitchSlider") as HSlider
+	var yaw := deg_to_rad(yaw_slider.value) if yaw_slider else deg_to_rad(-45.0)
+	var pitch := deg_to_rad(pitch_slider.value) if pitch_slider else deg_to_rad(-45.0)
 	var center := Vector3(grid_x, grid_y, grid_z) * CELL_SIZE * 0.5
 	_preview_light.position = center
-	_preview_light.rotation = Vector3(deg_to_rad(-45), angle, 0)
+	_preview_light.rotation = Vector3(pitch, yaw, 0)
 
 func _on_file_menu(id: int) -> void:
 	match id:
