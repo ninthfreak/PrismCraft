@@ -27,6 +27,7 @@ Open the project in Godot and run it (F5).
 | Line | Draw a line on the current floor layer |
 | Rectangle | Draw a rectangle outline on the current floor layer |
 | Oval | Draw an ellipse outline on the current floor layer |
+| Smooth | Click-drag along a sharp edge to select it, then choose chamfer depth |
 
 Hold **Shift** with Line to lock to an axis, with Rectangle to force a square, or with Oval to force a circle.
 
