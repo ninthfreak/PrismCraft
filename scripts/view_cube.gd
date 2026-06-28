@@ -160,7 +160,7 @@ func _draw() -> void:
 			draw_line(verts[i], verts[(i + 1) % 4], edge_color, 1.0)
 
 		# Face label
-		var cx2 := (verts[0] + verts[1] + verts[2] + verts[3]) / 4.0
+		var cx2: Vector2 = (verts[0] + verts[1] + verts[2] + verts[3]) / 4.0
 		var label: String = face["name"]
 		var font := ThemeDB.fallback_font
 		var fsize := 11
