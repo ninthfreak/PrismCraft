@@ -21,6 +21,8 @@ var current_file_path := ""
 var floor_y: int = 0
 var _unsaved_changes := false
 var _pending_action := ""
+var _preview_mode := false
+var _preview_light: DirectionalLight3D
 
 var box_start := Vector3i(-1, -1, -1)
 var box_active := false
@@ -59,7 +61,10 @@ var color_group: ButtonGroup
 
 var menu_bar: MenuBar
 var file_menu: PopupMenu
+var view_menu: PopupMenu
 var view_cube: Control
+var preview_light_slider: HSlider
+var preview_light_label: Label
 
 var save_dialog: FileDialog
 var open_dialog: FileDialog
@@ -112,6 +117,7 @@ func _setup_scene() -> void:
 	add_child(mesh_instance)
 	var mat := StandardMaterial3D.new()
 	mat.vertex_color_use_as_albedo = true
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mesh_instance.material_override = mat
 
 	collision_body = StaticBody3D.new()
@@ -159,6 +165,12 @@ func _setup_ui() -> void:
 	file_menu.add_item("Import PNG...", 3, KEY_MASK_CTRL | KEY_I)
 	file_menu.add_item("Import Character Sprites...", 4)
 	file_menu.id_pressed.connect(_on_file_menu)
+
+	view_menu = PopupMenu.new()
+	view_menu.name = "View"
+	view_menu.add_check_item("Preview Lighting", 0)
+	view_menu.id_pressed.connect(_on_view_menu)
+	menu_bar.add_child(view_menu)
 	menu_bar.add_child(file_menu)
 
 	var panel_style := StyleBoxFlat.new()
@@ -302,6 +314,24 @@ func _setup_ui() -> void:
 	coord_label.add_theme_font_size_override("font_size", 11)
 	vbox.add_child(coord_label)
 
+	vbox.add_child(HSeparator.new())
+
+	# Preview lighting controls
+	preview_light_label = Label.new()
+	preview_light_label.text = "Light Angle"
+	preview_light_label.add_theme_font_size_override("font_size", 12)
+	preview_light_label.add_theme_color_override("font_color", Color(0.7, 0.7, 0.8))
+	preview_light_label.visible = false
+	vbox.add_child(preview_light_label)
+	preview_light_slider = HSlider.new()
+	preview_light_slider.min_value = -180
+	preview_light_slider.max_value = 180
+	preview_light_slider.step = 5
+	preview_light_slider.value = -45
+	preview_light_slider.visible = false
+	preview_light_slider.value_changed.connect(func(_v: float): _update_preview_light())
+	vbox.add_child(preview_light_slider)
+
 	# Help at bottom of screen
 	var help := Label.new()
 	help.position = Vector2(PANEL_WIDTH + 10, 690)
@@ -402,6 +432,39 @@ func _on_view_cube_changed(yaw: float, pitch: float) -> void:
 		camera.yaw = yaw
 		camera.pitch = pitch
 		camera._update_transform()
+
+func _on_view_menu(id: int) -> void:
+	match id:
+		0: _toggle_preview_mode()
+
+func _toggle_preview_mode() -> void:
+	_preview_mode = not _preview_mode
+	view_menu.set_item_checked(0, _preview_mode)
+	var mat := mesh_instance.material_override as StandardMaterial3D
+	preview_light_label.visible = _preview_mode
+	preview_light_slider.visible = _preview_mode
+	if _preview_mode:
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
+		if not _preview_light:
+			_preview_light = DirectionalLight3D.new()
+			_preview_light.shadow_enabled = true
+			add_child(_preview_light)
+		_preview_light.visible = true
+		_update_preview_light()
+	else:
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		if _preview_light:
+			_preview_light.visible = false
+
+func _update_preview_light() -> void:
+	if not _preview_light:
+		return
+	var angle := deg_to_rad(-45.0)
+	if preview_light_slider:
+		angle = deg_to_rad(preview_light_slider.value)
+	var center := Vector3(grid_x, grid_y, grid_z) * CELL_SIZE * 0.5
+	_preview_light.position = center
+	_preview_light.rotation = Vector3(deg_to_rad(-45), angle, 0)
 
 func _on_file_menu(id: int) -> void:
 	match id:
@@ -1289,8 +1352,30 @@ func _on_side_sprite_selected(path: String) -> void:
 				if side_pixel.a >= 0.5:
 					cells[x][y][z] = [CellTypes.Type.SOLID, 0, color_idx]
 
+	_ground_cells()
 	_mark_dirty()
 	_rebuild_mesh()
+
+func _ground_cells() -> void:
+	var min_y := grid_y
+	for x in range(grid_x):
+		for y in range(grid_y):
+			if y >= min_y:
+				break
+			for z in range(grid_z):
+				if cells[x][y][z][0] != CellTypes.Type.EMPTY:
+					min_y = y
+					break
+	if min_y <= 0 or min_y >= grid_y:
+		return
+	for y in range(grid_y):
+		var src_y := y + min_y
+		for x in range(grid_x):
+			for z in range(grid_z):
+				if src_y < grid_y:
+					cells[x][y][z] = cells[x][src_y][z].duplicate()
+				else:
+					cells[x][y][z] = [CellTypes.Type.EMPTY, 0, 0]
 
 func _find_nearest_palette_color(color: Color) -> int:
 	var best_idx := 0

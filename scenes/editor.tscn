@@ -1,4 +1,4 @@
-[gd_scene load_steps=5 format=3 uid="uid://cveditorscene"]
+[gd_scene load_steps=4 format=3 uid="uid://cveditorscene"]
 
 [ext_resource type="Script" path="res://scripts/editor_main.gd" id="1_editor"]
 [ext_resource type="Script" path="res://scripts/orbit_camera.gd" id="2_camera"]
@@ -7,21 +7,14 @@
 background_mode = 1
 background_color = Color(0.15, 0.15, 0.2, 1)
 ambient_light_source = 2
-ambient_light_color = Color(0.3, 0.3, 0.35, 1)
-ambient_light_energy = 0.5
-
-[sub_resource type="CameraAttributesPractical" id="CameraAttributes_1"]
+ambient_light_color = Color(1, 1, 1, 1)
+ambient_light_energy = 0.4
 
 [node name="Editor" type="Node3D"]
 script = ExtResource("1_editor")
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
 environment = SubResource("Environment_1")
-camera_attributes = SubResource("CameraAttributes_1")
-
-[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
-transform = Transform3D(0.866, -0.354, 0.354, 0, 0.707, 0.707, -0.5, -0.612, 0.612, 3, 5, 3)
-shadow_enabled = true
 
 [node name="Camera3D" type="Camera3D" parent="."]
 script = ExtResource("2_camera")
