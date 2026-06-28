@@ -1523,6 +1523,7 @@ func _find_coplanar_surface(start: Vector3i, normal: Vector3i) -> Array:
 	var visited := {}
 	var queue: Array = [start]
 	visited[start] = true
+	var start_color: int = cells[start.x][start.y][start.z][2]
 
 	var dirs: Array = []
 	if normal.x != 0:
@@ -1537,6 +1538,8 @@ func _find_coplanar_surface(start: Vector3i, normal: Vector3i) -> Array:
 		if not _in_bounds(cell):
 			continue
 		if cells[cell.x][cell.y][cell.z][0] == CellTypes.Type.EMPTY:
+			continue
+		if cells[cell.x][cell.y][cell.z][2] != start_color:
 			continue
 		var face_neighbor: Vector3i = cell + normal
 		if _in_bounds(face_neighbor) and cells[face_neighbor.x][face_neighbor.y][face_neighbor.z][0] != CellTypes.Type.EMPTY:
