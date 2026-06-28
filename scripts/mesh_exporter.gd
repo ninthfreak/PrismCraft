@@ -70,7 +70,7 @@ static func export_obj(path: String, cells: Array, gx: int, gy: int, gz: int, ce
 		mtl_text += "Ka 0.1 0.1 0.1\n"
 		mtl_text += "d 1.0\n\n"
 
-	var mtl_path := path.get_basedir().path_join(mtl_file)
+	var mtl_path := path.get_base_dir().path_join(mtl_file)
 	var mfile := FileAccess.open(mtl_path, FileAccess.WRITE)
 	if mfile:
 		mfile.store_string(mtl_text)
