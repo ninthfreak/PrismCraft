@@ -57,6 +57,8 @@ var color_group: ButtonGroup
 
 var menu_bar: MenuBar
 var file_menu: PopupMenu
+var view_cube: Control
+
 var save_dialog: FileDialog
 var open_dialog: FileDialog
 var import_dialog: FileDialog
@@ -73,6 +75,10 @@ func _ready() -> void:
 	_rebuild_grid()
 	_center_camera()
 	_generate_presets()
+
+func _process(_delta: float) -> void:
+	if camera and view_cube:
+		view_cube.set_orientation(camera.yaw, camera.pitch)
 
 func _generate_presets() -> void:
 	DirAccess.make_dir_recursive_absolute("res://definitions")
@@ -296,6 +302,13 @@ func _setup_ui() -> void:
 	help.text = "Up/Down: Floor | Tab: Toggle Type | Q/E: Rotate Prism | Esc: Cancel"
 	ui_layer.add_child(help)
 
+	# View cube
+	view_cube = preload("res://scripts/view_cube.gd").new()
+	view_cube.position = Vector2(1280 - 110, MENU_HEIGHT + 10)
+	view_cube.size = Vector2(100, 100)
+	view_cube.view_changed.connect(_on_view_cube_changed)
+	ui_layer.add_child(view_cube)
+
 	# File dialogs
 	save_dialog = FileDialog.new()
 	save_dialog.file_mode = FileDialog.FILE_MODE_SAVE_FILE
@@ -348,6 +361,12 @@ func _add_button_row(parent: VBoxContainer, names: Array, group: ButtonGroup) ->
 	return buttons
 
 # ─── Panel Callbacks ───
+
+func _on_view_cube_changed(yaw: float, pitch: float) -> void:
+	if camera:
+		camera.yaw = yaw
+		camera.pitch = pitch
+		camera._update_transform()
 
 func _on_file_menu(id: int) -> void:
 	match id:
@@ -508,6 +527,8 @@ func _update_raycast() -> void:
 
 	var mouse_pos := get_viewport().get_mouse_position()
 	if mouse_pos.x < PANEL_WIDTH or mouse_pos.y < MENU_HEIGHT:
+		return
+	if view_cube and Rect2(view_cube.position, view_cube.size).has_point(mouse_pos):
 		return
 
 	var from := camera.project_ray_origin(mouse_pos)
