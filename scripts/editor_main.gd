@@ -77,7 +77,6 @@ var _front_image: Image
 var _side_image: Image
 var _wizard_flip_front: CheckButton
 var _wizard_flip_side: CheckButton
-var _wizard_side_option: OptionButton
 var _wizard_front_label: Label
 var _wizard_side_label: Label
 var _wizard_front_preview: TextureRect
@@ -175,12 +174,13 @@ func _setup_ui() -> void:
 	file_menu.add_item("Import Character Sprites...", 4)
 	file_menu.id_pressed.connect(_on_file_menu)
 
+	menu_bar.add_child(file_menu)
+
 	view_menu = PopupMenu.new()
 	view_menu.name = "View"
 	view_menu.add_check_item("Preview Lighting", 0)
 	view_menu.id_pressed.connect(_on_view_menu)
 	menu_bar.add_child(view_menu)
-	menu_bar.add_child(file_menu)
 
 	var panel_style := StyleBoxFlat.new()
 	panel_style.bg_color = Color(0.12, 0.12, 0.15, 0.92)
@@ -1348,9 +1348,7 @@ func _on_side_sprite_selected(path: String) -> void:
 	_wizard_front_preview.flip_h = false
 	_wizard_side_preview.texture = ImageTexture.create_from_image(_side_image)
 	_wizard_side_preview.flip_h = false
-	_wizard_flip_front.button_pressed = false
 	_wizard_flip_side.button_pressed = false
-	_wizard_side_option.selected = 0
 	sprite_wizard.popup_centered()
 
 func _setup_sprite_wizard() -> void:
@@ -1400,58 +1398,48 @@ func _setup_sprite_wizard() -> void:
 	_wizard_side_label.add_theme_font_size_override("font_size", 13)
 	_wizard_side_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	side_col.add_child(_wizard_side_label)
+
+	# Side preview with Front/Back edge labels
+	var side_outer := HBoxContainer.new()
+	side_outer.add_theme_constant_override("separation", 4)
+	side_col.add_child(side_outer)
+	var side_left_lbl := Label.new()
+	side_left_lbl.text = "F\nr\no\nn\nt"
+	side_left_lbl.add_theme_font_size_override("font_size", 10)
+	side_left_lbl.add_theme_color_override("font_color", Color(0.5, 0.8, 0.5))
+	side_left_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	side_outer.add_child(side_left_lbl)
 	var side_panel := PanelContainer.new()
 	var side_bg := StyleBoxFlat.new()
 	side_bg.bg_color = Color(0.08, 0.08, 0.1)
 	side_bg.set_corner_radius_all(4)
 	side_panel.add_theme_stylebox_override("panel", side_bg)
-	side_panel.custom_minimum_size = Vector2(200, 256)
-	side_col.add_child(side_panel)
+	side_panel.custom_minimum_size = Vector2(180, 256)
+	side_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	side_outer.add_child(side_panel)
 	_wizard_side_preview = TextureRect.new()
 	_wizard_side_preview.expand_mode = TextureRect.EXPAND_FIT_HEIGHT_PROPORTIONAL
 	_wizard_side_preview.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	_wizard_side_preview.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	side_panel.add_child(_wizard_side_preview)
+	var side_right_lbl := Label.new()
+	side_right_lbl.text = "B\na\nc\nk"
+	side_right_lbl.add_theme_font_size_override("font_size", 10)
+	side_right_lbl.add_theme_color_override("font_color", Color(0.8, 0.5, 0.5))
+	side_right_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	side_outer.add_child(side_right_lbl)
 
 	vbox.add_child(HSeparator.new())
 
-	# Controls row
-	var controls := HBoxContainer.new()
-	controls.add_theme_constant_override("separation", 24)
-	vbox.add_child(controls)
-
-	var front_controls := VBoxContainer.new()
-	front_controls.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	controls.add_child(front_controls)
+	# Flip control for side sprite only
 	_wizard_flip_front = CheckButton.new()
-	_wizard_flip_front.text = "Flip horizontally"
-	_wizard_flip_front.toggled.connect(func(_on: bool): _wizard_front_preview.flip_h = _wizard_flip_front.button_pressed)
-	front_controls.add_child(_wizard_flip_front)
-
-	var side_controls := VBoxContainer.new()
-	side_controls.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	controls.add_child(side_controls)
 	_wizard_flip_side = CheckButton.new()
-	_wizard_flip_side.text = "Flip horizontally"
+	_wizard_flip_side.text = "Flip side sprite"
 	_wizard_flip_side.toggled.connect(func(_on: bool): _wizard_side_preview.flip_h = _wizard_flip_side.button_pressed)
-	side_controls.add_child(_wizard_flip_side)
-
-	var side_row := HBoxContainer.new()
-	side_row.add_theme_constant_override("separation", 8)
-	side_controls.add_child(side_row)
-	var side_lbl := Label.new()
-	side_lbl.text = "Shows:"
-	side_row.add_child(side_lbl)
-	_wizard_side_option = OptionButton.new()
-	_wizard_side_option.add_item("Right side")
-	_wizard_side_option.add_item("Left side")
-	_wizard_side_option.selected = 0
-	side_row.add_child(_wizard_side_option)
-
-	vbox.add_child(HSeparator.new())
+	vbox.add_child(_wizard_flip_side)
 
 	var hint := Label.new()
-	hint.text = "Front sprite determines colors. Transparent pixels in either sprite carve the volume."
+	hint.text = "Flip so the character's face points toward the \"Front\" label. Front sprite determines colors."
 	hint.add_theme_font_size_override("font_size", 11)
 	hint.add_theme_color_override("font_color", Color(0.6, 0.6, 0.7))
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD
@@ -1471,25 +1459,18 @@ func _on_wizard_generate() -> void:
 	if side.get_width() != grid_z or side.get_height() != grid_y:
 		side.resize(grid_z, grid_y, Image.INTERPOLATE_NEAREST)
 
-	var flip_front := _wizard_flip_front.button_pressed
 	var flip_side := _wizard_flip_side.button_pressed
-	var side_is_left := _wizard_side_option.selected == 1
 
 	_init_cells()
 
 	for x in range(grid_x):
-		var fx := (grid_x - 1 - x) if flip_front else x
 		for y in range(grid_y):
-			var front_pixel := front.get_pixel(fx, grid_y - 1 - y)
+			var front_pixel := front.get_pixel(x, grid_y - 1 - y)
 			if front_pixel.a < 0.5:
 				continue
 			var color_idx := _find_nearest_palette_color(front_pixel)
 			for z in range(grid_z):
-				var sz := z
-				if side_is_left:
-					sz = grid_z - 1 - z
-				if flip_side:
-					sz = grid_z - 1 - sz
+				var sz := (grid_z - 1 - z) if flip_side else z
 				var side_pixel := side.get_pixel(sz, grid_y - 1 - y)
 				if side_pixel.a >= 0.5:
 					cells[x][y][z] = [CellTypes.Type.SOLID, 0, color_idx]
