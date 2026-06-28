@@ -1,7 +1,7 @@
 extends Node3D
 
 enum EditMode { BLOCK, CHARACTER }
-enum ToolType { PENCIL, BOX, ERASER, BOX_ERASE, EXTRUDE }
+enum ToolType { PENCIL, BOX, ERASER, BOX_ERASE, EXTRUDE, LINE, RECT, OVAL }
 
 const CELL_RES := 32
 const CELL_SIZE := 1.0 / CELL_RES
@@ -187,6 +187,7 @@ func _setup_ui() -> void:
 	var tool_row1 := _add_button_row(vbox, ["Pencil", "Box Fill"], tool_group)
 	var tool_row2 := _add_button_row(vbox, ["Eraser", "Box Erase"], tool_group)
 	var _tool_row3 := _add_button_row(vbox, ["Extrude"], tool_group)
+	var _tool_row4 := _add_button_row(vbox, ["Line", "Rect", "Oval"], tool_group)
 	tool_row1[0].button_pressed = true
 	tool_group.pressed.connect(_on_tool_pressed)
 
@@ -368,6 +369,9 @@ func _on_tool_pressed(btn: BaseButton) -> void:
 		"Eraser": current_tool = ToolType.ERASER
 		"Box Erase": current_tool = ToolType.BOX_ERASE
 		"Extrude": current_tool = ToolType.EXTRUDE
+		"Line": current_tool = ToolType.LINE
+		"Rect": current_tool = ToolType.RECT
+		"Oval": current_tool = ToolType.OVAL
 	_cancel_box()
 	_cancel_extrude()
 
@@ -453,6 +457,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_6: _select_color(5)
 			KEY_7: _select_color(6)
 			KEY_8: _select_color(7)
+
+	if event is InputEventKey and event.keycode == KEY_SHIFT:
+		if box_active and current_tool in [ToolType.LINE, ToolType.RECT, ToolType.OVAL]:
+			_update_box_preview()
 
 	if event is InputEventMouseButton:
 		if event.button_index == MOUSE_BUTTON_LEFT:
@@ -596,6 +604,24 @@ func _on_left_click() -> void:
 			else:
 				if _in_bounds(target_cell):
 					_clear_region(box_start, target_cell)
+				_cancel_box()
+		ToolType.LINE, ToolType.RECT, ToolType.OVAL:
+			var floor_cell := Vector3i(place_cell.x, floor_y, place_cell.z)
+			if not box_active:
+				if _in_bounds(floor_cell):
+					box_start = floor_cell
+					box_active = true
+			else:
+				if _in_bounds(floor_cell):
+					var constrain := Input.is_key_pressed(KEY_SHIFT)
+					var shape_cells: Array
+					match current_tool:
+						ToolType.LINE: shape_cells = _get_line_cells(box_start, floor_cell, constrain)
+						ToolType.RECT: shape_cells = _get_rect_cells(box_start, floor_cell, constrain)
+						ToolType.OVAL: shape_cells = _get_oval_cells(box_start, floor_cell, constrain)
+					for cell in shape_cells:
+						cells[cell.x][cell.y][cell.z] = [current_type, current_orientation, current_color]
+					_rebuild_mesh()
 				_cancel_box()
 
 func _on_right_click() -> void:
@@ -805,6 +831,122 @@ func _clear_region(a: Vector3i, b: Vector3i) -> void:
 				cells[x][y][z] = [CellTypes.Type.EMPTY, 0, 0]
 	_rebuild_mesh()
 
+# ─── Shape Tools ───
+
+func _get_line_cells(start: Vector3i, end: Vector3i, constrain: bool) -> Array:
+	var ax := start.x
+	var az := start.z
+	var bx := end.x
+	var bz := end.z
+	if constrain:
+		var dx := absi(bx - ax)
+		var dz := absi(bz - az)
+		if dx >= dz:
+			bz = az
+		else:
+			bx = ax
+
+	var result: Array = []
+	var dx := absi(bx - ax)
+	var dz := absi(bz - az)
+	var sx := 1 if ax < bx else -1
+	var sz := 1 if az < bz else -1
+	var err := dx - dz
+	var x := ax
+	var z := az
+	while true:
+		var cell := Vector3i(x, floor_y, z)
+		if _in_bounds(cell):
+			result.append(cell)
+		if x == bx and z == bz:
+			break
+		var e2 := 2 * err
+		if e2 > -dz:
+			err -= dz
+			x += sx
+		if e2 < dx:
+			err += dx
+			z += sz
+	return result
+
+func _get_rect_cells(start: Vector3i, end: Vector3i, constrain: bool) -> Array:
+	var x1 := start.x
+	var z1 := start.z
+	var x2 := end.x
+	var z2 := end.z
+	if constrain:
+		var dx := absi(x2 - x1)
+		var dz := absi(z2 - z1)
+		var side := maxi(dx, dz)
+		x2 = x1 + side * (1 if x2 >= x1 else -1)
+		z2 = z1 + side * (1 if z2 >= z1 else -1)
+
+	var mn_x := mini(x1, x2)
+	var mx_x := maxi(x1, x2)
+	var mn_z := mini(z1, z2)
+	var mx_z := maxi(z1, z2)
+
+	var result: Array = []
+	var seen := {}
+	for x in range(mn_x, mx_x + 1):
+		for z in [mn_z, mx_z]:
+			var cell := Vector3i(x, floor_y, z)
+			if _in_bounds(cell) and not seen.has(cell):
+				result.append(cell)
+				seen[cell] = true
+	for z in range(mn_z + 1, mx_z):
+		for x in [mn_x, mx_x]:
+			var cell := Vector3i(x, floor_y, z)
+			if _in_bounds(cell) and not seen.has(cell):
+				result.append(cell)
+				seen[cell] = true
+	return result
+
+func _get_oval_cells(start: Vector3i, end: Vector3i, constrain: bool) -> Array:
+	var x1 := start.x
+	var z1 := start.z
+	var x2 := end.x
+	var z2 := end.z
+	if constrain:
+		var dx := absi(x2 - x1)
+		var dz := absi(z2 - z1)
+		var side := maxi(dx, dz)
+		x2 = x1 + side * (1 if x2 >= x1 else -1)
+		z2 = z1 + side * (1 if z2 >= z1 else -1)
+
+	var mn_x := mini(x1, x2)
+	var mx_x := maxi(x1, x2)
+	var mn_z := mini(z1, z2)
+	var mx_z := maxi(z1, z2)
+
+	var a := (mx_x - mn_x) / 2.0
+	var b := (mx_z - mn_z) / 2.0
+	var cx := (mn_x + mx_x) / 2.0
+	var cz := (mn_z + mx_z) / 2.0
+
+	if a < 0.5 and b < 0.5:
+		var cell := Vector3i(int(round(cx)), floor_y, int(round(cz)))
+		if _in_bounds(cell):
+			return [cell]
+		return []
+	if a < 0.5 or b < 0.5:
+		return _get_line_cells(start, end, false)
+
+	var result: Array = []
+	var seen := {}
+	var steps := int(max(a, b) * 8)
+	if steps < 32:
+		steps = 32
+	for i in range(steps):
+		var angle := TAU * i / steps
+		var px := int(round(cx + a * cos(angle)))
+		var pz := int(round(cz + b * sin(angle)))
+		var cell := Vector3i(px, floor_y, pz)
+		if _in_bounds(cell) and not seen.has(cell):
+			result.append(cell)
+			seen[cell] = true
+	return result
+
 # ─── Cursor Drawing ───
 
 func _get_prism_vertices(origin: Vector3, s: float, orientation: int) -> Array:
@@ -871,13 +1013,28 @@ func _update_box_preview() -> void:
 	if not box_active:
 		box_preview_instance.visible = false
 		return
+
 	var end_cell: Vector3i
-	if current_tool == ToolType.BOX:
+	if current_tool in [ToolType.BOX, ToolType.LINE, ToolType.RECT, ToolType.OVAL]:
 		end_cell = place_cell
 	else:
 		end_cell = target_cell
+
+	if current_tool in [ToolType.LINE, ToolType.RECT, ToolType.OVAL]:
+		end_cell = Vector3i(end_cell.x, floor_y, end_cell.z)
+
 	if not _in_bounds(end_cell):
 		box_preview_instance.visible = false
+		return
+
+	if current_tool in [ToolType.LINE, ToolType.RECT, ToolType.OVAL]:
+		var constrain := Input.is_key_pressed(KEY_SHIFT)
+		var shape_cells: Array
+		match current_tool:
+			ToolType.LINE: shape_cells = _get_line_cells(box_start, end_cell, constrain)
+			ToolType.RECT: shape_cells = _get_rect_cells(box_start, end_cell, constrain)
+			ToolType.OVAL: shape_cells = _get_oval_cells(box_start, end_cell, constrain)
+		_draw_shape_preview(shape_cells)
 		return
 
 	var mn := Vector3(
@@ -900,6 +1057,29 @@ func _update_box_preview() -> void:
 		im.surface_add_vertex(c[e[1]])
 	im.surface_end()
 	box_preview_instance.mesh = im
+	box_preview_instance.visible = true
+
+func _draw_shape_preview(shape_cells: Array) -> void:
+	if shape_cells.is_empty():
+		box_preview_instance.visible = false
+		return
+	var im := ImmediateMesh.new()
+	im.surface_begin(Mesh.PRIMITIVE_LINES)
+	for cell in shape_cells:
+		var pos := Vector3(cell) * CELL_SIZE
+		var s := CELL_SIZE
+		var c: Array[Vector3] = [
+			pos, pos + Vector3(s, 0, 0), pos + Vector3(s, 0, s), pos + Vector3(0, 0, s),
+			pos + Vector3(0, s, 0), pos + Vector3(s, s, 0),
+			pos + Vector3(s, s, s), pos + Vector3(0, s, s),
+		]
+		for e in [[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]]:
+			im.surface_add_vertex(c[e[0]])
+			im.surface_add_vertex(c[e[1]])
+	im.surface_end()
+	box_preview_instance.mesh = im
+	var mat := box_preview_instance.material_override as StandardMaterial3D
+	mat.albedo_color = Color(1, 1, 0, 0.6)
 	box_preview_instance.visible = true
 
 # ─── File Operations ───
