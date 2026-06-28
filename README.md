@@ -31,6 +31,8 @@ Open the project in Godot and run it (F5).
 
 Hold **Shift** with Line to lock to an axis, with Rectangle to force a square, or with Oval to force a circle.
 
+**Right-click** the Rect or Oval tool button to toggle **Center-out** mode (indicated by "(C)" on the button). In this mode, the first click sets the center point and dragging defines the extent outward.
+
 ## Controls
 
 | Input | Action |
@@ -59,6 +61,9 @@ Hold **Shift** with Line to lock to an axis, with Rectangle to force a square, o
 - **Import Character Sprites** to generate a rough 3D model from a front and side PNG using silhouette intersection
 - **Unsaved changes protection** on New, Open, mode switch, and quit
 - **Extrude tool** with flood-fill surface detection for pushing/pulling connected faces
+- **Axis Overlay** toggle (View menu) shows semi-transparent planes at the grid center along X and Z axes
+- **Mirror mode** (View menu: Mirror X / Mirror Z) mirrors all drawing operations across the center plane, with a cyan cursor showing the mirrored position
+- **Center-out drawing** for Rect and Oval tools (right-click the tool button to toggle)
 - **Character presets** (male/female) generated on startup in `res://definitions/`
 
 ## File Format
