@@ -149,6 +149,7 @@ func _draw() -> void:
 	}
 
 	var edge_color := Color(0.8, 0.8, 0.8, 0.6)
+	var font := ThemeDB.fallback_font
 
 	for face in faces:
 		var verts: Array = face["screen_verts"]
@@ -162,7 +163,6 @@ func _draw() -> void:
 		# Face label
 		var cx2: Vector2 = (verts[0] + verts[1] + verts[2] + verts[3]) / 4.0
 		var label: String = face["name"]
-		var font := ThemeDB.fallback_font
 		var fsize := 11
 		var text_size := font.get_string_size(label, HORIZONTAL_ALIGNMENT_CENTER, -1, fsize)
 		draw_string(font, cx2 - text_size / 2.0 + Vector2(0, text_size.y * 0.35), label, HORIZONTAL_ALIGNMENT_CENTER, -1, fsize, Color.WHITE)
