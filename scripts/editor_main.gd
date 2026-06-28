@@ -55,8 +55,11 @@ var tool_group: ButtonGroup
 var type_group: ButtonGroup
 var color_group: ButtonGroup
 
+var menu_bar: MenuBar
+var file_menu: PopupMenu
 var save_dialog: FileDialog
 var open_dialog: FileDialog
+var import_dialog: FileDialog
 
 @onready var camera: Camera3D = $Camera3D
 
@@ -123,9 +126,27 @@ func _setup_scene() -> void:
 
 # ─── UI Panel ───
 
+const MENU_HEIGHT := 24
+
 func _setup_ui() -> void:
 	ui_layer = CanvasLayer.new()
 	add_child(ui_layer)
+
+	# Menu bar
+	menu_bar = MenuBar.new()
+	menu_bar.position = Vector2.ZERO
+	menu_bar.size = Vector2(1280, MENU_HEIGHT)
+	ui_layer.add_child(menu_bar)
+
+	file_menu = PopupMenu.new()
+	file_menu.name = "File"
+	file_menu.add_item("New", 0, KEY_MASK_CTRL | KEY_N)
+	file_menu.add_item("Open...", 1, KEY_MASK_CTRL | KEY_O)
+	file_menu.add_item("Save", 2, KEY_MASK_CTRL | KEY_S)
+	file_menu.add_separator()
+	file_menu.add_item("Import PNG...", 3, KEY_MASK_CTRL | KEY_I)
+	file_menu.id_pressed.connect(_on_file_menu)
+	menu_bar.add_child(file_menu)
 
 	var panel_style := StyleBoxFlat.new()
 	panel_style.bg_color = Color(0.12, 0.12, 0.15, 0.92)
@@ -136,8 +157,8 @@ func _setup_ui() -> void:
 
 	panel = PanelContainer.new()
 	panel.add_theme_stylebox_override("panel", panel_style)
-	panel.position = Vector2.ZERO
-	panel.custom_minimum_size = Vector2(PANEL_WIDTH, 720)
+	panel.position = Vector2(0, MENU_HEIGHT)
+	panel.custom_minimum_size = Vector2(PANEL_WIDTH, 720 - MENU_HEIGHT)
 	ui_layer.add_child(panel)
 
 	var vbox := VBoxContainer.new()
@@ -271,7 +292,7 @@ func _setup_ui() -> void:
 	var help := Label.new()
 	help.position = Vector2(PANEL_WIDTH + 10, 690)
 	help.add_theme_font_size_override("font_size", 11)
-	help.text = "Ctrl+S: Save | Ctrl+O: Open | Ctrl+N: New | Up/Down: Floor | Esc: Cancel"
+	help.text = "Up/Down: Floor | Tab: Toggle Type | Q/E: Rotate Prism | Esc: Cancel"
 	ui_layer.add_child(help)
 
 	# File dialogs
@@ -292,6 +313,15 @@ func _setup_ui() -> void:
 	open_dialog.size = Vector2i(700, 500)
 	open_dialog.file_selected.connect(_on_open_file_selected)
 	add_child(open_dialog)
+
+	import_dialog = FileDialog.new()
+	import_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
+	import_dialog.access = FileDialog.ACCESS_FILESYSTEM
+	import_dialog.add_filter("*.png ; PNG Image")
+	import_dialog.title = "Import PNG as Face"
+	import_dialog.size = Vector2i(700, 500)
+	import_dialog.file_selected.connect(_on_import_file_selected)
+	add_child(import_dialog)
 
 func _add_section_label(parent: VBoxContainer, text: String) -> void:
 	var lbl := Label.new()
@@ -317,6 +347,13 @@ func _add_button_row(parent: VBoxContainer, names: Array, group: ButtonGroup) ->
 	return buttons
 
 # ─── Panel Callbacks ───
+
+func _on_file_menu(id: int) -> void:
+	match id:
+		0: _new()
+		1: _open()
+		2: _save()
+		3: _import_png()
 
 func _on_mode_pressed(btn: BaseButton) -> void:
 	if btn.text == "Block":
@@ -395,6 +432,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				KEY_S: _save(); get_viewport().set_input_as_handled(); return
 				KEY_O: _open(); get_viewport().set_input_as_handled(); return
 				KEY_N: _new(); get_viewport().set_input_as_handled(); return
+				KEY_I: _import_png(); get_viewport().set_input_as_handled(); return
 
 		match event.keycode:
 			KEY_TAB:
@@ -461,7 +499,7 @@ func _update_raycast() -> void:
 		return
 
 	var mouse_pos := get_viewport().get_mouse_position()
-	if mouse_pos.x < PANEL_WIDTH:
+	if mouse_pos.x < PANEL_WIDTH or mouse_pos.y < MENU_HEIGHT:
 		return
 
 	var from := camera.project_ray_origin(mouse_pos)
@@ -902,6 +940,43 @@ func _on_save_file_selected(path: String) -> void:
 
 func _on_open_file_selected(path: String) -> void:
 	_load_from_path(path)
+
+func _import_png() -> void:
+	import_dialog.popup_centered()
+
+func _on_import_file_selected(path: String) -> void:
+	var image := Image.new()
+	if image.load(path) != OK:
+		return
+
+	if image.get_width() != grid_x or image.get_height() != grid_y:
+		image.resize(grid_x, grid_y, Image.INTERPOLATE_NEAREST)
+
+	for px in range(image.get_width()):
+		for py in range(image.get_height()):
+			var color := image.get_pixel(px, py)
+			if color.a < 0.5:
+				continue
+			var cell_x := px
+			var cell_y := grid_y - 1 - py
+			if cell_x >= 0 and cell_x < grid_x and cell_y >= 0 and cell_y < grid_y:
+				cells[cell_x][cell_y][0] = [CellTypes.Type.SOLID, 0, _find_nearest_palette_color(color)]
+
+	_rebuild_mesh()
+
+func _find_nearest_palette_color(color: Color) -> int:
+	var best_idx := 0
+	var best_dist := INF
+	for i in range(CellTypes.PALETTE.size()):
+		var p: Color = CellTypes.PALETTE[i]
+		var dr := color.r - p.r
+		var dg := color.g - p.g
+		var db := color.b - p.b
+		var dist := dr * dr + dg * dg + db * db
+		if dist < best_dist:
+			best_dist = dist
+			best_idx = i
+	return best_idx
 
 func _load_from_path(path: String) -> void:
 	if not ResourceLoader.exists(path):
