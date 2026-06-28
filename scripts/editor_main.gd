@@ -62,6 +62,9 @@ var view_cube: Control
 var save_dialog: FileDialog
 var open_dialog: FileDialog
 var import_dialog: FileDialog
+var import_front_dialog: FileDialog
+var import_side_dialog: FileDialog
+var _front_image: Image
 
 @onready var camera: Camera3D = $Camera3D
 
@@ -151,6 +154,7 @@ func _setup_ui() -> void:
 	file_menu.add_item("Save", 2, KEY_MASK_CTRL | KEY_S)
 	file_menu.add_separator()
 	file_menu.add_item("Import PNG...", 3, KEY_MASK_CTRL | KEY_I)
+	file_menu.add_item("Import Character Sprites...", 4)
 	file_menu.id_pressed.connect(_on_file_menu)
 	menu_bar.add_child(file_menu)
 
@@ -337,6 +341,24 @@ func _setup_ui() -> void:
 	import_dialog.file_selected.connect(_on_import_file_selected)
 	add_child(import_dialog)
 
+	import_front_dialog = FileDialog.new()
+	import_front_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
+	import_front_dialog.access = FileDialog.ACCESS_FILESYSTEM
+	import_front_dialog.add_filter("*.png ; PNG Image")
+	import_front_dialog.title = "Import Front Sprite (facing camera)"
+	import_front_dialog.size = Vector2i(700, 500)
+	import_front_dialog.file_selected.connect(_on_front_sprite_selected)
+	add_child(import_front_dialog)
+
+	import_side_dialog = FileDialog.new()
+	import_side_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
+	import_side_dialog.access = FileDialog.ACCESS_FILESYSTEM
+	import_side_dialog.add_filter("*.png ; PNG Image")
+	import_side_dialog.title = "Import Side Sprite (profile view)"
+	import_side_dialog.size = Vector2i(700, 500)
+	import_side_dialog.file_selected.connect(_on_side_sprite_selected)
+	add_child(import_side_dialog)
+
 func _add_section_label(parent: VBoxContainer, text: String) -> void:
 	var lbl := Label.new()
 	lbl.text = text
@@ -374,6 +396,7 @@ func _on_file_menu(id: int) -> void:
 		1: _open()
 		2: _save()
 		3: _import_png()
+		4: _import_character_sprites()
 
 func _on_mode_pressed(btn: BaseButton) -> void:
 	if btn.text == "Block":
@@ -1162,6 +1185,52 @@ func _on_import_file_selected(path: String) -> void:
 			var cell_y := grid_y - 1 - py
 			if cell_x >= 0 and cell_x < grid_x and cell_y >= 0 and cell_y < grid_y:
 				cells[cell_x][cell_y][0] = [CellTypes.Type.SOLID, 0, _find_nearest_palette_color(color)]
+
+	_rebuild_mesh()
+
+func _import_character_sprites() -> void:
+	if edit_mode != EditMode.CHARACTER:
+		_set_edit_mode(EditMode.CHARACTER)
+		var buttons := mode_group.get_buttons()
+		buttons[1].button_pressed = true
+	_front_image = null
+	import_front_dialog.popup_centered()
+
+func _on_front_sprite_selected(path: String) -> void:
+	_front_image = Image.new()
+	if _front_image.load(path) != OK:
+		_front_image = null
+		return
+	import_side_dialog.popup_centered()
+
+func _on_side_sprite_selected(path: String) -> void:
+	if _front_image == null:
+		return
+	var side_image := Image.new()
+	if side_image.load(path) != OK:
+		return
+
+	var front := _front_image
+	_front_image = null
+
+	if front.get_width() != grid_x or front.get_height() != grid_y:
+		front.resize(grid_x, grid_y, Image.INTERPOLATE_NEAREST)
+	if side_image.get_width() != grid_z or side_image.get_height() != grid_y:
+		side_image.resize(grid_z, grid_y, Image.INTERPOLATE_NEAREST)
+
+	_init_cells()
+
+	for x in range(grid_x):
+		for y in range(grid_y):
+			var front_pixel := front.get_pixel(x, grid_y - 1 - y)
+			var front_opaque := front_pixel.a >= 0.5
+			if not front_opaque:
+				continue
+			var color_idx := _find_nearest_palette_color(front_pixel)
+			for z in range(grid_z):
+				var side_pixel := side_image.get_pixel(z, grid_y - 1 - y)
+				if side_pixel.a >= 0.5:
+					cells[x][y][z] = [CellTypes.Type.SOLID, 0, color_idx]
 
 	_rebuild_mesh()
 
