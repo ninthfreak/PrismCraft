@@ -19,6 +19,8 @@ var current_orientation: int = 0
 var current_color: int = 0
 var current_file_path := ""
 var floor_y: int = 0
+var _unsaved_changes := false
+var _pending_action := ""
 
 var box_start := Vector3i(-1, -1, -1)
 var box_active := false
@@ -57,9 +59,15 @@ var color_group: ButtonGroup
 
 var menu_bar: MenuBar
 var file_menu: PopupMenu
+var view_cube: Control
+
 var save_dialog: FileDialog
 var open_dialog: FileDialog
 var import_dialog: FileDialog
+var import_front_dialog: FileDialog
+var import_side_dialog: FileDialog
+var confirm_dialog: ConfirmationDialog
+var _front_image: Image
 
 @onready var camera: Camera3D = $Camera3D
 
@@ -73,6 +81,10 @@ func _ready() -> void:
 	_rebuild_grid()
 	_center_camera()
 	_generate_presets()
+
+func _process(_delta: float) -> void:
+	if camera and view_cube:
+		view_cube.set_orientation(camera.yaw, camera.pitch)
 
 func _generate_presets() -> void:
 	DirAccess.make_dir_recursive_absolute("res://definitions")
@@ -145,6 +157,7 @@ func _setup_ui() -> void:
 	file_menu.add_item("Save", 2, KEY_MASK_CTRL | KEY_S)
 	file_menu.add_separator()
 	file_menu.add_item("Import PNG...", 3, KEY_MASK_CTRL | KEY_I)
+	file_menu.add_item("Import Character Sprites...", 4)
 	file_menu.id_pressed.connect(_on_file_menu)
 	menu_bar.add_child(file_menu)
 
@@ -296,6 +309,13 @@ func _setup_ui() -> void:
 	help.text = "Up/Down: Floor | Tab: Toggle Type | Q/E: Rotate Prism | Esc: Cancel"
 	ui_layer.add_child(help)
 
+	# View cube
+	view_cube = preload("res://scripts/view_cube.gd").new()
+	view_cube.position = Vector2(1280 - 110, MENU_HEIGHT + 10)
+	view_cube.size = Vector2(100, 100)
+	view_cube.view_changed.connect(_on_view_cube_changed)
+	ui_layer.add_child(view_cube)
+
 	# File dialogs
 	save_dialog = FileDialog.new()
 	save_dialog.file_mode = FileDialog.FILE_MODE_SAVE_FILE
@@ -324,6 +344,34 @@ func _setup_ui() -> void:
 	import_dialog.file_selected.connect(_on_import_file_selected)
 	add_child(import_dialog)
 
+	import_front_dialog = FileDialog.new()
+	import_front_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
+	import_front_dialog.access = FileDialog.ACCESS_FILESYSTEM
+	import_front_dialog.add_filter("*.png ; PNG Image")
+	import_front_dialog.title = "Import Front Sprite (facing camera)"
+	import_front_dialog.size = Vector2i(700, 500)
+	import_front_dialog.file_selected.connect(_on_front_sprite_selected)
+	add_child(import_front_dialog)
+
+	import_side_dialog = FileDialog.new()
+	import_side_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
+	import_side_dialog.access = FileDialog.ACCESS_FILESYSTEM
+	import_side_dialog.add_filter("*.png ; PNG Image")
+	import_side_dialog.title = "Import Side Sprite (profile view)"
+	import_side_dialog.size = Vector2i(700, 500)
+	import_side_dialog.file_selected.connect(_on_side_sprite_selected)
+	add_child(import_side_dialog)
+
+	confirm_dialog = ConfirmationDialog.new()
+	confirm_dialog.title = "Unsaved Changes"
+	confirm_dialog.dialog_text = "You have unsaved changes. Do you want to save first?"
+	confirm_dialog.ok_button_text = "Discard"
+	confirm_dialog.size = Vector2i(360, 120)
+	confirm_dialog.add_button("Save", true, "save_first")
+	confirm_dialog.confirmed.connect(_on_confirm_discard)
+	confirm_dialog.custom_action.connect(_on_confirm_save_first)
+	add_child(confirm_dialog)
+
 func _add_section_label(parent: VBoxContainer, text: String) -> void:
 	var lbl := Label.new()
 	lbl.text = text
@@ -349,18 +397,32 @@ func _add_button_row(parent: VBoxContainer, names: Array, group: ButtonGroup) ->
 
 # ─── Panel Callbacks ───
 
+func _on_view_cube_changed(yaw: float, pitch: float) -> void:
+	if camera:
+		camera.yaw = yaw
+		camera.pitch = pitch
+		camera._update_transform()
+
 func _on_file_menu(id: int) -> void:
 	match id:
 		0: _new()
 		1: _open()
 		2: _save()
 		3: _import_png()
+		4: _import_character_sprites()
 
 func _on_mode_pressed(btn: BaseButton) -> void:
-	if btn.text == "Block":
-		_set_edit_mode(EditMode.BLOCK)
-	else:
-		_set_edit_mode(EditMode.CHARACTER)
+	var target_mode := EditMode.BLOCK if btn.text == "Block" else EditMode.CHARACTER
+	if target_mode == edit_mode:
+		return
+	if _unsaved_changes:
+		_pending_action = "mode_block" if target_mode == EditMode.BLOCK else "mode_character"
+		var buttons := mode_group.get_buttons()
+		buttons[0].button_pressed = edit_mode == EditMode.BLOCK
+		buttons[1].button_pressed = edit_mode == EditMode.CHARACTER
+		confirm_dialog.popup_centered()
+		return
+	_do_set_edit_mode(target_mode)
 
 func _on_tool_pressed(btn: BaseButton) -> void:
 	match btn.text:
@@ -407,12 +469,20 @@ func _set_floor(y: int) -> void:
 func _set_edit_mode(mode: int) -> void:
 	if mode == edit_mode:
 		return
+	if _unsaved_changes:
+		_pending_action = "mode_block" if mode == EditMode.BLOCK else "mode_character"
+		confirm_dialog.popup_centered()
+		return
+	_do_set_edit_mode(mode)
+
+func _do_set_edit_mode(mode: int) -> void:
 	edit_mode = mode
 	if edit_mode == EditMode.BLOCK:
 		grid_x = 32; grid_y = 32; grid_z = 32
 	else:
 		grid_x = 64; grid_y = 128; grid_z = 64
 	current_file_path = ""
+	_unsaved_changes = false
 	place_cell = Vector3i(-1, -1, -1)
 	target_cell = Vector3i(-1, -1, -1)
 	cursor_mesh_instance.visible = false
@@ -509,6 +579,8 @@ func _update_raycast() -> void:
 	var mouse_pos := get_viewport().get_mouse_position()
 	if mouse_pos.x < PANEL_WIDTH or mouse_pos.y < MENU_HEIGHT:
 		return
+	if view_cube and Rect2(view_cube.position, view_cube.size).has_point(mouse_pos):
+		return
 
 	var from := camera.project_ray_origin(mouse_pos)
 	var dir := camera.project_ray_normal(mouse_pos)
@@ -582,6 +654,7 @@ func _on_left_click() -> void:
 		ToolType.PENCIL:
 			if _in_bounds(place_cell):
 				cells[place_cell.x][place_cell.y][place_cell.z] = [current_type, current_orientation, current_color]
+				_mark_dirty()
 				_rebuild_mesh()
 		ToolType.BOX:
 			if not box_active:
@@ -595,6 +668,7 @@ func _on_left_click() -> void:
 		ToolType.ERASER:
 			if _in_bounds(target_cell) and cells[target_cell.x][target_cell.y][target_cell.z][0] != CellTypes.Type.EMPTY:
 				cells[target_cell.x][target_cell.y][target_cell.z] = [CellTypes.Type.EMPTY, 0, 0]
+				_mark_dirty()
 				_rebuild_mesh()
 		ToolType.BOX_ERASE:
 			if not box_active:
@@ -621,6 +695,7 @@ func _on_left_click() -> void:
 						ToolType.OVAL: shape_cells = _get_oval_cells(box_start, floor_cell, constrain)
 					for cell in shape_cells:
 						cells[cell.x][cell.y][cell.z] = [current_type, current_orientation, current_color]
+					_mark_dirty()
 					_rebuild_mesh()
 				_cancel_box()
 
@@ -724,6 +799,7 @@ func _extrude_finish() -> void:
 	mat.albedo_color = Color(1, 1, 0, 0.6)
 
 	if did_change:
+		_mark_dirty()
 		_rebuild_mesh()
 
 func _find_coplanar_surface(start: Vector3i, normal: Vector3i) -> Array:
@@ -820,6 +896,7 @@ func _fill_region(a: Vector3i, b: Vector3i, cell_type: int, orientation: int, co
 		for y in range(maxi(0, mn.y), mini(grid_y, mx.y + 1)):
 			for z in range(maxi(0, mn.z), mini(grid_z, mx.z + 1)):
 				cells[x][y][z] = [cell_type, orientation, color_idx]
+	_mark_dirty()
 	_rebuild_mesh()
 
 func _clear_region(a: Vector3i, b: Vector3i) -> void:
@@ -829,6 +906,7 @@ func _clear_region(a: Vector3i, b: Vector3i) -> void:
 		for y in range(maxi(0, mn.y), mini(grid_y, mx.y + 1)):
 			for z in range(maxi(0, mn.z), mini(grid_z, mx.z + 1)):
 				cells[x][y][z] = [CellTypes.Type.EMPTY, 0, 0]
+	_mark_dirty()
 	_rebuild_mesh()
 
 # ─── Shape Tools ───
@@ -1092,16 +1170,28 @@ func _save() -> void:
 		_save_to_path(current_file_path)
 
 func _open() -> void:
+	if _unsaved_changes:
+		_pending_action = "open"
+		confirm_dialog.popup_centered()
+		return
 	open_dialog.current_dir = "res://definitions"
 	open_dialog.popup_centered()
 
 func _new() -> void:
+	if _unsaved_changes:
+		_pending_action = "new"
+		confirm_dialog.popup_centered()
+		return
+	_do_new()
+
+func _do_new() -> void:
 	current_file_path = ""
 	_cancel_box()
 	place_cell = Vector3i(-1, -1, -1)
 	target_cell = Vector3i(-1, -1, -1)
 	cursor_mesh_instance.visible = false
 	_init_cells()
+	_unsaved_changes = false
 	_rebuild_mesh()
 	_update_file_label()
 
@@ -1111,12 +1201,15 @@ func _save_to_path(path: String) -> void:
 	def.set_from_cells(cells, grid_x, grid_y, grid_z, edit_mode)
 	if ResourceSaver.save(def, path) == OK:
 		current_file_path = path
+		_unsaved_changes = false
 		_update_file_label()
 
 func _on_save_file_selected(path: String) -> void:
 	if not path.ends_with(".tres"):
 		path += ".tres"
 	_save_to_path(path)
+	if not _pending_action.is_empty():
+		_execute_pending_action()
 
 func _on_open_file_selected(path: String) -> void:
 	_load_from_path(path)
@@ -1142,6 +1235,61 @@ func _on_import_file_selected(path: String) -> void:
 			if cell_x >= 0 and cell_x < grid_x and cell_y >= 0 and cell_y < grid_y:
 				cells[cell_x][cell_y][0] = [CellTypes.Type.SOLID, 0, _find_nearest_palette_color(color)]
 
+	_mark_dirty()
+	_rebuild_mesh()
+
+func _import_character_sprites() -> void:
+	if _unsaved_changes:
+		_pending_action = "import_sprites"
+		confirm_dialog.popup_centered()
+		return
+	_do_import_character_sprites()
+
+func _do_import_character_sprites() -> void:
+	if edit_mode != EditMode.CHARACTER:
+		_do_set_edit_mode(EditMode.CHARACTER)
+		var buttons := mode_group.get_buttons()
+		buttons[1].button_pressed = true
+	_front_image = null
+	import_front_dialog.popup_centered()
+
+func _on_front_sprite_selected(path: String) -> void:
+	_front_image = Image.new()
+	if _front_image.load(path) != OK:
+		_front_image = null
+		return
+	import_side_dialog.popup_centered()
+
+func _on_side_sprite_selected(path: String) -> void:
+	if _front_image == null:
+		return
+	var side_image := Image.new()
+	if side_image.load(path) != OK:
+		return
+
+	var front := _front_image
+	_front_image = null
+
+	if front.get_width() != grid_x or front.get_height() != grid_y:
+		front.resize(grid_x, grid_y, Image.INTERPOLATE_NEAREST)
+	if side_image.get_width() != grid_z or side_image.get_height() != grid_y:
+		side_image.resize(grid_z, grid_y, Image.INTERPOLATE_NEAREST)
+
+	_init_cells()
+
+	for x in range(grid_x):
+		for y in range(grid_y):
+			var front_pixel := front.get_pixel(x, grid_y - 1 - y)
+			var front_opaque := front_pixel.a >= 0.5
+			if not front_opaque:
+				continue
+			var color_idx := _find_nearest_palette_color(front_pixel)
+			for z in range(grid_z):
+				var side_pixel := side_image.get_pixel(z, grid_y - 1 - y)
+				if side_pixel.a >= 0.5:
+					cells[x][y][z] = [CellTypes.Type.SOLID, 0, color_idx]
+
+	_mark_dirty()
 	_rebuild_mesh()
 
 func _find_nearest_palette_color(color: Color) -> int:
@@ -1170,6 +1318,7 @@ func _load_from_path(path: String) -> void:
 	grid_z = def.grid_z
 	cells = def.to_cells()
 	current_file_path = path
+	_unsaved_changes = false
 	_cancel_box()
 	place_cell = Vector3i(-1, -1, -1)
 	target_cell = Vector3i(-1, -1, -1)
@@ -1187,7 +1336,53 @@ func _load_from_path(path: String) -> void:
 	_update_file_label()
 
 func _update_file_label() -> void:
-	file_label.text = "File: " + (current_file_path.get_file() if not current_file_path.is_empty() else "(unsaved)")
+	var name := current_file_path.get_file() if not current_file_path.is_empty() else "(unsaved)"
+	file_label.text = "File: " + name + (" *" if _unsaved_changes else "")
+
+func _mark_dirty() -> void:
+	if not _unsaved_changes:
+		_unsaved_changes = true
+		_update_file_label()
+
+func _on_confirm_discard() -> void:
+	_unsaved_changes = false
+	_execute_pending_action()
+
+func _on_confirm_save_first(_action: StringName) -> void:
+	confirm_dialog.hide()
+	if current_file_path.is_empty():
+		save_dialog.current_dir = "res://definitions"
+		save_dialog.popup_centered()
+	else:
+		_save_to_path(current_file_path)
+		_execute_pending_action()
+
+func _execute_pending_action() -> void:
+	var action := _pending_action
+	_pending_action = ""
+	match action:
+		"new": _do_new()
+		"open":
+			open_dialog.current_dir = "res://definitions"
+			open_dialog.popup_centered()
+		"mode_block":
+			_do_set_edit_mode(EditMode.BLOCK)
+			var buttons := mode_group.get_buttons()
+			buttons[0].button_pressed = true
+		"mode_character":
+			_do_set_edit_mode(EditMode.CHARACTER)
+			var buttons := mode_group.get_buttons()
+			buttons[1].button_pressed = true
+		"import_sprites": _do_import_character_sprites()
+		"quit": get_tree().quit()
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST:
+		if _unsaved_changes:
+			_pending_action = "quit"
+			confirm_dialog.popup_centered()
+		else:
+			get_tree().quit()
 
 # ─── Mesh Building ───
 
