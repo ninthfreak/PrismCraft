@@ -27,13 +27,16 @@ var _undo_stack: Array = []
 const MAX_UNDO := 50
 var _mirror_x := false
 var _mirror_z := false
-var _center_draw := false
+var _center_draw := 0  # 0=off, 1=voxel center, 2=joint center
 var _show_axis_overlay := false
 var axis_overlay_x: MeshInstance3D
 var axis_overlay_z: MeshInstance3D
 var mirror_cursor_instance: MeshInstance3D
+var center_joint_marker: MeshInstance3D
 var _rect_btn: Button
 var _oval_btn: Button
+var _floor_hit_pos := Vector3.ZERO
+var _joint_center := Vector2i(-1, -1)
 
 var box_start := Vector3i(-1, -1, -1)
 var box_active := false
@@ -201,6 +204,15 @@ func _setup_scene() -> void:
 	mirror_cursor_instance = MeshInstance3D.new()
 	add_child(mirror_cursor_instance)
 	mirror_cursor_instance.visible = false
+
+	center_joint_marker = MeshInstance3D.new()
+	add_child(center_joint_marker)
+	center_joint_marker.visible = false
+	var jm_mat := StandardMaterial3D.new()
+	jm_mat.albedo_color = Color(1, 1, 0, 0.8)
+	jm_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	jm_mat.no_depth_test = true
+	center_joint_marker.material_override = jm_mat
 
 # ─── UI Panel ───
 
@@ -626,9 +638,91 @@ func _rebuild_axis_overlay() -> void:
 
 func _on_shape_btn_gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
-		_center_draw = not _center_draw
-		_rect_btn.text = "Rect (C)" if _center_draw else "Rect"
-		_oval_btn.text = "Oval (C)" if _center_draw else "Oval"
+		_center_draw = (_center_draw + 1) % 3
+		var suffix := ""
+		match _center_draw:
+			1: suffix = " (C)"
+			2: suffix = " (J)"
+		_rect_btn.text = "Rect" + suffix
+		_oval_btn.text = "Oval" + suffix
+		center_joint_marker.visible = false
+
+func _compute_center_draw(center: Vector3i, end_cell: Vector3i, constrain: bool) -> Array:
+	if _center_draw == 0 or not current_tool in [ToolType.RECT, ToolType.OVAL]:
+		return [center, end_cell, constrain]
+
+	if _center_draw == 1:
+		var dx := absi(end_cell.x - center.x)
+		var dz := absi(end_cell.z - center.z)
+		if constrain:
+			var r := maxi(dx, dz)
+			dx = r
+			dz = r
+		var start := Vector3i(center.x - dx, floor_y, center.z - dz)
+		var end := Vector3i(center.x + dx, floor_y, center.z + dz)
+		return [start, end, false]
+
+	# Joint center mode (_center_draw == 2)
+	var jx := _joint_center.x
+	var jz := _joint_center.y
+	var dx: int
+	var dz: int
+	if end_cell.x >= jx:
+		dx = end_cell.x - jx + 1
+	else:
+		dx = jx - end_cell.x
+	if end_cell.z >= jz:
+		dz = end_cell.z - jz + 1
+	else:
+		dz = jz - end_cell.z
+	if constrain:
+		var r := maxi(dx, dz)
+		dx = r
+		dz = r
+	var start := Vector3i(jx - dx, floor_y, jz - dz)
+	var end := Vector3i(jx + dx - 1, floor_y, jz + dz - 1)
+	return [start, end, false]
+
+func _compute_joint_center(cell: Vector3i) -> Vector2i:
+	var local_x := _floor_hit_pos.x / CELL_SIZE - cell.x
+	var local_z := _floor_hit_pos.z / CELL_SIZE - cell.z
+	var jx := cell.x if local_x < 0.5 else cell.x + 1
+	var jz := cell.z if local_z < 0.5 else cell.z + 1
+	return Vector2i(jx, jz)
+
+func _update_joint_marker() -> void:
+	if _center_draw != 2 or not current_tool in [ToolType.RECT, ToolType.OVAL]:
+		center_joint_marker.visible = false
+		if not box_active:
+			_joint_center = Vector2i(-1, -1)
+		return
+
+	if box_active:
+		center_joint_marker.visible = false
+		return
+
+	var cell := place_cell
+	if not _in_bounds(cell):
+		center_joint_marker.visible = false
+		return
+
+	_joint_center = _compute_joint_center(cell)
+	var jx_world := _joint_center.x * CELL_SIZE
+	var jz_world := _joint_center.y * CELL_SIZE
+	var jy_world := float(floor_y) * CELL_SIZE
+
+	var im := ImmediateMesh.new()
+	var arm := CELL_SIZE * 0.4
+	im.surface_begin(Mesh.PRIMITIVE_LINES)
+	im.surface_add_vertex(Vector3(jx_world - arm, jy_world + 0.001, jz_world))
+	im.surface_add_vertex(Vector3(jx_world + arm, jy_world + 0.001, jz_world))
+	im.surface_add_vertex(Vector3(jx_world, jy_world + 0.001, jz_world - arm))
+	im.surface_add_vertex(Vector3(jx_world, jy_world + 0.001, jz_world + arm))
+	im.surface_add_vertex(Vector3(jx_world, jy_world - arm, jz_world))
+	im.surface_add_vertex(Vector3(jx_world, jy_world + arm, jz_world))
+	im.surface_end()
+	center_joint_marker.mesh = im
+	center_joint_marker.visible = not box_active
 
 func _mirror_pos_x(pos: Vector3i) -> Vector3i:
 	return Vector3i(grid_x - 1 - pos.x, pos.y, pos.z)
@@ -961,6 +1055,7 @@ func _update_raycast() -> void:
 		if t > 0:
 			floor_dist = t * dir.length()
 			var hit := from + dir * t
+			_floor_hit_pos = hit
 			var fc := _world_to_cell(hit)
 			fc.y = floor_y
 			if _in_bounds(fc):
@@ -986,6 +1081,7 @@ func _update_raycast() -> void:
 		mirror_cursor_instance.visible = false
 		coord_label.text = ""
 
+	_update_joint_marker()
 	_update_box_preview()
 
 func _world_to_cell(world_pos: Vector3) -> Vector3i:
@@ -1037,20 +1133,19 @@ func _on_left_click() -> void:
 			if not box_active:
 				if _in_bounds(floor_cell):
 					box_start = floor_cell
+					if _center_draw == 2 and current_tool in [ToolType.RECT, ToolType.OVAL]:
+						_joint_center = _compute_joint_center(floor_cell)
 					box_active = true
 			else:
 				if _in_bounds(floor_cell):
 					_push_undo()
 					var constrain := Input.is_key_pressed(KEY_SHIFT)
-					var draw_start := box_start
-					var draw_end := floor_cell
-					if _center_draw and current_tool in [ToolType.RECT, ToolType.OVAL]:
-						draw_start = Vector3i(2 * box_start.x - floor_cell.x, floor_y, 2 * box_start.z - floor_cell.z)
+					var result := _compute_center_draw(box_start, floor_cell, constrain)
 					var shape_cells: Array
 					match current_tool:
-						ToolType.LINE: shape_cells = _get_line_cells(draw_start, draw_end, constrain)
-						ToolType.RECT: shape_cells = _get_rect_cells(draw_start, draw_end, constrain)
-						ToolType.OVAL: shape_cells = _get_oval_cells(draw_start, draw_end, constrain)
+						ToolType.LINE: shape_cells = _get_line_cells(result[0], result[1], result[2])
+						ToolType.RECT: shape_cells = _get_rect_cells(result[0], result[1], result[2])
+						ToolType.OVAL: shape_cells = _get_oval_cells(result[0], result[1], result[2])
 					for cell in shape_cells:
 						_place_with_mirror(cell, current_type, current_orientation, current_color)
 					_mark_dirty()
@@ -1064,6 +1159,7 @@ func _on_right_click() -> void:
 func _cancel_box() -> void:
 	box_active = false
 	box_start = Vector3i(-1, -1, -1)
+	_joint_center = Vector2i(-1, -1)
 	if not extrude_active and not smooth_active:
 		box_preview_instance.visible = false
 
@@ -1722,15 +1818,12 @@ func _update_box_preview() -> void:
 
 	if current_tool in [ToolType.LINE, ToolType.RECT, ToolType.OVAL]:
 		var constrain := Input.is_key_pressed(KEY_SHIFT)
-		var draw_start := box_start
-		var draw_end := end_cell
-		if _center_draw and current_tool in [ToolType.RECT, ToolType.OVAL]:
-			draw_start = Vector3i(2 * box_start.x - end_cell.x, floor_y, 2 * box_start.z - end_cell.z)
+		var result := _compute_center_draw(box_start, end_cell, constrain)
 		var shape_cells: Array
 		match current_tool:
-			ToolType.LINE: shape_cells = _get_line_cells(draw_start, draw_end, constrain)
-			ToolType.RECT: shape_cells = _get_rect_cells(draw_start, draw_end, constrain)
-			ToolType.OVAL: shape_cells = _get_oval_cells(draw_start, draw_end, constrain)
+			ToolType.LINE: shape_cells = _get_line_cells(result[0], result[1], result[2])
+			ToolType.RECT: shape_cells = _get_rect_cells(result[0], result[1], result[2])
+			ToolType.OVAL: shape_cells = _get_oval_cells(result[0], result[1], result[2])
 		_draw_shape_preview(shape_cells)
 		return
 
