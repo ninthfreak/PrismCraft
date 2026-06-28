@@ -94,6 +94,7 @@ var preview_light_container: VBoxContainer
 var save_dialog: FileDialog
 var open_dialog: FileDialog
 var import_dialog: FileDialog
+var import_block_dialog: FileDialog
 var import_front_dialog: FileDialog
 var import_side_dialog: FileDialog
 var confirm_dialog: ConfirmationDialog
@@ -236,6 +237,7 @@ func _setup_ui() -> void:
 	file_menu.add_item("Save", 2, KEY_MASK_CTRL | KEY_S)
 	file_menu.add_separator()
 	file_menu.add_item("Import PNG...", 3, KEY_MASK_CTRL | KEY_I)
+	file_menu.add_item("Import Block Texture...", 5)
 	file_menu.add_item("Import Character Sprites...", 4)
 	file_menu.id_pressed.connect(_on_file_menu)
 
@@ -489,6 +491,15 @@ func _setup_ui() -> void:
 	import_dialog.size = Vector2i(700, 500)
 	import_dialog.file_selected.connect(_on_import_file_selected)
 	add_child(import_dialog)
+
+	import_block_dialog = FileDialog.new()
+	import_block_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
+	import_block_dialog.access = FileDialog.ACCESS_FILESYSTEM
+	import_block_dialog.add_filter("*.png ; PNG Image")
+	import_block_dialog.title = "Import Block Texture"
+	import_block_dialog.size = Vector2i(700, 500)
+	import_block_dialog.file_selected.connect(_on_block_texture_selected)
+	add_child(import_block_dialog)
 
 	import_front_dialog = FileDialog.new()
 	import_front_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
@@ -847,6 +858,7 @@ func _on_file_menu(id: int) -> void:
 		2: _save()
 		3: _import_png()
 		4: _import_character_sprites()
+		5: _import_block_texture()
 
 func _on_mode_pressed(btn: BaseButton) -> void:
 	var target_mode := EditMode.BLOCK if btn.text == "Block" else EditMode.CHARACTER
@@ -1971,6 +1983,115 @@ func _on_import_file_selected(path: String) -> void:
 	_mark_dirty()
 	_rebuild_mesh()
 
+func _import_block_texture() -> void:
+	if _unsaved_changes:
+		_pending_action = "import_block"
+		confirm_dialog.popup_centered()
+		return
+	_do_import_block_texture()
+
+func _do_import_block_texture() -> void:
+	if edit_mode != EditMode.BLOCK:
+		_do_set_edit_mode(EditMode.BLOCK)
+		var buttons := mode_group.get_buttons()
+		buttons[0].button_pressed = true
+	import_block_dialog.popup_centered()
+
+func _on_block_texture_selected(path: String) -> void:
+	var image := Image.new()
+	if image.load(path) != OK:
+		return
+
+	if image.get_width() != grid_x or image.get_height() != grid_y:
+		image.resize(grid_x, grid_y, Image.INTERPOLATE_NEAREST)
+
+	var color_map: Array = []
+	color_map.resize(grid_x)
+	var color_counts := {}
+	for u in range(grid_x):
+		color_map[u] = []
+		color_map[u].resize(grid_y)
+		for v in range(grid_y):
+			var pixel := image.get_pixel(u, v)
+			if pixel.a < 0.5:
+				color_map[u][v] = -1
+			else:
+				var idx := _find_nearest_palette_color(pixel)
+				color_map[u][v] = idx
+				color_counts[idx] = color_counts.get(idx, 0) + 1
+
+	var fill_color := 0
+	var best_count := 0
+	for idx in color_counts:
+		if color_counts[idx] > best_count:
+			best_count = color_counts[idx]
+			fill_color = idx
+
+	_push_undo()
+	_init_cells()
+
+	for x in range(grid_x):
+		for y in range(grid_y):
+			for z in range(grid_z):
+				cells[x][y][z] = [CellTypes.Type.SOLID, 0, fill_color]
+
+	# Front face (+Z, z=gz-1) — viewed from +Z
+	for u in range(grid_x):
+		for v in range(grid_y):
+			var ci: int = color_map[u][v]
+			if ci == -1:
+				cells[u][grid_y - 1 - v][grid_z - 1] = [CellTypes.Type.EMPTY, 0, 0]
+			else:
+				cells[u][grid_y - 1 - v][grid_z - 1][2] = ci
+
+	# Back face (-Z, z=0) — viewed from -Z
+	for u in range(grid_x):
+		for v in range(grid_y):
+			var ci: int = color_map[u][v]
+			if ci == -1:
+				cells[grid_x - 1 - u][grid_y - 1 - v][0] = [CellTypes.Type.EMPTY, 0, 0]
+			else:
+				cells[grid_x - 1 - u][grid_y - 1 - v][0][2] = ci
+
+	# Right face (+X, x=gx-1) — viewed from +X
+	for u in range(grid_z):
+		for v in range(grid_y):
+			var ci: int = color_map[u][v]
+			if ci == -1:
+				cells[grid_x - 1][grid_y - 1 - v][grid_z - 1 - u] = [CellTypes.Type.EMPTY, 0, 0]
+			else:
+				cells[grid_x - 1][grid_y - 1 - v][grid_z - 1 - u][2] = ci
+
+	# Left face (-X, x=0) — viewed from -X
+	for u in range(grid_z):
+		for v in range(grid_y):
+			var ci: int = color_map[u][v]
+			if ci == -1:
+				cells[0][grid_y - 1 - v][u] = [CellTypes.Type.EMPTY, 0, 0]
+			else:
+				cells[0][grid_y - 1 - v][u][2] = ci
+
+	# Top face (+Y, y=gy-1) — viewed from above
+	for u in range(grid_x):
+		for v in range(grid_z):
+			var ci: int = color_map[u][v]
+			if ci == -1:
+				cells[u][grid_y - 1][v] = [CellTypes.Type.EMPTY, 0, 0]
+			else:
+				cells[u][grid_y - 1][v][2] = ci
+
+	# Bottom face (-Y, y=0) — viewed from below
+	for u in range(grid_x):
+		for v in range(grid_z):
+			var ci: int = color_map[u][v]
+			if ci == -1:
+				cells[u][0][grid_z - 1 - v] = [CellTypes.Type.EMPTY, 0, 0]
+			else:
+				cells[u][0][grid_z - 1 - v][2] = ci
+
+	_mark_dirty()
+	_rebuild_mesh()
+
 func _import_character_sprites() -> void:
 	if _unsaved_changes:
 		_pending_action = "import_sprites"
@@ -2293,6 +2414,7 @@ func _execute_pending_action() -> void:
 			var buttons := mode_group.get_buttons()
 			buttons[1].button_pressed = true
 		"import_sprites": _do_import_character_sprites()
+		"import_block": _do_import_block_texture()
 		"quit": get_tree().quit()
 
 func _notification(what: int) -> void:
