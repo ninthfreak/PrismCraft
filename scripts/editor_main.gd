@@ -1485,6 +1485,23 @@ func _on_wizard_generate() -> void:
 				if side_pixel.a >= 0.5:
 					cells[x][y][z] = [CellTypes.Type.SOLID, 0, color_idx]
 
+	# Recolor left/right surfaces from side sprite
+	for y in range(grid_y):
+		for z in range(grid_z):
+			var sz := z if flip_side else (grid_z - 1 - z)
+			var side_pixel := side.get_pixel(sz, grid_y - 1 - y)
+			if side_pixel.a < 0.5:
+				continue
+			var side_color := _find_nearest_palette_color(side_pixel)
+			for x in range(grid_x):
+				if cells[x][y][z][0] != CellTypes.Type.EMPTY:
+					cells[x][y][z][2] = side_color
+					break
+			for x in range(grid_x - 1, -1, -1):
+				if cells[x][y][z][0] != CellTypes.Type.EMPTY:
+					cells[x][y][z][2] = side_color
+					break
+
 	_ground_cells()
 	_mark_dirty()
 	_rebuild_mesh()
