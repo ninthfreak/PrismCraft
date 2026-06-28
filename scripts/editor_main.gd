@@ -1,7 +1,7 @@
 extends Node3D
 
 enum EditMode { BLOCK, CHARACTER }
-enum ToolType { PENCIL, BOX, ERASER, BOX_ERASE, EXTRUDE, LINE, RECT, OVAL }
+enum ToolType { PENCIL, BOX, ERASER, BOX_ERASE, EXTRUDE, LINE, RECT, OVAL, SMOOTH_EDGE }
 
 const CELL_RES := 32
 const CELL_SIZE := 1.0 / CELL_RES
@@ -23,6 +23,8 @@ var _unsaved_changes := false
 var _pending_action := ""
 var _preview_mode := false
 var _preview_light: DirectionalLight3D
+var _undo_stack: Array = []
+const MAX_UNDO := 50
 
 var box_start := Vector3i(-1, -1, -1)
 var box_active := false
@@ -34,6 +36,16 @@ var extrude_depth := 0
 var extrude_start_mouse := Vector2.ZERO
 var extrude_pixels_per_cell := 1.0
 var extrude_screen_dir := Vector2.ZERO
+
+var smooth_active := false
+var smooth_start := Vector3i(-1, -1, -1)
+var smooth_edge_dir := Vector3i.ZERO
+var smooth_normal_a := Vector3i.ZERO
+var smooth_normal_b := Vector3i.ZERO
+var smooth_path: Array = []
+var smooth_start_mouse := Vector2.ZERO
+var smooth_edge_screen_dir := Vector2.ZERO
+var smooth_pixels_per_cell := 1.0
 
 var place_cell := Vector3i(-1, -1, -1)
 var target_cell := Vector3i(-1, -1, -1)
@@ -61,6 +73,7 @@ var color_group: ButtonGroup
 
 var menu_bar: MenuBar
 var file_menu: PopupMenu
+var edit_menu: PopupMenu
 var view_menu: PopupMenu
 var view_cube: Control
 var preview_light_slider: HSlider
@@ -72,6 +85,8 @@ var import_dialog: FileDialog
 var import_front_dialog: FileDialog
 var import_side_dialog: FileDialog
 var confirm_dialog: ConfirmationDialog
+var smooth_dialog: ConfirmationDialog
+var smooth_depth_spin: SpinBox
 var sprite_wizard: AcceptDialog
 var _front_image: Image
 var _side_image: Image
@@ -178,6 +193,12 @@ func _setup_ui() -> void:
 
 	menu_bar.add_child(file_menu)
 
+	edit_menu = PopupMenu.new()
+	edit_menu.name = "Edit"
+	edit_menu.add_item("Undo", 0, KEY_MASK_CTRL | KEY_Z)
+	edit_menu.id_pressed.connect(_on_edit_menu)
+	menu_bar.add_child(edit_menu)
+
 	view_menu = PopupMenu.new()
 	view_menu.name = "View"
 	view_menu.add_check_item("Preview Lighting", 0)
@@ -222,7 +243,7 @@ func _setup_ui() -> void:
 	tool_group = ButtonGroup.new()
 	var tool_row1 := _add_button_row(vbox, ["Pencil", "Box Fill"], tool_group)
 	var tool_row2 := _add_button_row(vbox, ["Eraser", "Box Erase"], tool_group)
-	var _tool_row3 := _add_button_row(vbox, ["Extrude"], tool_group)
+	var _tool_row3 := _add_button_row(vbox, ["Extrude", "Smooth"], tool_group)
 	var _tool_row4 := _add_button_row(vbox, ["Line", "Rect", "Oval"], tool_group)
 	tool_row1[0].button_pressed = true
 	tool_group.pressed.connect(_on_tool_pressed)
@@ -347,7 +368,7 @@ func _setup_ui() -> void:
 	var help := Label.new()
 	help.position = Vector2(PANEL_WIDTH + 10, 690)
 	help.add_theme_font_size_override("font_size", 11)
-	help.text = "Up/Down: Floor | Tab: Toggle Type | Q/E: Rotate Prism | Esc: Cancel"
+	help.text = "Up/Down: Floor | Tab: Toggle Type | Q/E: Rotate Prism | Ctrl+Z: Undo | Esc: Cancel"
 	ui_layer.add_child(help)
 
 	# View cube
@@ -404,6 +425,7 @@ func _setup_ui() -> void:
 	add_child(import_side_dialog)
 
 	_setup_sprite_wizard()
+	_setup_smooth_dialog()
 
 	confirm_dialog = ConfirmationDialog.new()
 	confirm_dialog.title = "Unsaved Changes"
@@ -445,6 +467,10 @@ func _on_view_cube_changed(yaw: float, pitch: float) -> void:
 		camera.yaw = yaw
 		camera.pitch = pitch
 		camera._update_transform()
+
+func _on_edit_menu(id: int) -> void:
+	match id:
+		0: _undo()
 
 func _on_view_menu(id: int) -> void:
 	match id:
@@ -510,8 +536,10 @@ func _on_tool_pressed(btn: BaseButton) -> void:
 		"Line": current_tool = ToolType.LINE
 		"Rect": current_tool = ToolType.RECT
 		"Oval": current_tool = ToolType.OVAL
+		"Smooth": current_tool = ToolType.SMOOTH_EDGE
 	_cancel_box()
 	_cancel_extrude()
+	_cancel_smooth()
 
 func _on_type_pressed(btn: BaseButton) -> void:
 	if btn.text == "Solid":
@@ -553,6 +581,7 @@ func _set_edit_mode(mode: int) -> void:
 
 func _do_set_edit_mode(mode: int) -> void:
 	edit_mode = mode
+	_undo_stack.clear()
 	if edit_mode == EditMode.BLOCK:
 		grid_x = 32; grid_y = 32; grid_z = 32
 	else:
@@ -579,6 +608,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed:
 		if event.ctrl_pressed:
 			match event.keycode:
+				KEY_Z: _undo(); get_viewport().set_input_as_handled(); return
 				KEY_S: _save(); get_viewport().set_input_as_handled(); return
 				KEY_O: _open(); get_viewport().set_input_as_handled(); return
 				KEY_N: _new(); get_viewport().set_input_as_handled(); return
@@ -595,6 +625,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_ESCAPE:
 				_cancel_box()
 				_cancel_extrude()
+				_cancel_smooth()
 			KEY_1: _select_color(0)
 			KEY_2: _select_color(1)
 			KEY_3: _select_color(2)
@@ -613,11 +644,15 @@ func _unhandled_input(event: InputEvent) -> void:
 			if event.pressed:
 				if current_tool == ToolType.EXTRUDE:
 					_extrude_start(event.position)
+				elif current_tool == ToolType.SMOOTH_EDGE:
+					_smooth_edge_start(event.position)
 				else:
 					_on_left_click()
 			else:
 				if extrude_active:
 					_extrude_finish()
+				elif smooth_active:
+					_smooth_edge_finish()
 		if not event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
 			if camera and not camera.was_orbit_drag():
 				_on_right_click()
@@ -625,6 +660,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion:
 		if extrude_active:
 			_extrude_update(event.position)
+		elif smooth_active:
+			_smooth_edge_update(event.position)
 		else:
 			_update_raycast()
 
@@ -729,6 +766,7 @@ func _on_left_click() -> void:
 	match current_tool:
 		ToolType.PENCIL:
 			if _in_bounds(place_cell):
+				_push_undo()
 				cells[place_cell.x][place_cell.y][place_cell.z] = [current_type, current_orientation, current_color]
 				_mark_dirty()
 				_rebuild_mesh()
@@ -743,6 +781,7 @@ func _on_left_click() -> void:
 				_cancel_box()
 		ToolType.ERASER:
 			if _in_bounds(target_cell) and cells[target_cell.x][target_cell.y][target_cell.z][0] != CellTypes.Type.EMPTY:
+				_push_undo()
 				cells[target_cell.x][target_cell.y][target_cell.z] = [CellTypes.Type.EMPTY, 0, 0]
 				_mark_dirty()
 				_rebuild_mesh()
@@ -763,6 +802,7 @@ func _on_left_click() -> void:
 					box_active = true
 			else:
 				if _in_bounds(floor_cell):
+					_push_undo()
 					var constrain := Input.is_key_pressed(KEY_SHIFT)
 					var shape_cells: Array
 					match current_tool:
@@ -782,7 +822,7 @@ func _on_right_click() -> void:
 func _cancel_box() -> void:
 	box_active = false
 	box_start = Vector3i(-1, -1, -1)
-	if not extrude_active:
+	if not extrude_active and not smooth_active:
 		box_preview_instance.visible = false
 
 func _cancel_extrude() -> void:
@@ -791,6 +831,243 @@ func _cancel_extrude() -> void:
 	extrude_active = false
 	extrude_cells.clear()
 	extrude_depth = 0
+	box_preview_instance.visible = false
+	var mat := box_preview_instance.material_override as StandardMaterial3D
+	mat.albedo_color = Color(1, 1, 0, 0.6)
+
+func _cancel_smooth() -> void:
+	if not smooth_active:
+		return
+	smooth_active = false
+	smooth_path.clear()
+	box_preview_instance.visible = false
+	var mat := box_preview_instance.material_override as StandardMaterial3D
+	mat.albedo_color = Color(1, 1, 0, 0.6)
+
+func _smooth_edge_start(mouse_pos: Vector2) -> void:
+	if not camera or mouse_pos.x < PANEL_WIDTH:
+		return
+
+	var from := camera.project_ray_origin(mouse_pos)
+	var dir := camera.project_ray_normal(mouse_pos)
+	var space := get_world_3d().direct_space_state
+	var query := PhysicsRayQueryParameters3D.create(from, from + dir * 100.0)
+	var result := space.intersect_ray(query)
+
+	if not result:
+		return
+
+	var hit_pos: Vector3 = result["position"]
+	var hit_normal: Vector3 = result["normal"]
+	var cell := _world_to_cell(hit_pos - hit_normal * 0.01)
+
+	if not _in_bounds(cell) or cells[cell.x][cell.y][cell.z][0] != CellTypes.Type.SOLID:
+		return
+
+	var edge := _detect_edge(hit_pos, hit_normal, cell)
+	if edge.is_empty():
+		return
+
+	smooth_start = cell
+	smooth_normal_a = edge["normal_a"]
+	smooth_normal_b = edge["normal_b"]
+	smooth_edge_dir = _get_edge_direction(smooth_normal_a, smooth_normal_b)
+	smooth_active = true
+	smooth_start_mouse = mouse_pos
+
+	var world_center := Vector3(cell) * CELL_SIZE + Vector3(0.5, 0.5, 0.5) * CELL_SIZE
+	var screen_a := camera.unproject_position(world_center)
+	var screen_b := camera.unproject_position(world_center + Vector3(smooth_edge_dir) * CELL_SIZE)
+	var screen_delta := screen_b - screen_a
+	if screen_delta.length() < 0.1:
+		smooth_edge_screen_dir = Vector2.RIGHT
+		smooth_pixels_per_cell = 20.0
+	else:
+		smooth_edge_screen_dir = screen_delta.normalized()
+		smooth_pixels_per_cell = screen_delta.length()
+
+	smooth_path = [cell]
+	_draw_smooth_preview()
+
+func _smooth_edge_update(mouse_pos: Vector2) -> void:
+	var delta := mouse_pos - smooth_start_mouse
+	var projected := delta.dot(smooth_edge_screen_dir)
+	var cell_count := int(round(projected / smooth_pixels_per_cell))
+
+	if cell_count >= 0:
+		smooth_path = _trace_edge_path(smooth_start, 1, smooth_normal_a, smooth_normal_b, cell_count)
+	else:
+		smooth_path = _trace_edge_path(smooth_start, -1, smooth_normal_a, smooth_normal_b, -cell_count)
+	_draw_smooth_preview()
+
+func _smooth_edge_finish() -> void:
+	if smooth_path.is_empty():
+		_cancel_smooth()
+		return
+	smooth_active = false
+	smooth_depth_spin.value = 1
+	smooth_dialog.popup_centered()
+
+func _detect_edge(hit_pos: Vector3, hit_normal: Vector3, cell: Vector3i) -> Dictionary:
+	var n := Vector3i(int(round(hit_normal.x)), int(round(hit_normal.y)), int(round(hit_normal.z)))
+	var cell_origin := Vector3(cell) * CELL_SIZE
+	var local := hit_pos - cell_origin
+
+	var tangent_axes: Array[Vector3i] = []
+	if n.x != 0:
+		tangent_axes = [Vector3i(0, 1, 0), Vector3i(0, 0, 1)]
+	elif n.y != 0:
+		tangent_axes = [Vector3i(1, 0, 0), Vector3i(0, 0, 1)]
+	else:
+		tangent_axes = [Vector3i(1, 0, 0), Vector3i(0, 1, 0)]
+
+	var best_dist := INF
+	var best_edge_normal := Vector3i.ZERO
+
+	for t in tangent_axes:
+		var axis_local: float
+		if t.x != 0: axis_local = local.x
+		elif t.y != 0: axis_local = local.y
+		else: axis_local = local.z
+
+		if axis_local < best_dist:
+			best_dist = axis_local
+			best_edge_normal = -t
+		if CELL_SIZE - axis_local < best_dist:
+			best_dist = CELL_SIZE - axis_local
+			best_edge_normal = t
+
+	var neighbor := cell + best_edge_normal
+	var neighbor_solid := _in_bounds(neighbor) and cells[neighbor.x][neighbor.y][neighbor.z][0] != CellTypes.Type.EMPTY
+	if neighbor_solid:
+		return {}
+
+	return { "normal_a": n, "normal_b": best_edge_normal }
+
+func _get_edge_direction(na: Vector3i, nb: Vector3i) -> Vector3i:
+	var cross := Vector3(na).cross(Vector3(nb))
+	if abs(cross.x) > 0.5: return Vector3i(1, 0, 0)
+	elif abs(cross.y) > 0.5: return Vector3i(0, 1, 0)
+	else: return Vector3i(0, 0, 1)
+
+func _trace_edge_path(start: Vector3i, direction: int, na: Vector3i, nb: Vector3i, extent: int) -> Array:
+	var edge_dir := _get_edge_direction(na, nb)
+	var path: Array = [start]
+	for i in range(1, extent + 1):
+		var pos := start + edge_dir * direction * i
+		if not _in_bounds(pos):
+			break
+		if cells[pos.x][pos.y][pos.z][0] != CellTypes.Type.SOLID:
+			break
+		var na_neighbor := pos + na
+		var na_exposed := not _in_bounds(na_neighbor) or cells[na_neighbor.x][na_neighbor.y][na_neighbor.z][0] == CellTypes.Type.EMPTY
+		var nb_neighbor := pos + nb
+		var nb_exposed := not _in_bounds(nb_neighbor) or cells[nb_neighbor.x][nb_neighbor.y][nb_neighbor.z][0] == CellTypes.Type.EMPTY
+		if not (na_exposed and nb_exposed):
+			break
+		path.append(pos)
+	return path
+
+func _draw_smooth_preview() -> void:
+	if smooth_path.is_empty():
+		box_preview_instance.visible = false
+		return
+	var im := ImmediateMesh.new()
+	im.surface_begin(Mesh.PRIMITIVE_LINES)
+	for cell in smooth_path:
+		var pos := Vector3(cell) * CELL_SIZE
+		var s := CELL_SIZE
+		var c: Array[Vector3] = [
+			pos, pos + Vector3(s, 0, 0), pos + Vector3(s, 0, s), pos + Vector3(0, 0, s),
+			pos + Vector3(0, s, 0), pos + Vector3(s, s, 0),
+			pos + Vector3(s, s, s), pos + Vector3(0, s, s),
+		]
+		for e in [[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]]:
+			im.surface_add_vertex(c[e[0]])
+			im.surface_add_vertex(c[e[1]])
+	im.surface_end()
+	box_preview_instance.mesh = im
+	var mat := box_preview_instance.material_override as StandardMaterial3D
+	mat.albedo_color = Color(0, 1, 1, 0.8)
+	box_preview_instance.visible = true
+
+func _get_smooth_orientation(na: Vector3i, nb: Vector3i) -> int:
+	var cross := Vector3(na).cross(Vector3(nb))
+	var axis: int
+	if abs(cross.x) > 0.5: axis = 1
+	elif abs(cross.y) > 0.5: axis = 0
+	else: axis = 2
+
+	var u_val: float
+	var v_val: float
+	match axis:
+		0: u_val = na.x + nb.x; v_val = na.z + nb.z
+		1: u_val = na.y + nb.y; v_val = na.z + nb.z
+		_: u_val = na.x + nb.x; v_val = na.y + nb.y
+
+	var corner: int
+	if u_val > 0 and v_val > 0: corner = 0
+	elif u_val < 0 and v_val > 0: corner = 1
+	elif u_val < 0 and v_val < 0: corner = 2
+	else: corner = 3
+
+	return axis * 4 + corner
+
+func _setup_smooth_dialog() -> void:
+	smooth_dialog = ConfirmationDialog.new()
+	smooth_dialog.title = "Smooth Edge"
+	smooth_dialog.ok_button_text = "Apply"
+	smooth_dialog.size = Vector2i(250, 100)
+	smooth_dialog.confirmed.connect(_on_smooth_apply)
+	smooth_dialog.canceled.connect(_on_smooth_cancel)
+	add_child(smooth_dialog)
+
+	var hbox := HBoxContainer.new()
+	hbox.add_theme_constant_override("separation", 8)
+	smooth_dialog.add_child(hbox)
+
+	var lbl := Label.new()
+	lbl.text = "Depth:"
+	hbox.add_child(lbl)
+
+	smooth_depth_spin = SpinBox.new()
+	smooth_depth_spin.min_value = 1
+	smooth_depth_spin.max_value = 5
+	smooth_depth_spin.step = 1
+	smooth_depth_spin.value = 1
+	hbox.add_child(smooth_depth_spin)
+
+func _on_smooth_apply() -> void:
+	if smooth_path.is_empty():
+		return
+
+	var depth := int(smooth_depth_spin.value)
+	var orientation := _get_smooth_orientation(smooth_normal_a, smooth_normal_b)
+
+	_push_undo()
+
+	for ep in smooth_path:
+		for i in range(depth):
+			# Remove cells between the edge and the prism line
+			for j in range(depth - 1 - i):
+				var remove_pos: Vector3i = ep - smooth_normal_a * i - smooth_normal_b * j
+				if _in_bounds(remove_pos):
+					cells[remove_pos.x][remove_pos.y][remove_pos.z] = [CellTypes.Type.EMPTY, 0, 0]
+			# Place prism at the chamfer surface
+			var prism_pos: Vector3i = ep - smooth_normal_a * i - smooth_normal_b * (depth - 1 - i)
+			if _in_bounds(prism_pos) and cells[prism_pos.x][prism_pos.y][prism_pos.z][0] != CellTypes.Type.EMPTY:
+				var color_idx: int = cells[prism_pos.x][prism_pos.y][prism_pos.z][2]
+				cells[prism_pos.x][prism_pos.y][prism_pos.z] = [CellTypes.Type.PRISM, orientation, color_idx]
+
+	smooth_path.clear()
+	box_preview_instance.visible = false
+	var mat := box_preview_instance.material_override as StandardMaterial3D
+	mat.albedo_color = Color(1, 1, 0, 0.6)
+	_mark_dirty()
+	_rebuild_mesh()
+
+func _on_smooth_cancel() -> void:
+	smooth_path.clear()
 	box_preview_instance.visible = false
 	var mat := box_preview_instance.material_override as StandardMaterial3D
 	mat.albedo_color = Color(1, 1, 0, 0.6)
@@ -852,6 +1129,8 @@ func _extrude_update(mouse_pos: Vector2) -> void:
 		_draw_extrude_preview()
 
 func _extrude_finish() -> void:
+	if extrude_depth != 0:
+		_push_undo()
 	if extrude_depth > 0:
 		for d in range(1, extrude_depth + 1):
 			for cell in extrude_cells:
@@ -966,6 +1245,7 @@ func _draw_extrude_preview() -> void:
 	box_preview_instance.visible = true
 
 func _fill_region(a: Vector3i, b: Vector3i, cell_type: int, orientation: int, color_idx: int) -> void:
+	_push_undo()
 	var mn := Vector3i(mini(a.x, b.x), mini(a.y, b.y), mini(a.z, b.z))
 	var mx := Vector3i(maxi(a.x, b.x), maxi(a.y, b.y), maxi(a.z, b.z))
 	for x in range(maxi(0, mn.x), mini(grid_x, mx.x + 1)):
@@ -976,6 +1256,7 @@ func _fill_region(a: Vector3i, b: Vector3i, cell_type: int, orientation: int, co
 	_rebuild_mesh()
 
 func _clear_region(a: Vector3i, b: Vector3i) -> void:
+	_push_undo()
 	var mn := Vector3i(mini(a.x, b.x), mini(a.y, b.y), mini(a.z, b.z))
 	var mx := Vector3i(maxi(a.x, b.x), maxi(a.y, b.y), maxi(a.z, b.z))
 	for x in range(maxi(0, mn.x), mini(grid_x, mx.x + 1)):
@@ -1262,6 +1543,7 @@ func _new() -> void:
 
 func _do_new() -> void:
 	current_file_path = ""
+	_undo_stack.clear()
 	_cancel_box()
 	place_cell = Vector3i(-1, -1, -1)
 	target_cell = Vector3i(-1, -1, -1)
@@ -1301,6 +1583,7 @@ func _on_import_file_selected(path: String) -> void:
 	if image.get_width() != grid_x or image.get_height() != grid_y:
 		image.resize(grid_x, grid_y, Image.INTERPOLATE_NEAREST)
 
+	_push_undo()
 	for px in range(image.get_width()):
 		for py in range(image.get_height()):
 			var color := image.get_pixel(px, py)
@@ -1471,6 +1754,7 @@ func _on_wizard_generate() -> void:
 
 	var flip_side := _wizard_flip_side.button_pressed
 
+	_push_undo()
 	_init_cells()
 
 	for x in range(grid_x):
@@ -1554,6 +1838,7 @@ func _load_from_path(path: String) -> void:
 	cells = def.to_cells()
 	current_file_path = path
 	_unsaved_changes = false
+	_undo_stack.clear()
 	_cancel_box()
 	place_cell = Vector3i(-1, -1, -1)
 	target_cell = Vector3i(-1, -1, -1)
@@ -1573,6 +1858,30 @@ func _load_from_path(path: String) -> void:
 func _update_file_label() -> void:
 	var name := current_file_path.get_file() if not current_file_path.is_empty() else "(unsaved)"
 	file_label.text = "File: " + name + (" *" if _unsaved_changes else "")
+
+func _push_undo() -> void:
+	var snapshot: Array = []
+	snapshot.resize(grid_x)
+	for x in range(grid_x):
+		snapshot[x] = []
+		snapshot[x].resize(grid_y)
+		for y in range(grid_y):
+			snapshot[x][y] = []
+			snapshot[x][y].resize(grid_z)
+			for z in range(grid_z):
+				snapshot[x][y][z] = cells[x][y][z].duplicate()
+	_undo_stack.append(snapshot)
+	if _undo_stack.size() > MAX_UNDO:
+		_undo_stack.pop_front()
+
+func _undo() -> void:
+	if _undo_stack.is_empty():
+		return
+	cells = _undo_stack.pop_back()
+	_rebuild_mesh()
+	if _undo_stack.is_empty():
+		_unsaved_changes = false
+		_update_file_label()
 
 func _mark_dirty() -> void:
 	if not _unsaved_changes:
