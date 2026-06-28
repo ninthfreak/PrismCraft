@@ -80,6 +80,8 @@ var _wizard_flip_side: CheckButton
 var _wizard_side_option: OptionButton
 var _wizard_front_label: Label
 var _wizard_side_label: Label
+var _wizard_front_preview: TextureRect
+var _wizard_side_preview: TextureRect
 
 @onready var camera: Camera3D = $Camera3D
 
@@ -1340,7 +1342,12 @@ func _on_side_sprite_selected(path: String) -> void:
 	if _side_image.load(path) != OK:
 		_side_image = null
 		return
-	_wizard_side_label.text = "Side: " + path.get_file()
+	_wizard_front_label.text = "Front"
+	_wizard_side_label.text = "Side"
+	_wizard_front_preview.texture = ImageTexture.create_from_image(_front_image)
+	_wizard_front_preview.flip_h = false
+	_wizard_side_preview.texture = ImageTexture.create_from_image(_side_image)
+	_wizard_side_preview.flip_h = false
 	_wizard_flip_front.button_pressed = false
 	_wizard_flip_side.button_pressed = false
 	_wizard_side_option.selected = 0
@@ -1350,50 +1357,101 @@ func _setup_sprite_wizard() -> void:
 	sprite_wizard = AcceptDialog.new()
 	sprite_wizard.title = "Character Sprite Import"
 	sprite_wizard.ok_button_text = "Generate"
-	sprite_wizard.size = Vector2i(340, 280)
+	sprite_wizard.size = Vector2i(520, 460)
 	sprite_wizard.confirmed.connect(_on_wizard_generate)
 	add_child(sprite_wizard)
 
 	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 8)
+	vbox.add_theme_constant_override("separation", 6)
 	sprite_wizard.add_child(vbox)
 
-	_wizard_front_label = Label.new()
-	_wizard_front_label.text = "Front: (none)"
-	_wizard_front_label.add_theme_font_size_override("font_size", 13)
-	vbox.add_child(_wizard_front_label)
+	# Image previews side by side
+	var preview_row := HBoxContainer.new()
+	preview_row.add_theme_constant_override("separation", 16)
+	preview_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.add_child(preview_row)
 
-	_wizard_flip_front = CheckButton.new()
-	_wizard_flip_front.text = "Flip front horizontally"
-	vbox.add_child(_wizard_flip_front)
+	var front_col := VBoxContainer.new()
+	front_col.add_theme_constant_override("separation", 4)
+	preview_row.add_child(front_col)
+	_wizard_front_label = Label.new()
+	_wizard_front_label.text = "Front"
+	_wizard_front_label.add_theme_font_size_override("font_size", 13)
+	_wizard_front_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	front_col.add_child(_wizard_front_label)
+	var front_panel := PanelContainer.new()
+	var front_bg := StyleBoxFlat.new()
+	front_bg.bg_color = Color(0.08, 0.08, 0.1)
+	front_bg.set_corner_radius_all(4)
+	front_panel.add_theme_stylebox_override("panel", front_bg)
+	front_panel.custom_minimum_size = Vector2(200, 256)
+	front_col.add_child(front_panel)
+	_wizard_front_preview = TextureRect.new()
+	_wizard_front_preview.expand_mode = TextureRect.EXPAND_FIT_HEIGHT_PROPORTIONAL
+	_wizard_front_preview.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_wizard_front_preview.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	front_panel.add_child(_wizard_front_preview)
+
+	var side_col := VBoxContainer.new()
+	side_col.add_theme_constant_override("separation", 4)
+	preview_row.add_child(side_col)
+	_wizard_side_label = Label.new()
+	_wizard_side_label.text = "Side"
+	_wizard_side_label.add_theme_font_size_override("font_size", 13)
+	_wizard_side_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	side_col.add_child(_wizard_side_label)
+	var side_panel := PanelContainer.new()
+	var side_bg := StyleBoxFlat.new()
+	side_bg.bg_color = Color(0.08, 0.08, 0.1)
+	side_bg.set_corner_radius_all(4)
+	side_panel.add_theme_stylebox_override("panel", side_bg)
+	side_panel.custom_minimum_size = Vector2(200, 256)
+	side_col.add_child(side_panel)
+	_wizard_side_preview = TextureRect.new()
+	_wizard_side_preview.expand_mode = TextureRect.EXPAND_FIT_HEIGHT_PROPORTIONAL
+	_wizard_side_preview.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_wizard_side_preview.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	side_panel.add_child(_wizard_side_preview)
 
 	vbox.add_child(HSeparator.new())
 
-	_wizard_side_label = Label.new()
-	_wizard_side_label.text = "Side: (none)"
-	_wizard_side_label.add_theme_font_size_override("font_size", 13)
-	vbox.add_child(_wizard_side_label)
+	# Controls row
+	var controls := HBoxContainer.new()
+	controls.add_theme_constant_override("separation", 24)
+	vbox.add_child(controls)
 
+	var front_controls := VBoxContainer.new()
+	front_controls.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	controls.add_child(front_controls)
+	_wizard_flip_front = CheckButton.new()
+	_wizard_flip_front.text = "Flip horizontally"
+	_wizard_flip_front.toggled.connect(func(_on: bool): _wizard_front_preview.flip_h = _wizard_flip_front.button_pressed)
+	front_controls.add_child(_wizard_flip_front)
+
+	var side_controls := VBoxContainer.new()
+	side_controls.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	controls.add_child(side_controls)
 	_wizard_flip_side = CheckButton.new()
-	_wizard_flip_side.text = "Flip side horizontally"
-	vbox.add_child(_wizard_flip_side)
+	_wizard_flip_side.text = "Flip horizontally"
+	_wizard_flip_side.toggled.connect(func(_on: bool): _wizard_side_preview.flip_h = _wizard_flip_side.button_pressed)
+	side_controls.add_child(_wizard_flip_side)
 
 	var side_row := HBoxContainer.new()
 	side_row.add_theme_constant_override("separation", 8)
-	vbox.add_child(side_row)
+	side_controls.add_child(side_row)
 	var side_lbl := Label.new()
-	side_lbl.text = "Profile shows:"
+	side_lbl.text = "Shows:"
 	side_row.add_child(side_lbl)
 	_wizard_side_option = OptionButton.new()
-	_wizard_side_option.add_item("Right side of model")
-	_wizard_side_option.add_item("Left side of model")
+	_wizard_side_option.add_item("Right side")
+	_wizard_side_option.add_item("Left side")
 	_wizard_side_option.selected = 0
 	side_row.add_child(_wizard_side_option)
 
 	vbox.add_child(HSeparator.new())
 
 	var hint := Label.new()
-	hint.text = "The front sprite determines colors.\nTransparent pixels in either sprite carve the volume."
+	hint.text = "Front sprite determines colors. Transparent pixels in either sprite carve the volume."
 	hint.add_theme_font_size_override("font_size", 11)
 	hint.add_theme_color_override("font_color", Color(0.6, 0.6, 0.7))
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD
