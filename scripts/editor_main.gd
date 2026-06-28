@@ -735,7 +735,7 @@ func _update_raycast() -> void:
 
 	# Update cursor display
 	var cursor_pos: Vector3i
-	if current_tool == ToolType.ERASER or current_tool == ToolType.BOX_ERASE or current_tool == ToolType.EXTRUDE:
+	if current_tool == ToolType.ERASER or current_tool == ToolType.BOX_ERASE or current_tool == ToolType.EXTRUDE or current_tool == ToolType.SMOOTH_EDGE:
 		cursor_pos = target_cell
 	else:
 		cursor_pos = place_cell
@@ -950,22 +950,38 @@ func _get_edge_direction(na: Vector3i, nb: Vector3i) -> Vector3i:
 	elif abs(cross.y) > 0.5: return Vector3i(0, 1, 0)
 	else: return Vector3i(0, 0, 1)
 
+func _is_edge_cell(pos: Vector3i, na: Vector3i, nb: Vector3i) -> bool:
+	if not _in_bounds(pos) or cells[pos.x][pos.y][pos.z][0] != CellTypes.Type.SOLID:
+		return false
+	var na_neighbor := pos + na
+	var na_exposed: bool = not _in_bounds(na_neighbor) or cells[na_neighbor.x][na_neighbor.y][na_neighbor.z][0] == CellTypes.Type.EMPTY
+	var nb_neighbor := pos + nb
+	var nb_exposed: bool = not _in_bounds(nb_neighbor) or cells[nb_neighbor.x][nb_neighbor.y][nb_neighbor.z][0] == CellTypes.Type.EMPTY
+	return na_exposed and nb_exposed
+
 func _trace_edge_path(start: Vector3i, direction: int, na: Vector3i, nb: Vector3i, extent: int) -> Array:
 	var edge_dir := _get_edge_direction(na, nb)
+	var step := edge_dir * direction
+	var perp_offsets: Array[Vector3i] = [-na, na, -nb, nb]
+
 	var path: Array = [start]
+	var current := start
 	for i in range(1, extent + 1):
-		var pos := start + edge_dir * direction * i
-		if not _in_bounds(pos):
+		var next := current + step
+		if _is_edge_cell(next, na, nb):
+			path.append(next)
+			current = next
+			continue
+		var found := false
+		for offset in perp_offsets:
+			var candidate := next + offset
+			if _is_edge_cell(candidate, na, nb):
+				path.append(candidate)
+				current = candidate
+				found = true
+				break
+		if not found:
 			break
-		if cells[pos.x][pos.y][pos.z][0] != CellTypes.Type.SOLID:
-			break
-		var na_neighbor := pos + na
-		var na_exposed: bool = not _in_bounds(na_neighbor) or cells[na_neighbor.x][na_neighbor.y][na_neighbor.z][0] == CellTypes.Type.EMPTY
-		var nb_neighbor := pos + nb
-		var nb_exposed: bool = not _in_bounds(nb_neighbor) or cells[nb_neighbor.x][nb_neighbor.y][nb_neighbor.z][0] == CellTypes.Type.EMPTY
-		if not (na_exposed and nb_exposed):
-			break
-		path.append(pos)
 	return path
 
 func _draw_smooth_preview() -> void:
