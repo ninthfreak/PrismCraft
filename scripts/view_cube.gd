@@ -83,8 +83,8 @@ func _project_point(v: Vector3) -> Vector2:
 	var sy := sin(_cube_yaw)
 	var cp := cos(_cube_pitch)
 	var sp := sin(_cube_pitch)
-	var rx := v.x * cy + v.z * sy
-	var rz := -v.x * sy + v.z * cy
+	var rx := v.x * cy - v.z * sy
+	var rz := v.x * sy + v.z * cy
 	var ry := v.y * cp - rz * sp
 	var rz2 := v.y * sp + rz * cp
 	return center + Vector2(rx, -ry) * s
@@ -117,8 +117,8 @@ func _get_projected_faces() -> Array:
 		var sy := sin(_cube_yaw)
 		var cp := cos(_cube_pitch)
 		var sp := sin(_cube_pitch)
-		var rx := n.x * cy + n.z * sy
-		var rz := -n.x * sy + n.z * cy
+		var rx := n.x * cy - n.z * sy
+		var rz := n.x * sy + n.z * cy
 		var rz2 := n.y * sp + rz * cp
 		if rz2 <= 0:
 			continue
