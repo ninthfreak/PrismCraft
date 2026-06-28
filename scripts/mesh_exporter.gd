@@ -64,7 +64,7 @@ static func export_obj(path: String, cells: Array, gx: int, gy: int, gz: int, ce
 	var mtl_text := ""
 	for ci in used_colors:
 		var c: Color = CellTypes.PALETTE[ci]
-		var cname := CellTypes.PALETTE_NAMES[ci].replace(" ", "_")
+		var cname: String = CellTypes.PALETTE_NAMES[ci].replace(" ", "_")
 		mtl_text += "newmtl " + cname + "\n"
 		mtl_text += "Kd %.4f %.4f %.4f\n" % [c.r, c.g, c.b]
 		mtl_text += "Ka 0.1 0.1 0.1\n"
