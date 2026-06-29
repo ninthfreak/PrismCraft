@@ -16,7 +16,7 @@ var cells: Array = []
 var current_tool: int = ToolType.PENCIL
 var current_type: int = CellTypes.Type.SOLID
 var current_orientation: int = 0
-var current_color: int = 0
+var current_color: int = CellTypes.encode_rgb565(CellTypes.FAVORITES[0])
 var current_file_path := ""
 var floor_y: int = 0
 var _unsaved_changes := false
@@ -340,36 +340,38 @@ func _setup_ui() -> void:
 
 	# Color
 	_add_section_label(vbox, "Color")
+	var color_picker_btn := ColorPickerButton.new()
+	color_picker_btn.custom_minimum_size = Vector2(0, 28)
+	color_picker_btn.color = CellTypes.decode_rgb565(current_color)
+	color_picker_btn.edit_alpha = false
+	color_picker_btn.color_changed.connect(_on_color_picker_changed)
+	vbox.add_child(color_picker_btn)
+
 	color_group = ButtonGroup.new()
-	var color_scroll := ScrollContainer.new()
-	color_scroll.custom_minimum_size = Vector2(0, 200)
-	color_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	vbox.add_child(color_scroll)
-	var color_grid := GridContainer.new()
-	color_grid.columns = 16
-	color_scroll.add_child(color_grid)
-	for i in range(CellTypes.PALETTE.size()):
+	var fav_grid := GridContainer.new()
+	fav_grid.columns = 8
+	vbox.add_child(fav_grid)
+	for i in range(CellTypes.FAVORITES.size()):
 		var btn := Button.new()
 		btn.toggle_mode = true
 		btn.button_group = color_group
-		btn.custom_minimum_size = Vector2(12, 12)
-		btn.tooltip_text = CellTypes.PALETTE_NAMES[i]
+		btn.custom_minimum_size = Vector2(20, 18)
 		var ns := StyleBoxFlat.new()
-		ns.bg_color = CellTypes.PALETTE[i]
+		ns.bg_color = CellTypes.FAVORITES[i]
 		ns.border_color = Color(0.3, 0.3, 0.3)
 		ns.set_border_width_all(1)
 		ns.set_content_margin_all(0)
 		btn.add_theme_stylebox_override("normal", ns)
 		btn.add_theme_stylebox_override("hover", ns)
 		var ps := StyleBoxFlat.new()
-		ps.bg_color = CellTypes.PALETTE[i]
+		ps.bg_color = CellTypes.FAVORITES[i]
 		ps.border_color = Color.WHITE
 		ps.set_border_width_all(2)
 		ps.set_content_margin_all(0)
 		btn.add_theme_stylebox_override("pressed", ps)
 		if i == 0:
 			btn.button_pressed = true
-		color_grid.add_child(btn)
+		fav_grid.add_child(btn)
 	color_group.pressed.connect(_on_color_pressed)
 
 	vbox.add_child(HSeparator.new())
@@ -919,8 +921,11 @@ func _on_color_pressed(btn: BaseButton) -> void:
 	var buttons := color_group.get_buttons()
 	for i in range(buttons.size()):
 		if buttons[i] == btn:
-			current_color = i
+			current_color = CellTypes.encode_rgb565(CellTypes.FAVORITES[i])
 			break
+
+func _on_color_picker_changed(color: Color) -> void:
+	current_color = CellTypes.encode_rgb565(color)
 
 func _cycle_orientation(delta: int) -> void:
 	current_orientation = (current_orientation + delta) % 12
@@ -1044,10 +1049,11 @@ func _toggle_type() -> void:
 	_update_raycast()
 
 func _select_color(idx: int) -> void:
-	current_color = idx
-	var buttons := color_group.get_buttons()
-	if idx < buttons.size():
-		buttons[idx].button_pressed = true
+	if idx < CellTypes.FAVORITES.size():
+		current_color = CellTypes.encode_rgb565(CellTypes.FAVORITES[idx])
+		var buttons := color_group.get_buttons()
+		if idx < buttons.size():
+			buttons[idx].button_pressed = true
 
 # ─── Raycasting ───
 
@@ -2003,7 +2009,7 @@ func _on_import_file_selected(path: String) -> void:
 			var cell_x := px
 			var cell_y := grid_y - 1 - py
 			if cell_x >= 0 and cell_x < grid_x and cell_y >= 0 and cell_y < grid_y:
-				cells[cell_x][cell_y][0] = [CellTypes.Type.SOLID, 0, _find_nearest_palette_color(color)]
+				cells[cell_x][cell_y][0] = [CellTypes.Type.SOLID, 0, CellTypes.encode_rgb565(color)]
 
 	_mark_dirty()
 	_rebuild_mesh()
@@ -2041,9 +2047,9 @@ func _on_block_texture_selected(path: String) -> void:
 			if pixel.a < 0.5:
 				color_map[u][v] = -1
 			else:
-				var idx := _find_nearest_palette_color(pixel)
-				color_map[u][v] = idx
-				color_counts[idx] = color_counts.get(idx, 0) + 1
+				var encoded := CellTypes.encode_rgb565(pixel)
+				color_map[u][v] = encoded
+				color_counts[encoded] = color_counts.get(encoded, 0) + 1
 
 	var fill_color := 0
 	var best_count := 0
@@ -2293,7 +2299,7 @@ func _on_wizard_generate() -> void:
 			var front_pixel := front.get_pixel(grid_x - 1 - x, grid_y - 1 - y)
 			if front_pixel.a < 0.5:
 				continue
-			var color_idx := _find_nearest_palette_color(front_pixel)
+			var color_idx := CellTypes.encode_rgb565(front_pixel)
 			for z in range(grid_z):
 				var sz := z if flip_side else (grid_z - 1 - z)
 				var side_pixel := side.get_pixel(sz, grid_y - 1 - y)
@@ -2307,7 +2313,7 @@ func _on_wizard_generate() -> void:
 			var side_pixel := side.get_pixel(sz, grid_y - 1 - y)
 			if side_pixel.a < 0.5:
 				continue
-			var side_color := _find_nearest_palette_color(side_pixel)
+			var side_color := CellTypes.encode_rgb565(side_pixel)
 			for x in range(grid_x):
 				if cells[x][y][z][0] != CellTypes.Type.EMPTY:
 					cells[x][y][z][2] = side_color
@@ -2342,19 +2348,6 @@ func _ground_cells() -> void:
 				else:
 					cells[x][y][z] = [CellTypes.Type.EMPTY, 0, 0]
 
-func _find_nearest_palette_color(color: Color) -> int:
-	var best_idx := 0
-	var best_dist := INF
-	for i in range(CellTypes.PALETTE.size()):
-		var p: Color = CellTypes.PALETTE[i]
-		var dr := color.r - p.r
-		var dg := color.g - p.g
-		var db := color.b - p.b
-		var dist := dr * dr + dg * dg + db * db
-		if dist < best_dist:
-			best_dist = dist
-			best_idx = i
-	return best_idx
 
 func _load_from_path(path: String) -> void:
 	if not ResourceLoader.exists(path):

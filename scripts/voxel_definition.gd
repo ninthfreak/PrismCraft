@@ -39,14 +39,14 @@ func to_cells() -> Array:
 					p_cells[x][y][z] = [CellTypes.Type.EMPTY, 0, 0]
 	return p_cells
 
-static func _fill_box(p_cells: Array, x0: int, y0: int, z0: int, x1: int, y1: int, z1: int, cell_type: int, orientation: int, color_idx: int) -> void:
+static func _fill_box(p_cells: Array, x0: int, y0: int, z0: int, x1: int, y1: int, z1: int, cell_type: int, orientation: int, color: int) -> void:
 	for x in range(x0, x1 + 1):
 		for y in range(y0, y1 + 1):
 			for z in range(z0, z1 + 1):
-				p_cells[x][y][z] = [cell_type, orientation, color_idx]
+				p_cells[x][y][z] = [cell_type, orientation, color]
 
-static func _fill_box_2x(p_cells: Array, x0: int, y0: int, z0: int, x1: int, y1: int, z1: int, cell_type: int, orientation: int, color_idx: int) -> void:
-	_fill_box(p_cells, x0 * 2, y0 * 2, z0 * 2, x1 * 2 + 1, y1 * 2 + 1, z1 * 2 + 1, cell_type, orientation, color_idx)
+static func _fill_box_2x(p_cells: Array, x0: int, y0: int, z0: int, x1: int, y1: int, z1: int, cell_type: int, orientation: int, color: int) -> void:
+	_fill_box(p_cells, x0 * 2, y0 * 2, z0 * 2, x1 * 2 + 1, y1 * 2 + 1, z1 * 2 + 1, cell_type, orientation, color)
 
 static func _set_2x(p_cells: Array, x: int, y: int, z: int, data: Array) -> void:
 	for dx in range(2):
@@ -70,14 +70,20 @@ static func _make_empty_cells(gx: int, gy: int, gz: int) -> Array:
 				p_cells[x][y][z] = [CellTypes.Type.EMPTY, 0, 0]
 	return p_cells
 
+static func _c(color: Color) -> int:
+	return CellTypes.encode_rgb565(color)
+
 static func create_male() -> VoxelDefinition:
 	var def := VoxelDefinition.new()
 	var c := _make_empty_cells(64, 128, 64)
 	var S := CellTypes.Type.SOLID
-	var E := CellTypes.Type.EMPTY
-	var SK := 3; var SD := 4
-	var HR := 1; var EB := 12
-	var EW := 6; var EP := 8; var LP := 9
+	var SK := _c(Color(0.89, 0.73, 0.58))
+	var SD := _c(Color(0.72, 0.54, 0.40))
+	var HR := _c(Color(0.55, 0.38, 0.22))
+	var EB := _c(Color(0.30, 0.18, 0.08))
+	var EW := _c(Color(0.93, 0.93, 0.93))
+	var EP := _c(Color(0.12, 0.10, 0.08))
+	var LP := _c(Color(0.80, 0.52, 0.50))
 
 	# ── Feet ──
 	_fill_box_2x(c, 11, 0, 12, 15, 0, 20, S, 0, SD)
@@ -186,10 +192,13 @@ static func create_female() -> VoxelDefinition:
 	var def := VoxelDefinition.new()
 	var c := _make_empty_cells(64, 128, 64)
 	var S := CellTypes.Type.SOLID
-	var E := CellTypes.Type.EMPTY
-	var SK := 3; var SD := 4
-	var HR := 12; var EB := 12
-	var EW := 6; var EP := 8; var LP := 9
+	var SK := _c(Color(0.89, 0.73, 0.58))
+	var SD := _c(Color(0.72, 0.54, 0.40))
+	var HR := _c(Color(0.30, 0.18, 0.08))
+	var EB := _c(Color(0.30, 0.18, 0.08))
+	var EW := _c(Color(0.93, 0.93, 0.93))
+	var EP := _c(Color(0.12, 0.10, 0.08))
+	var LP := _c(Color(0.80, 0.52, 0.50))
 
 	# ── Feet ──
 	_fill_box_2x(c, 12, 0, 12, 15, 0, 20, S, 0, SD)
