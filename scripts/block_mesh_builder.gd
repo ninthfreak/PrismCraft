@@ -77,13 +77,14 @@ static func _build_cube(st: SurfaceTool, cells: Array, gx: int, gy: int, gz: int
 	]
 
 	for i in range(6):
-		var face_color_val: int = cell[dirs[i][3]]
+		var d: Array = dirs[i]
+		var face_color_val: int = cell[d[3]]
 		var color := CellTypes.decode_color(face_color_val)
 		if CellTypes.is_rgb5551(face_color_val) and color.a < CellTypes.ALPHA_THRESHOLD:
 			continue
-		var nx := cx + dirs[i][0]
-		var ny := cy + dirs[i][1]
-		var nz := cz + dirs[i][2]
+		var nx: int = cx + d[0]
+		var ny: int = cy + d[1]
+		var nz: int = cz + d[2]
 		if _is_opaque_solid(cells, gx, gy, gz, nx, ny, nz):
 			continue
 		if not is_cutout and nx >= 0 and nx < gx and ny >= 0 and ny < gy and nz >= 0 and nz < gz:
@@ -91,7 +92,8 @@ static func _build_cube(st: SurfaceTool, cells: Array, gx: int, gy: int, gz: int
 			if ncell[0] == CellTypes.Type.SOLID and not CellTypes.is_cutout_cell(ncell):
 				continue
 		var q: Array = quads[i]
-		_add_quad(st, o + q[0], o + q[1], o + q[2], o + q[3], dirs[i][4], color)
+		var normal: Vector3 = d[4]
+		_add_quad(st, o + q[0], o + q[1], o + q[2], o + q[3], normal, color)
 
 static func _build_prism(st: SurfaceTool, o: Vector3, s: float, orientation: int, color: Color) -> void:
 	var axis: int = orientation / 4
