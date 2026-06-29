@@ -30,7 +30,7 @@ static func build_mesh(cells: Array, gx: int, gy: int, gz: int, cell_size: float
 					continue
 
 				var origin := Vector3(x, y, z) * cell_size
-				var color: Color = CellTypes.PALETTE[cell[2]]
+				var color: Color = CellTypes.decode_rgb565(cell[2])
 
 				if cell_type == CellTypes.Type.SOLID:
 					_build_cube(st, cells, gx, gy, gz, x, y, z, origin, cell_size, color)
