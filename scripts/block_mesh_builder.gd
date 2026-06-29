@@ -18,15 +18,18 @@ static func _add_quad(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Ve
 	_add_tri(st, a, c, d, normal, color)
 
 static func build_mesh(cells: Array, gx: int, gy: int, gz: int, cell_size: float) -> ArrayMesh:
+	return build_chunk_mesh(cells, gx, gy, gz, 0, 0, 0, gx, gy, gz, cell_size)
+
+static func build_chunk_mesh(cells: Array, gx: int, gy: int, gz: int, x0: int, y0: int, z0: int, x1: int, y1: int, z1: int, cell_size: float) -> ArrayMesh:
 	var st_opaque := SurfaceTool.new()
 	st_opaque.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var st_cutout := SurfaceTool.new()
 	st_cutout.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var has_cutout := false
 
-	for x in range(gx):
-		for y in range(gy):
-			for z in range(gz):
+	for x in range(x0, x1):
+		for y in range(y0, y1):
+			for z in range(z0, z1):
 				var cell: Array = cells[x][y][z]
 				var cell_type: int = cell[0]
 				if cell_type == CellTypes.Type.EMPTY:
