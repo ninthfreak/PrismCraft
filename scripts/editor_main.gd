@@ -2069,59 +2069,41 @@ func _on_block_texture_selected(path: String) -> void:
 			for z in range(grid_z):
 				cells[x][y][z] = [CellTypes.Type.SOLID, 0, fill_color]
 
-	# Front face (+Z, z=gz-1) — viewed from +Z
+	# Front/back faces (+Z/-Z) — paint color through full Z depth
 	for u in range(grid_x):
 		for v in range(grid_y):
 			var ci: int = color_map[u][v]
+			var y_cell := grid_y - 1 - v
 			if ci == -1:
-				cells[u][grid_y - 1 - v][grid_z - 1] = [CellTypes.Type.EMPTY, 0, 0]
+				cells[u][y_cell][grid_z - 1] = [CellTypes.Type.EMPTY, 0, 0]
+				cells[grid_x - 1 - u][y_cell][0] = [CellTypes.Type.EMPTY, 0, 0]
 			else:
-				cells[u][grid_y - 1 - v][grid_z - 1][2] = ci
+				for z in range(grid_z):
+					cells[u][y_cell][z][2] = ci
 
-	# Back face (-Z, z=0) — viewed from -Z
-	for u in range(grid_x):
-		for v in range(grid_y):
-			var ci: int = color_map[u][v]
-			if ci == -1:
-				cells[grid_x - 1 - u][grid_y - 1 - v][0] = [CellTypes.Type.EMPTY, 0, 0]
-			else:
-				cells[grid_x - 1 - u][grid_y - 1 - v][0][2] = ci
-
-	# Right face (+X, x=gx-1) — viewed from +X
+	# Right/left faces (+X/-X) — paint color through full X depth
 	for u in range(grid_z):
 		for v in range(grid_y):
 			var ci: int = color_map[u][v]
+			var y_cell := grid_y - 1 - v
+			var z_right := grid_z - 1 - u
 			if ci == -1:
-				cells[grid_x - 1][grid_y - 1 - v][grid_z - 1 - u] = [CellTypes.Type.EMPTY, 0, 0]
+				cells[grid_x - 1][y_cell][z_right] = [CellTypes.Type.EMPTY, 0, 0]
+				cells[0][y_cell][u] = [CellTypes.Type.EMPTY, 0, 0]
 			else:
-				cells[grid_x - 1][grid_y - 1 - v][grid_z - 1 - u][2] = ci
+				for x in range(grid_x):
+					cells[x][y_cell][z_right][2] = ci
 
-	# Left face (-X, x=0) — viewed from -X
-	for u in range(grid_z):
-		for v in range(grid_y):
-			var ci: int = color_map[u][v]
-			if ci == -1:
-				cells[0][grid_y - 1 - v][u] = [CellTypes.Type.EMPTY, 0, 0]
-			else:
-				cells[0][grid_y - 1 - v][u][2] = ci
-
-	# Top face (+Y, y=gy-1) — viewed from above
+	# Top/bottom faces (+Y/-Y) — paint color through full Y depth
 	for u in range(grid_x):
 		for v in range(grid_z):
 			var ci: int = color_map[u][v]
 			if ci == -1:
 				cells[u][grid_y - 1][v] = [CellTypes.Type.EMPTY, 0, 0]
-			else:
-				cells[u][grid_y - 1][v][2] = ci
-
-	# Bottom face (-Y, y=0) — viewed from below
-	for u in range(grid_x):
-		for v in range(grid_z):
-			var ci: int = color_map[u][v]
-			if ci == -1:
 				cells[u][0][grid_z - 1 - v] = [CellTypes.Type.EMPTY, 0, 0]
 			else:
-				cells[u][0][grid_z - 1 - v][2] = ci
+				for y in range(grid_y):
+					cells[u][y][v][2] = ci
 
 	_mark_dirty()
 	_rebuild_mesh()
