@@ -59,11 +59,13 @@ Hold **Shift** with Line to lock to an axis, with Rectangle to force a square, o
 - **Prism cells** with 12 orientations (3 axes x 4 corners) for diagonal geometry
 - **3D view cube** in the top-right corner for quick camera orientation -- click a face to snap to that view, or drag to orbit
 - **Import PNG** to place a flat image as voxels with direct RGB565 color encoding
-- **Import Block Texture** with auto-detected format and preview dialog:
+- **Import Block Texture** with strict 1:1 texel-to-voxel mapping, auto-detected by exact dimensions:
   - **32x32** (uniform) -- same texture on all 6 faces
   - **64x32** (column/log) -- left half for 4 sides, right half for top and bottom
   - **96x64** (6-face net) -- 3x2 grid: top/front/right on row 1, bottom/back/left on row 2
-  - **288x32** (octagon) -- 9 cells: 8 side faces (E, NE, N, NW, W, SW, S, SE) + 1 shared top/bottom cap; builds an extruded octagonal prism with chamfered corners
+  - **124x32** (full octagon, F=32) -- variable-width strip (14,9,14,9,14,9,14,9) + 32x32 cap; 1 texel = 1 voxel face
+  - **60x32** (half octagon, F=16) -- variable-width strip (6,5,6,5,6,5,6,5) + 16x16 cap; centered post/pillar
+  - Any other size is rejected with a warning listing the legal sizes
 - **Import Character Sprites** to generate a rough 3D model from a front and side PNG using silhouette intersection
 - **Export OBJ** generates an optimized mesh using greedy face merging, with materials per unique color
 - **Unsaved changes protection** on New, Open, mode switch, and quit

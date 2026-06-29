@@ -33,6 +33,33 @@ const FAVORITES = [
 
 const OCTAGON_CHAMFER := 9
 
+static func octagon_chamfer(footprint: int) -> int:
+	return roundi((2.0 - sqrt(2.0)) / 2.0 * footprint)
+
+static func octagon_strip_width(footprint: int) -> int:
+	var c := octagon_chamfer(footprint)
+	var aw := footprint - 2 * c
+	return 4 * aw + 4 * c
+
+static func octagon_atlas_width(footprint: int) -> int:
+	return octagon_strip_width(footprint) + footprint
+
+static func validate_block_texture(w: int, h: int, grid_x: int, grid_y: int) -> String:
+	if w == grid_x and h == grid_y:
+		return "uniform"
+	if w == grid_x * 2 and h == grid_y:
+		return "column"
+	if w == grid_x * 3 and h == grid_y * 2:
+		return "net"
+	if h == grid_y:
+		var full_fp := grid_x
+		if w == octagon_atlas_width(full_fp):
+			return "octagon_full"
+		var half_fp := grid_x / 2
+		if w == octagon_atlas_width(half_fp):
+			return "octagon_half"
+	return ""
+
 const RGB5551_FLAG := 0x10000
 const ALPHA_THRESHOLD := 0.5  # import: alpha >= 0.5 → opaque (1); shader/discard: alpha < 0.5 → clip
 
