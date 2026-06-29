@@ -1244,13 +1244,13 @@ func _grid_raycast(from: Vector3, dir: Vector3) -> Dictionary:
 	var step_y := 1 if dir.y >= 0 else -1
 	var step_z := 1 if dir.z >= 0 else -1
 
-	var t_max_x := ((cx + (1 if step_x > 0 else 0)) * s - from.x) / dir.x if abs(dir.x) > 1e-8 else INF
-	var t_max_y := ((cy + (1 if step_y > 0 else 0)) * s - from.y) / dir.y if abs(dir.y) > 1e-8 else INF
-	var t_max_z := ((cz + (1 if step_z > 0 else 0)) * s - from.z) / dir.z if abs(dir.z) > 1e-8 else INF
+	var t_max_x: float = ((cx + (1 if step_x > 0 else 0)) * s - from.x) / dir.x if abs(dir.x) > 1e-8 else INF
+	var t_max_y: float = ((cy + (1 if step_y > 0 else 0)) * s - from.y) / dir.y if abs(dir.y) > 1e-8 else INF
+	var t_max_z: float = ((cz + (1 if step_z > 0 else 0)) * s - from.z) / dir.z if abs(dir.z) > 1e-8 else INF
 
-	var t_delta_x := abs(s / dir.x) if abs(dir.x) > 1e-8 else INF
-	var t_delta_y := abs(s / dir.y) if abs(dir.y) > 1e-8 else INF
-	var t_delta_z := abs(s / dir.z) if abs(dir.z) > 1e-8 else INF
+	var t_delta_x: float = abs(s / dir.x) if abs(dir.x) > 1e-8 else INF
+	var t_delta_y: float = abs(s / dir.y) if abs(dir.y) > 1e-8 else INF
+	var t_delta_z: float = abs(s / dir.z) if abs(dir.z) > 1e-8 else INF
 
 	var normal := Vector3i.ZERO
 	var max_steps := grid_x + grid_y + grid_z
