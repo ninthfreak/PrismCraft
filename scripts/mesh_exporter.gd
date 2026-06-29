@@ -42,7 +42,7 @@ static func export_obj(path: String, cells: Array, gx: int, gy: int, gz: int, ce
 	for fd in face_defs:
 		if fd[0] != cur_color:
 			cur_color = fd[0]
-			text += "usemtl " + CellTypes.color_name_rgb565(cur_color) + "\n"
+			text += "usemtl " + CellTypes.color_name(cur_color) + "\n"
 		var vi: int = fd[1] + 1
 		var ni: int = fd[3] + 1
 		if fd[2] == 4:
@@ -63,12 +63,15 @@ static func export_obj(path: String, cells: Array, gx: int, gy: int, gz: int, ce
 
 	var mtl_text := ""
 	for ci in used_colors:
-		var c: Color = CellTypes.decode_rgb565(ci)
-		var cname: String = CellTypes.color_name_rgb565(ci)
+		var c: Color = CellTypes.decode_color(ci)
+		var cname: String = CellTypes.color_name(ci)
 		mtl_text += "newmtl " + cname + "\n"
 		mtl_text += "Kd %.4f %.4f %.4f\n" % [c.r, c.g, c.b]
 		mtl_text += "Ka 0.1 0.1 0.1\n"
-		mtl_text += "d 1.0\n\n"
+		if c.a < 1.0:
+			mtl_text += "d %.4f\n\n" % c.a
+		else:
+			mtl_text += "d 1.0\n\n"
 
 	var mtl_path := path.get_base_dir().path_join(mtl_file)
 	var mfile := FileAccess.open(mtl_path, FileAccess.WRITE)

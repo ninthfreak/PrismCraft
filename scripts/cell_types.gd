@@ -25,6 +25,8 @@ const FAVORITES = [
 	Color(0.56, 0.20, 0.10),  # 15 Auburn
 ]
 
+const RGB5551_FLAG := 0x10000
+
 static func encode_rgb565(c: Color) -> int:
 	var r := clampi(int(c.r * 31.0 + 0.5), 0, 31)
 	var g := clampi(int(c.g * 63.0 + 0.5), 0, 63)
@@ -37,11 +39,45 @@ static func decode_rgb565(v: int) -> Color:
 	var b := (v & 0x1F) / 31.0
 	return Color(r, g, b)
 
+static func encode_rgb5551(c: Color) -> int:
+	var r := clampi(int(c.r * 31.0 + 0.5), 0, 31)
+	var g := clampi(int(c.g * 31.0 + 0.5), 0, 31)
+	var b := clampi(int(c.b * 31.0 + 0.5), 0, 31)
+	var a := 1 if c.a >= 0.5 else 0
+	return ((r << 11) | (g << 6) | (b << 1) | a) | RGB5551_FLAG
+
+static func decode_rgb5551(v: int) -> Color:
+	var raw := v & 0xFFFF
+	var r := ((raw >> 11) & 0x1F) / 31.0
+	var g := ((raw >> 6) & 0x1F) / 31.0
+	var b := ((raw >> 1) & 0x1F) / 31.0
+	var a := float(raw & 1)
+	return Color(r, g, b, a)
+
+static func is_rgb5551(v: int) -> bool:
+	return (v & RGB5551_FLAG) != 0
+
+static func decode_color(v: int) -> Color:
+	if (v & RGB5551_FLAG) != 0:
+		return decode_rgb5551(v)
+	return decode_rgb565(v)
+
+static func color_name(v: int) -> String:
+	var c := decode_color(v)
+	return "C_%02X%02X%02X" % [int(c.r * 255), int(c.g * 255), int(c.b * 255)]
+
 static func color_name_rgb565(v: int) -> String:
 	var r := (v >> 11) & 0x1F
 	var g := (v >> 5) & 0x3F
 	var b := v & 0x1F
 	return "C_%02X%02X%02X" % [r * 255 / 31, g * 255 / 63, b * 255 / 31]
+
+static func image_has_alpha(image: Image) -> bool:
+	for x in range(image.get_width()):
+		for y in range(image.get_height()):
+			if image.get_pixel(x, y).a < 0.99:
+				return true
+	return false
 
 # Cell format: [type, orientation, c_top(+Y), c_bottom(-Y), c_right(+X), c_left(-X), c_front(+Z), c_back(-Z)]
 # Face indices within cell array:

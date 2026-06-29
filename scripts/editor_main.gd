@@ -105,6 +105,7 @@ var smooth_depth_spin: SpinBox
 var sprite_wizard: AcceptDialog
 var block_tex_wizard: AcceptDialog
 var _block_tex_faces: Dictionary
+var _block_tex_has_alpha: bool
 var _block_tex_format_label: Label
 var _block_tex_previews: Dictionary
 var _front_image: Image
@@ -347,7 +348,7 @@ func _setup_ui() -> void:
 	_add_section_label(vbox, "Color")
 	var color_picker_btn := ColorPickerButton.new()
 	color_picker_btn.custom_minimum_size = Vector2(0, 28)
-	color_picker_btn.color = CellTypes.decode_rgb565(current_color)
+	color_picker_btn.color = CellTypes.decode_color(current_color)
 	color_picker_btn.edit_alpha = false
 	color_picker_btn.color_changed.connect(_on_color_picker_changed)
 	vbox.add_child(color_picker_btn)
@@ -2024,6 +2025,7 @@ func _on_import_file_selected(path: String) -> void:
 	if image.get_width() != grid_x or image.get_height() != grid_y:
 		image.resize(grid_x, grid_y, Image.INTERPOLATE_NEAREST)
 
+	var has_alpha := CellTypes.image_has_alpha(image)
 	_push_undo()
 	for px in range(image.get_width()):
 		for py in range(image.get_height()):
@@ -2033,7 +2035,12 @@ func _on_import_file_selected(path: String) -> void:
 			var cell_x := px
 			var cell_y := grid_y - 1 - py
 			if cell_x >= 0 and cell_x < grid_x and cell_y >= 0 and cell_y < grid_y:
-				cells[cell_x][cell_y][0] = CellTypes.make_cell(CellTypes.Type.SOLID, 0, CellTypes.encode_rgb565(color))
+				var encoded: int
+				if has_alpha:
+					encoded = CellTypes.encode_rgb5551(color)
+				else:
+					encoded = CellTypes.encode_rgb565(color)
+				cells[cell_x][cell_y][0] = CellTypes.make_cell(CellTypes.Type.SOLID, 0, encoded)
 
 	_mark_dirty()
 	_rebuild_mesh()
@@ -2102,7 +2109,9 @@ func _on_block_texture_selected(path: String) -> void:
 		faces["bottom"] = image
 
 	_block_tex_faces = faces
-	_block_tex_format_label.text = "Detected: " + format_name
+	_block_tex_has_alpha = CellTypes.image_has_alpha(image)
+	var color_mode := "RGB5551" if _block_tex_has_alpha else "RGB565"
+	_block_tex_format_label.text = "Detected: " + format_name + "  |  Color: " + color_mode
 
 	var face_keys := ["top", "front", "right", "bottom", "back", "left"]
 	for key in face_keys:
@@ -2176,6 +2185,7 @@ func _on_block_tex_apply() -> void:
 	var face_keys := ["top", "bottom", "right", "left", "front", "back"]
 	var face_indices := [CellTypes.FACE_TOP, CellTypes.FACE_BOTTOM, CellTypes.FACE_RIGHT, CellTypes.FACE_LEFT, CellTypes.FACE_FRONT, CellTypes.FACE_BACK]
 
+	var use_alpha := _block_tex_has_alpha
 	var color_maps := {}
 	var color_counts := {}
 	for key in face_keys:
@@ -2187,10 +2197,14 @@ func _on_block_tex_apply() -> void:
 			cmap[u].resize(img.get_height())
 			for v in range(img.get_height()):
 				var pixel := img.get_pixel(u, v)
-				if pixel.a < 0.5:
+				if not use_alpha and pixel.a < 0.5:
 					cmap[u][v] = -1
 				else:
-					var encoded := CellTypes.encode_rgb565(pixel)
+					var encoded: int
+					if use_alpha:
+						encoded = CellTypes.encode_rgb5551(pixel)
+					else:
+						encoded = CellTypes.encode_rgb565(pixel)
 					cmap[u][v] = encoded
 					color_counts[encoded] = color_counts.get(encoded, 0) + 1
 		color_maps[key] = cmap
@@ -2433,12 +2447,18 @@ func _on_wizard_generate() -> void:
 	_push_undo()
 	_init_cells()
 
+	var front_has_alpha := CellTypes.image_has_alpha(front)
+	var side_has_alpha := CellTypes.image_has_alpha(side)
 	for x in range(grid_x):
 		for y in range(grid_y):
 			var front_pixel := front.get_pixel(grid_x - 1 - x, grid_y - 1 - y)
 			if front_pixel.a < 0.5:
 				continue
-			var color_idx := CellTypes.encode_rgb565(front_pixel)
+			var color_idx: int
+			if front_has_alpha:
+				color_idx = CellTypes.encode_rgb5551(front_pixel)
+			else:
+				color_idx = CellTypes.encode_rgb565(front_pixel)
 			for z in range(grid_z):
 				var sz := z if flip_side else (grid_z - 1 - z)
 				var side_pixel := side.get_pixel(sz, grid_y - 1 - y)
@@ -2452,7 +2472,11 @@ func _on_wizard_generate() -> void:
 			var side_pixel := side.get_pixel(sz, grid_y - 1 - y)
 			if side_pixel.a < 0.5:
 				continue
-			var side_color := CellTypes.encode_rgb565(side_pixel)
+			var side_color: int
+			if side_has_alpha:
+				side_color = CellTypes.encode_rgb5551(side_pixel)
+			else:
+				side_color = CellTypes.encode_rgb565(side_pixel)
 			for x in range(grid_x):
 				if cells[x][y][z][0] != CellTypes.Type.EMPTY:
 					cells[x][y][z][CellTypes.FACE_LEFT] = side_color
