@@ -3,15 +3,15 @@ extends Node3D
 enum EditMode { BLOCK, CHARACTER }
 enum ToolType { PENCIL, BOX, ERASER, BOX_ERASE, EXTRUDE, LINE, RECT, OVAL, SMOOTH_EDGE, PAINT }
 
-const BLOCK_RES := 48
-const CHAR_RES := 96
+const BLOCK_RES := 32
+const CHAR_RES := 64
 var CELL_SIZE := 1.0 / BLOCK_RES
 const PANEL_WIDTH := 180
 
 var edit_mode: int = EditMode.BLOCK
-var grid_x := 48
-var grid_y := 48
-var grid_z := 48
+var grid_x := 32
+var grid_y := 32
+var grid_z := 32
 
 var cells: Array = []
 var current_tool: int = ToolType.PENCIL
@@ -954,10 +954,10 @@ func _do_set_edit_mode(mode: int) -> void:
 	edit_mode = mode
 	_undo_stack.clear()
 	if edit_mode == EditMode.BLOCK:
-		grid_x = 48; grid_y = 48; grid_z = 48
+		grid_x = 32; grid_y = 32; grid_z = 32
 		CELL_SIZE = 1.0 / BLOCK_RES
 	else:
-		grid_x = 96; grid_y = 192; grid_z = 96
+		grid_x = 64; grid_y = 128; grid_z = 64
 		CELL_SIZE = 1.0 / CHAR_RES
 	current_file_path = ""
 	_unsaved_changes = false
