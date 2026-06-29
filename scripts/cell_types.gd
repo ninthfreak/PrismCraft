@@ -31,6 +31,8 @@ const FAVORITES = [
 # Stored values use bit 16 (RGB5551_FLAG) to distinguish format at decode time.
 # Both formats fit in a 32-bit int alongside the flag.
 
+const OCTAGON_CHAMFER := 9
+
 const RGB5551_FLAG := 0x10000
 const ALPHA_THRESHOLD := 0.5  # import: alpha >= 0.5 → opaque (1); shader/discard: alpha < 0.5 → clip
 

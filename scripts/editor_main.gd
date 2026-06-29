@@ -106,8 +106,11 @@ var sprite_wizard: AcceptDialog
 var block_tex_wizard: AcceptDialog
 var _block_tex_faces: Dictionary
 var _block_tex_has_alpha: bool
+var _block_tex_is_octagon: bool
 var _block_tex_format_label: Label
 var _block_tex_previews: Dictionary
+var _block_tex_preview_grid: GridContainer
+var _block_tex_hint_label: Label
 var _front_image: Image
 var _side_image: Image
 var _wizard_flip_front: CheckButton
@@ -2072,7 +2075,15 @@ func _on_block_texture_selected(path: String) -> void:
 	var tile_w := grid_x
 	var tile_h := grid_y
 
-	if w == tile_w * 3 and h == tile_h * 2:
+	var is_octagon := false
+	if w == tile_w * 9 and h == tile_h:
+		is_octagon = true
+		format_name = "Octagon (288x32)"
+		var oct_keys := ["east", "ne", "north", "nw", "west", "sw", "south", "se", "cap"]
+		for i in range(9):
+			var cell_img := image.get_region(Rect2i(i * tile_w, 0, tile_w, tile_h))
+			faces[oct_keys[i]] = cell_img
+	elif w == tile_w * 3 and h == tile_h * 2:
 		format_name = "6-Face Net (96x64)"
 		var regions := {
 			"top": Rect2i(0, 0, tile_w, tile_h),
@@ -2111,13 +2122,15 @@ func _on_block_texture_selected(path: String) -> void:
 
 	_block_tex_faces = faces
 	_block_tex_has_alpha = CellTypes.image_has_alpha(image)
+	_block_tex_is_octagon = is_octagon
 	var color_mode := "RGB5551" if _block_tex_has_alpha else "RGB565"
 	_block_tex_format_label.text = "Detected: " + format_name + "  |  Color: " + color_mode
 
-	var face_keys := ["top", "front", "right", "bottom", "back", "left"]
-	for key in face_keys:
-		var tex := ImageTexture.create_from_image(faces[key])
-		_block_tex_previews[key].texture = tex
+	_rebuild_block_tex_preview(is_octagon)
+	for key in faces:
+		if key in _block_tex_previews:
+			var tex := ImageTexture.create_from_image(faces[key])
+			_block_tex_previews[key].texture = tex
 
 	block_tex_wizard.popup_centered()
 
@@ -2139,42 +2152,58 @@ func _setup_block_tex_wizard() -> void:
 	vbox.add_child(HSeparator.new())
 
 	_block_tex_previews = {}
-	var face_names := ["top", "front", "right", "bottom", "back", "left"]
-	var face_labels := ["Top (+Y)", "Front (+Z)", "Right (+X)", "Bottom (-Y)", "Back (-Z)", "Left (-X)"]
+	_block_tex_preview_grid = GridContainer.new()
+	_block_tex_preview_grid.columns = 3
+	_block_tex_preview_grid.add_theme_constant_override("h_separation", 12)
+	_block_tex_preview_grid.add_theme_constant_override("v_separation", 8)
+	vbox.add_child(_block_tex_preview_grid)
 
-	var grid := GridContainer.new()
-	grid.columns = 3
-	grid.add_theme_constant_override("h_separation", 12)
-	grid.add_theme_constant_override("v_separation", 8)
-	vbox.add_child(grid)
+	_rebuild_block_tex_preview(false)
 
-	for i in range(6):
+	vbox.add_child(HSeparator.new())
+	_block_tex_hint_label = Label.new()
+	_block_tex_hint_label.text = "Supported: 32x32 (uniform), 64x32 (column), 96x64 (net), 288x32 (octagon)"
+	_block_tex_hint_label.add_theme_font_size_override("font_size", 11)
+	_block_tex_hint_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.7))
+	_block_tex_hint_label.autowrap_mode = TextServer.AUTOWRAP_WORD
+	vbox.add_child(_block_tex_hint_label)
+
+func _rebuild_block_tex_preview(octagon: bool) -> void:
+	for child in _block_tex_preview_grid.get_children():
+		_block_tex_preview_grid.remove_child(child)
+		child.queue_free()
+	_block_tex_previews.clear()
+
+	var names: Array
+	var labels: Array
+	if octagon:
+		_block_tex_preview_grid.columns = 3
+		names = ["east", "ne", "north", "nw", "west", "sw", "south", "se", "cap"]
+		labels = ["East (+X)", "NE", "North (+Z)", "NW", "West (-X)", "SW", "South (-Z)", "SE", "Cap (Top/Bot)"]
+	else:
+		_block_tex_preview_grid.columns = 3
+		names = ["top", "front", "right", "bottom", "back", "left"]
+		labels = ["Top (+Y)", "Front (+Z)", "Right (+X)", "Bottom (-Y)", "Back (-Z)", "Left (-X)"]
+
+	for i in range(names.size()):
 		var col := VBoxContainer.new()
 		col.add_theme_constant_override("separation", 2)
-		grid.add_child(col)
+		_block_tex_preview_grid.add_child(col)
 
 		var lbl := Label.new()
-		lbl.text = face_labels[i]
+		lbl.text = labels[i]
 		lbl.add_theme_font_size_override("font_size", 11)
 		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		col.add_child(lbl)
 
 		var tex_rect := TextureRect.new()
-		tex_rect.custom_minimum_size = Vector2(96, 96)
+		tex_rect.custom_minimum_size = Vector2(80, 80) if octagon else Vector2(96, 96)
 		tex_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		tex_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 		tex_rect.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 		col.add_child(tex_rect)
 
-		_block_tex_previews[face_names[i]] = tex_rect
-
-	vbox.add_child(HSeparator.new())
-	var hint := Label.new()
-	hint.text = "Supported formats: 32x32 (uniform), 64x32 (column/log), 96x64 (6-face net)"
-	hint.add_theme_font_size_override("font_size", 11)
-	hint.add_theme_color_override("font_color", Color(0.6, 0.6, 0.7))
-	hint.autowrap_mode = TextServer.AUTOWRAP_WORD
-	vbox.add_child(hint)
+		_block_tex_previews[names[i]] = tex_rect
 
 func _on_block_tex_apply() -> void:
 	if _block_tex_faces.is_empty():
@@ -2182,6 +2211,10 @@ func _on_block_tex_apply() -> void:
 
 	var faces := _block_tex_faces
 	_block_tex_faces = {}
+
+	if _block_tex_is_octagon:
+		_apply_octagon_block(faces)
+		return
 
 	var face_keys := ["top", "bottom", "right", "left", "front", "back"]
 	var face_indices := [CellTypes.FACE_TOP, CellTypes.FACE_BOTTOM, CellTypes.FACE_RIGHT, CellTypes.FACE_LEFT, CellTypes.FACE_FRONT, CellTypes.FACE_BACK]
@@ -2263,6 +2296,173 @@ func _on_block_tex_apply() -> void:
 
 	_mark_dirty()
 	_rebuild_mesh()
+
+func _apply_octagon_block(faces: Dictionary) -> void:
+	var use_alpha := _block_tex_has_alpha
+	var c := CellTypes.OCTAGON_CHAMFER
+	var gx := grid_x
+	var gy := grid_y
+	var gz := grid_z
+
+	var oct_keys := ["east", "ne", "north", "nw", "west", "sw", "south", "se", "cap"]
+	var color_maps := {}
+	for key in oct_keys:
+		var img: Image = faces[key]
+		var cmap: Array = []
+		cmap.resize(img.get_width())
+		for u in range(img.get_width()):
+			cmap[u] = []
+			cmap[u].resize(img.get_height())
+			for v in range(img.get_height()):
+				var pixel := img.get_pixel(u, v)
+				var encoded: int
+				if use_alpha:
+					encoded = CellTypes.encode_rgb5551(pixel)
+				else:
+					encoded = CellTypes.encode_rgb565(pixel)
+				cmap[u][v] = encoded
+		color_maps[key] = cmap
+
+	var cap_map: Array = color_maps["cap"]
+	var cap_color_counts := {}
+	for u in range(cap_map.size()):
+		for v in range(cap_map[u].size()):
+			var cv: int = cap_map[u][v]
+			cap_color_counts[cv] = cap_color_counts.get(cv, 0) + 1
+	var fill_color := 0
+	var best_count := 0
+	for idx in cap_color_counts:
+		if cap_color_counts[idx] > best_count:
+			best_count = cap_color_counts[idx]
+			fill_color = idx
+
+	_push_undo()
+	_init_cells()
+
+	for x in range(gx):
+		for y in range(gy):
+			for z in range(gz):
+				var in_octagon := true
+				var corner_type := -1
+				# SW corner: x + z < c
+				if x + z < c:
+					in_octagon = false
+					if x + z == c - 1:
+						corner_type = 0  # SW prism
+				# SE corner: (gx-1-x) + z < c  =>  x + z > gx-1-c+gz-gz... simplify
+				elif (gx - 1 - x) + z < c:
+					in_octagon = false
+					if (gx - 1 - x) + z == c - 1:
+						corner_type = 1  # SE prism
+				# NE corner: (gx-1-x) + (gz-1-z) < c
+				elif (gx - 1 - x) + (gz - 1 - z) < c:
+					in_octagon = false
+					if (gx - 1 - x) + (gz - 1 - z) == c - 1:
+						corner_type = 2  # NE prism
+				# NW corner: x + (gz-1-z) < c
+				elif x + (gz - 1 - z) < c:
+					in_octagon = false
+					if x + (gz - 1 - z) == c - 1:
+						corner_type = 3  # NW prism
+
+				if not in_octagon:
+					if corner_type >= 0:
+						var orientation: int
+						match corner_type:
+							0: orientation = 2  # SW corner -> axis=0, corner=2 (NE)
+							1: orientation = 3  # SE corner -> axis=0, corner=3 (NW)
+							2: orientation = 0  # NE corner -> axis=0, corner=0 (SW)
+							_: orientation = 1  # NW corner -> axis=0, corner=1 (SE)
+						var prism_color := fill_color
+						cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.PRISM, orientation, prism_color)
+					else:
+						cells[x][y][z] = CellTypes.empty_cell()
+				else:
+					cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.SOLID, 0, fill_color)
+
+	# Apply side face textures to exposed surface cells
+	# East face (+X): cells at x=gx-1, z from c to gz-1-c (14 wide)
+	var axis_w := gx - 2 * c
+	_apply_octagon_side(color_maps["east"], gx, gy, gz, c, axis_w,
+		func(i: int, v: int) -> Vector3i: return Vector3i(gx - 1, gy - 1 - v, c + i),
+		CellTypes.FACE_RIGHT)
+	# West face (-X): cells at x=0, z from gz-1-c down to c
+	_apply_octagon_side(color_maps["west"], gx, gy, gz, c, axis_w,
+		func(i: int, v: int) -> Vector3i: return Vector3i(0, gy - 1 - v, gz - 1 - c - i),
+		CellTypes.FACE_LEFT)
+	# North face (+Z): cells at z=gz-1, x from gx-1-c down to c
+	_apply_octagon_side(color_maps["north"], gx, gy, gz, c, axis_w,
+		func(i: int, v: int) -> Vector3i: return Vector3i(gx - 1 - c - i, gy - 1 - v, gz - 1),
+		CellTypes.FACE_FRONT)
+	# South face (-Z): cells at z=0, x from c to gx-1-c
+	_apply_octagon_side(color_maps["south"], gx, gy, gz, c, axis_w,
+		func(i: int, v: int) -> Vector3i: return Vector3i(c + i, gy - 1 - v, 0),
+		CellTypes.FACE_BACK)
+
+	# Diagonal face textures: apply to the prism cells along each diagonal edge
+	# NE diagonal: prisms where (gx-1-x)+(gz-1-z)==c-1, x descending (from east toward north)
+	_apply_octagon_diag_color(color_maps["ne"], gx, gy, gz, c, 2)
+	# NW diagonal: prisms where x+(gz-1-z)==c-1
+	_apply_octagon_diag_color(color_maps["nw"], gx, gy, gz, c, 3)
+	# SW diagonal: prisms where x+z==c-1
+	_apply_octagon_diag_color(color_maps["sw"], gx, gy, gz, c, 0)
+	# SE diagonal: prisms where (gx-1-x)+z==c-1
+	_apply_octagon_diag_color(color_maps["se"], gx, gy, gz, c, 1)
+
+	# Apply cap texture to top and bottom faces
+	for x in range(gx):
+		for z in range(gz):
+			if cells[x][0][z][0] == CellTypes.Type.SOLID:
+				var cap_c: int = cap_map[x][gz - 1 - z]
+				cells[x][0][z][CellTypes.FACE_BOTTOM] = cap_c
+			if cells[x][gy - 1][z][0] == CellTypes.Type.SOLID:
+				var cap_c: int = cap_map[x][z]
+				cells[x][gy - 1][z][CellTypes.FACE_TOP] = cap_c
+
+	_mark_dirty()
+	_rebuild_mesh()
+
+func _apply_octagon_side(color_map: Array, gx: int, gy: int, gz: int, chamfer: int, face_w: int, pos_fn: Callable, face_idx: int) -> void:
+	var tex_w: int = color_map.size()
+	var tex_h: int = color_map[0].size()
+	for i in range(face_w):
+		for v in range(gy):
+			var tu: int = clampi(i * tex_w / face_w, 0, tex_w - 1)
+			var tv: int = clampi(v * tex_h / gy, 0, tex_h - 1)
+			var ci: int = color_map[tu][tv]
+			var p: Vector3i = pos_fn.call(i, v)
+			cells[p.x][p.y][p.z][face_idx] = ci
+
+func _apply_octagon_diag_color(color_map: Array, gx: int, gy: int, gz: int, chamfer: int, corner_type: int) -> void:
+	var tex_w: int = color_map.size()
+	var tex_h: int = color_map[0].size()
+	var prism_positions: Array = []
+	for x in range(gx):
+		for z in range(gz):
+			var on_edge := false
+			match corner_type:
+				0: on_edge = (x + z == chamfer - 1)
+				1: on_edge = ((gx - 1 - x) + z == chamfer - 1)
+				2: on_edge = ((gx - 1 - x) + (gz - 1 - z) == chamfer - 1)
+				3: on_edge = (x + (gz - 1 - z) == chamfer - 1)
+			if on_edge:
+				prism_positions.append(Vector2i(x, z))
+
+	# Sort positions to get consistent U mapping across the diagonal
+	match corner_type:
+		0: prism_positions.sort_custom(func(a: Vector2i, b: Vector2i) -> bool: return a.x < b.x)
+		1: prism_positions.sort_custom(func(a: Vector2i, b: Vector2i) -> bool: return a.x > b.x)
+		2: prism_positions.sort_custom(func(a: Vector2i, b: Vector2i) -> bool: return a.x > b.x)
+		3: prism_positions.sort_custom(func(a: Vector2i, b: Vector2i) -> bool: return a.x < b.x)
+
+	var count: int = prism_positions.size()
+	for idx in range(count):
+		var pos: Vector2i = prism_positions[idx]
+		var tu: int = clampi(idx * tex_w / count, 0, tex_w - 1)
+		for y in range(gy):
+			var tv: int = clampi((gy - 1 - y) * tex_h / gy, 0, tex_h - 1)
+			var ci: int = color_map[tu][tv]
+			cells[pos.x][y][pos.y][2] = ci
 
 func _apply_face_texture(color_map: Array, face_idx: int, erase_pos: Callable, color_pos: Callable) -> void:
 	var w: int = color_map.size()
