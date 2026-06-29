@@ -2250,6 +2250,10 @@ func _on_block_tex_apply() -> void:
 			best_count = color_counts[idx]
 			fill_color = idx
 
+	if use_alpha:
+		var fc := CellTypes.decode_color(fill_color)
+		fill_color = CellTypes.encode_rgb565(fc)
+
 	_push_undo()
 	_init_cells()
 
@@ -2335,6 +2339,10 @@ func _apply_octagon_block(faces: Dictionary) -> void:
 		if cap_color_counts[idx] > best_count:
 			best_count = cap_color_counts[idx]
 			fill_color = idx
+
+	if use_alpha:
+		var fc := CellTypes.decode_color(fill_color)
+		fill_color = CellTypes.encode_rgb565(fc)
 
 	_push_undo()
 	_init_cells()
