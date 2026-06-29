@@ -43,6 +43,7 @@ Hold **Shift** with Line to lock to an axis, with Rectangle to force a square, o
 | Middle Click Drag | Pan camera |
 | Scroll Wheel | Zoom in/out |
 | Up / Down | Change floor layer |
+| Shift+Up / Shift+Down | Change ceiling layer (-1 = off) |
 | Tab | Toggle Solid / Prism cell type |
 | Q / E | Rotate prism orientation |
 | 1-8 | Quick-select favorite color |
