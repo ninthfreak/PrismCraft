@@ -30,12 +30,11 @@ static func build_mesh(cells: Array, gx: int, gy: int, gz: int, cell_size: float
 					continue
 
 				var origin := Vector3(x, y, z) * cell_size
-				var color: Color = CellTypes.decode_rgb565(cell[2])
 
 				if cell_type == CellTypes.Type.SOLID:
-					_build_cube(st, cells, gx, gy, gz, x, y, z, origin, cell_size, color)
+					_build_cube(st, cells, gx, gy, gz, x, y, z, origin, cell_size, cell)
 				elif cell_type == CellTypes.Type.PRISM:
-					_build_prism(st, origin, cell_size, cell[1], color)
+					_build_prism(st, origin, cell_size, cell[1], CellTypes.decode_rgb565(cell[2]))
 
 	st.generate_tangents()
 	return st.commit()
@@ -45,43 +44,43 @@ static func _is_solid_neighbor(cells: Array, gx: int, gy: int, gz: int, x: int, 
 		return false
 	return cells[x][y][z][0] == CellTypes.Type.SOLID
 
-static func _build_cube(st: SurfaceTool, cells: Array, gx: int, gy: int, gz: int, cx: int, cy: int, cz: int, o: Vector3, s: float, color: Color) -> void:
+static func _build_cube(st: SurfaceTool, cells: Array, gx: int, gy: int, gz: int, cx: int, cy: int, cz: int, o: Vector3, s: float, cell: Array) -> void:
 	# +Y top
 	if not _is_solid_neighbor(cells, gx, gy, gz, cx, cy + 1, cz):
 		_add_quad(st,
 			o + Vector3(0, s, 0), o + Vector3(s, s, 0),
 			o + Vector3(s, s, s), o + Vector3(0, s, s),
-			Vector3.UP, color)
+			Vector3.UP, CellTypes.decode_rgb565(cell[CellTypes.FACE_TOP]))
 	# -Y bottom
 	if not _is_solid_neighbor(cells, gx, gy, gz, cx, cy - 1, cz):
 		_add_quad(st,
 			o + Vector3(0, 0, s), o + Vector3(s, 0, s),
 			o + Vector3(s, 0, 0), o + Vector3(0, 0, 0),
-			Vector3.DOWN, color)
+			Vector3.DOWN, CellTypes.decode_rgb565(cell[CellTypes.FACE_BOTTOM]))
 	# +X right
 	if not _is_solid_neighbor(cells, gx, gy, gz, cx + 1, cy, cz):
 		_add_quad(st,
 			o + Vector3(s, 0, 0), o + Vector3(s, s, 0),
 			o + Vector3(s, s, s), o + Vector3(s, 0, s),
-			Vector3.RIGHT, color)
+			Vector3.RIGHT, CellTypes.decode_rgb565(cell[CellTypes.FACE_RIGHT]))
 	# -X left
 	if not _is_solid_neighbor(cells, gx, gy, gz, cx - 1, cy, cz):
 		_add_quad(st,
 			o + Vector3(0, 0, s), o + Vector3(0, s, s),
 			o + Vector3(0, s, 0), o + Vector3(0, 0, 0),
-			Vector3.LEFT, color)
+			Vector3.LEFT, CellTypes.decode_rgb565(cell[CellTypes.FACE_LEFT]))
 	# +Z front
 	if not _is_solid_neighbor(cells, gx, gy, gz, cx, cy, cz + 1):
 		_add_quad(st,
 			o + Vector3(0, 0, s), o + Vector3(0, s, s),
 			o + Vector3(s, s, s), o + Vector3(s, 0, s),
-			Vector3.BACK, color)
+			Vector3.BACK, CellTypes.decode_rgb565(cell[CellTypes.FACE_FRONT]))
 	# -Z back
 	if not _is_solid_neighbor(cells, gx, gy, gz, cx, cy, cz - 1):
 		_add_quad(st,
 			o + Vector3(s, 0, 0), o + Vector3(s, s, 0),
 			o + Vector3(0, s, 0), o + Vector3(0, 0, 0),
-			Vector3.FORWARD, color)
+			Vector3.FORWARD, CellTypes.decode_rgb565(cell[CellTypes.FACE_BACK]))
 
 static func _build_prism(st: SurfaceTool, o: Vector3, s: float, orientation: int, color: Color) -> void:
 	var axis: int = orientation / 4
