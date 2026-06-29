@@ -341,25 +341,31 @@ func _setup_ui() -> void:
 	# Color
 	_add_section_label(vbox, "Color")
 	color_group = ButtonGroup.new()
+	var color_scroll := ScrollContainer.new()
+	color_scroll.custom_minimum_size = Vector2(0, 200)
+	color_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	vbox.add_child(color_scroll)
 	var color_grid := GridContainer.new()
-	color_grid.columns = 4
-	vbox.add_child(color_grid)
+	color_grid.columns = 16
+	color_scroll.add_child(color_grid)
 	for i in range(CellTypes.PALETTE.size()):
 		var btn := Button.new()
 		btn.toggle_mode = true
 		btn.button_group = color_group
-		btn.custom_minimum_size = Vector2(36, 28)
+		btn.custom_minimum_size = Vector2(12, 12)
 		btn.tooltip_text = CellTypes.PALETTE_NAMES[i]
 		var ns := StyleBoxFlat.new()
 		ns.bg_color = CellTypes.PALETTE[i]
-		ns.border_color = Color(0.4, 0.4, 0.4)
+		ns.border_color = Color(0.3, 0.3, 0.3)
 		ns.set_border_width_all(1)
+		ns.set_content_margin_all(0)
 		btn.add_theme_stylebox_override("normal", ns)
 		btn.add_theme_stylebox_override("hover", ns)
 		var ps := StyleBoxFlat.new()
 		ps.bg_color = CellTypes.PALETTE[i]
 		ps.border_color = Color.WHITE
-		ps.set_border_width_all(3)
+		ps.set_border_width_all(2)
+		ps.set_content_margin_all(0)
 		btn.add_theme_stylebox_override("pressed", ps)
 		if i == 0:
 			btn.button_pressed = true
