@@ -2279,15 +2279,22 @@ func _on_block_tex_apply() -> void:
 
 	if use_alpha:
 		var fc := CellTypes.decode_color(fill_color)
-		fill_color = CellTypes.encode_rgb565(fc)
+		fill_color = CellTypes.encode_rgb5551(Color(fc.r, fc.g, fc.b, 0.0))
 
 	_push_undo()
 	_init_cells()
 
-	for x in range(grid_x):
-		for y in range(grid_y):
-			for z in range(grid_z):
-				cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.SOLID, 0, fill_color)
+	if use_alpha:
+		for x in range(grid_x):
+			for y in range(grid_y):
+				for z in range(grid_z):
+					if x == 0 or x == grid_x - 1 or y == 0 or y == grid_y - 1 or z == 0 or z == grid_z - 1:
+						cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.SOLID, 0, fill_color)
+	else:
+		for x in range(grid_x):
+			for y in range(grid_y):
+				for z in range(grid_z):
+					cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.SOLID, 0, fill_color)
 
 	_apply_face_texture(color_maps["front"], CellTypes.FACE_FRONT,
 		func(u: int, v: int) -> Vector3i:
@@ -2324,6 +2331,9 @@ func _on_block_tex_apply() -> void:
 			return Vector3i(u, 0, grid_z - 1 - v),
 		func(u: int, v: int) -> Vector3i:
 			return Vector3i(u, 0, grid_z - 1 - v))
+
+	if use_alpha:
+		_erase_fully_transparent_cells()
 
 	_mark_dirty()
 	_rebuild_mesh()
@@ -2371,7 +2381,7 @@ func _apply_octagon_block(faces: Dictionary, footprint: int) -> void:
 
 	if use_alpha:
 		var fc := CellTypes.decode_color(fill_color)
-		fill_color = CellTypes.encode_rgb565(fc)
+		fill_color = CellTypes.encode_rgb5551(Color(fc.r, fc.g, fc.b, 0.0))
 
 	_push_undo()
 	_init_cells()
@@ -2443,6 +2453,9 @@ func _apply_octagon_block(faces: Dictionary, footprint: int) -> void:
 			if cells[x][gy - 1][z][0] == CellTypes.Type.SOLID:
 				cells[x][gy - 1][z][CellTypes.FACE_TOP] = cap_map[lx][lz]
 
+	if use_alpha:
+		_erase_fully_transparent_cells()
+
 	_mark_dirty()
 	_rebuild_mesh()
 
@@ -2478,6 +2491,22 @@ func _apply_octagon_diag_color(color_map: Array, gy: int, chamfer: int, corner_t
 		for y in range(gy):
 			var ci: int = color_map[idx][gy - 1 - y]
 			cells[pos.x][y][pos.y][2] = ci
+
+func _erase_fully_transparent_cells() -> void:
+	for x in range(grid_x):
+		for y in range(grid_y):
+			for z in range(grid_z):
+				var cell: Array = cells[x][y][z]
+				if cell[0] == CellTypes.Type.EMPTY:
+					continue
+				var all_transparent := true
+				for fi in range(CellTypes.FACE_TOP, CellTypes.FACE_BACK + 1):
+					var cv: int = cell[fi]
+					if not CellTypes.is_rgb5551(cv) or CellTypes.decode_rgb5551(cv).a >= CellTypes.ALPHA_THRESHOLD:
+						all_transparent = false
+						break
+				if all_transparent:
+					cells[x][y][z] = CellTypes.empty_cell()
 
 func _apply_face_texture(color_map: Array, face_idx: int, erase_pos: Callable, color_pos: Callable) -> void:
 	var w: int = color_map.size()
