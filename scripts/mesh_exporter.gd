@@ -43,12 +43,22 @@ static func export_obj(path: String, cells: Array, gx: int, gy: int, gz: int, ce
 		if fd[0] != cur_color:
 			cur_color = fd[0]
 			text += "usemtl " + CellTypes.color_name(cur_color) + "\n"
-		var vi: int = fd[1] + 1
+		var vi: int = fd[1]
 		var ni: int = fd[3] + 1
+		var n: Vector3 = norms[fd[3]]
+		var cross: Vector3 = (verts[vi + 1] - verts[vi]).cross(verts[vi + 2] - verts[vi])
+		var flip: bool = cross.dot(n) > 0
+		vi += 1
 		if fd[2] == 4:
-			text += "f %d//%d %d//%d %d//%d %d//%d\n" % [vi + 3, ni, vi + 2, ni, vi + 1, ni, vi, ni]
+			if flip:
+				text += "f %d//%d %d//%d %d//%d %d//%d\n" % [vi, ni, vi + 1, ni, vi + 2, ni, vi + 3, ni]
+			else:
+				text += "f %d//%d %d//%d %d//%d %d//%d\n" % [vi + 3, ni, vi + 2, ni, vi + 1, ni, vi, ni]
 		else:
-			text += "f %d//%d %d//%d %d//%d\n" % [vi + 2, ni, vi + 1, ni, vi, ni]
+			if flip:
+				text += "f %d//%d %d//%d %d//%d\n" % [vi, ni, vi + 1, ni, vi + 2, ni]
+			else:
+				text += "f %d//%d %d//%d %d//%d\n" % [vi + 2, ni, vi + 1, ni, vi, ni]
 		face_count += 1
 
 	var file := FileAccess.open(path, FileAccess.WRITE)
@@ -131,9 +141,7 @@ static func _greedy_mesh_dir(cells: Array, gx: int, gy: int, gz: int, s: float, 
 					grid[u][v] = face_color
 				else:
 					var ncell: Array = cells[nx][ny][nz]
-					if ncell[0] == CellTypes.Type.EMPTY or CellTypes.is_cutout_cell(ncell):
-						grid[u][v] = face_color
-					elif ncell[0] == CellTypes.Type.PRISM and not CellTypes.prism_covers_face(ncell[1], dir ^ 1):
+					if ncell[0] == CellTypes.Type.EMPTY or ncell[0] == CellTypes.Type.PRISM or CellTypes.is_cutout_cell(ncell):
 						grid[u][v] = face_color
 					elif not CellTypes.is_cutout_cell(src_cell):
 						grid[u][v] = -1
