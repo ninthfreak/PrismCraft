@@ -46,9 +46,9 @@ static func export_obj(path: String, cells: Array, gx: int, gy: int, gz: int, ce
 		var vi: int = fd[1] + 1
 		var ni: int = fd[3] + 1
 		if fd[2] == 4:
-			text += "f %d//%d %d//%d %d//%d %d//%d\n" % [vi, ni, vi + 1, ni, vi + 2, ni, vi + 3, ni]
+			text += "f %d//%d %d//%d %d//%d %d//%d\n" % [vi + 3, ni, vi + 2, ni, vi + 1, ni, vi, ni]
 		else:
-			text += "f %d//%d %d//%d %d//%d\n" % [vi, ni, vi + 1, ni, vi + 2, ni]
+			text += "f %d//%d %d//%d %d//%d\n" % [vi + 2, ni, vi + 1, ni, vi, ni]
 		face_count += 1
 
 	var file := FileAccess.open(path, FileAccess.WRITE)
