@@ -103,6 +103,10 @@ var confirm_dialog: ConfirmationDialog
 var smooth_dialog: ConfirmationDialog
 var smooth_depth_spin: SpinBox
 var sprite_wizard: AcceptDialog
+var block_tex_wizard: AcceptDialog
+var _block_tex_faces: Dictionary
+var _block_tex_format_label: Label
+var _block_tex_previews: Dictionary
 var _front_image: Image
 var _side_image: Image
 var _wizard_flip_front: CheckButton
@@ -539,6 +543,7 @@ func _setup_ui() -> void:
 	add_child(import_side_dialog)
 
 	_setup_sprite_wizard()
+	_setup_block_tex_wizard()
 	_setup_smooth_dialog()
 
 	confirm_dialog = ConfirmationDialog.new()
@@ -2052,23 +2057,143 @@ func _on_block_texture_selected(path: String) -> void:
 	if image.load(path) != OK:
 		return
 
-	if image.get_width() != grid_x or image.get_height() != grid_y:
-		image.resize(grid_x, grid_y, Image.INTERPOLATE_NEAREST)
+	var w := image.get_width()
+	var h := image.get_height()
+	var faces := {}
+	var format_name := ""
+	var tile_w := grid_x
+	var tile_h := grid_y
 
-	var color_map: Array = []
-	color_map.resize(grid_x)
+	if w == tile_w * 3 and h == tile_h * 2:
+		format_name = "6-Face Net (96x64)"
+		var regions := {
+			"top": Rect2i(0, 0, tile_w, tile_h),
+			"front": Rect2i(tile_w, 0, tile_w, tile_h),
+			"right": Rect2i(tile_w * 2, 0, tile_w, tile_h),
+			"bottom": Rect2i(0, tile_h, tile_w, tile_h),
+			"back": Rect2i(tile_w, tile_h, tile_w, tile_h),
+			"left": Rect2i(tile_w * 2, tile_h, tile_w, tile_h),
+		}
+		for key in regions:
+			var r: Rect2i = regions[key]
+			var face_img := image.get_region(r)
+			if face_img.get_width() != tile_w or face_img.get_height() != tile_h:
+				face_img.resize(tile_w, tile_h, Image.INTERPOLATE_NEAREST)
+			faces[key] = face_img
+	elif w == tile_w * 2 and h == tile_h:
+		format_name = "Column / Log (64x32)"
+		var sides_img := image.get_region(Rect2i(0, 0, tile_w, tile_h))
+		var cap_img := image.get_region(Rect2i(tile_w, 0, tile_w, tile_h))
+		faces["front"] = sides_img
+		faces["back"] = sides_img
+		faces["right"] = sides_img
+		faces["left"] = sides_img
+		faces["top"] = cap_img
+		faces["bottom"] = cap_img
+	else:
+		format_name = "Uniform (single texture)"
+		if w != tile_w or h != tile_h:
+			image.resize(tile_w, tile_h, Image.INTERPOLATE_NEAREST)
+		faces["front"] = image
+		faces["back"] = image
+		faces["right"] = image
+		faces["left"] = image
+		faces["top"] = image
+		faces["bottom"] = image
+
+	_block_tex_faces = faces
+	_block_tex_format_label.text = "Detected: " + format_name
+
+	var face_keys := ["top", "front", "right", "bottom", "back", "left"]
+	for key in face_keys:
+		var tex := ImageTexture.create_from_image(faces[key])
+		_block_tex_previews[key].texture = tex
+
+	block_tex_wizard.popup_centered()
+
+func _setup_block_tex_wizard() -> void:
+	block_tex_wizard = AcceptDialog.new()
+	block_tex_wizard.title = "Import Block Texture"
+	block_tex_wizard.ok_button_text = "Apply"
+	block_tex_wizard.confirmed.connect(_on_block_tex_apply)
+	add_child(block_tex_wizard)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 6)
+	block_tex_wizard.add_child(vbox)
+
+	_block_tex_format_label = Label.new()
+	_block_tex_format_label.add_theme_font_size_override("font_size", 13)
+	vbox.add_child(_block_tex_format_label)
+
+	vbox.add_child(HSeparator.new())
+
+	_block_tex_previews = {}
+	var face_names := ["top", "front", "right", "bottom", "back", "left"]
+	var face_labels := ["Top (+Y)", "Front (+Z)", "Right (+X)", "Bottom (-Y)", "Back (-Z)", "Left (-X)"]
+
+	var grid := GridContainer.new()
+	grid.columns = 3
+	grid.add_theme_constant_override("h_separation", 12)
+	grid.add_theme_constant_override("v_separation", 8)
+	vbox.add_child(grid)
+
+	for i in range(6):
+		var col := VBoxContainer.new()
+		col.add_theme_constant_override("separation", 2)
+		grid.add_child(col)
+
+		var lbl := Label.new()
+		lbl.text = face_labels[i]
+		lbl.add_theme_font_size_override("font_size", 11)
+		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		col.add_child(lbl)
+
+		var tex_rect := TextureRect.new()
+		tex_rect.custom_minimum_size = Vector2(96, 96)
+		tex_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		tex_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		tex_rect.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		col.add_child(tex_rect)
+
+		_block_tex_previews[face_names[i]] = tex_rect
+
+	vbox.add_child(HSeparator.new())
+	var hint := Label.new()
+	hint.text = "Supported formats: 32x32 (uniform), 64x32 (column/log), 96x64 (6-face net)"
+	hint.add_theme_font_size_override("font_size", 11)
+	hint.add_theme_color_override("font_color", Color(0.6, 0.6, 0.7))
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD
+	vbox.add_child(hint)
+
+func _on_block_tex_apply() -> void:
+	if _block_tex_faces.is_empty():
+		return
+
+	var faces := _block_tex_faces
+	_block_tex_faces = {}
+
+	var face_keys := ["top", "bottom", "right", "left", "front", "back"]
+	var face_indices := [CellTypes.FACE_TOP, CellTypes.FACE_BOTTOM, CellTypes.FACE_RIGHT, CellTypes.FACE_LEFT, CellTypes.FACE_FRONT, CellTypes.FACE_BACK]
+
+	var color_maps := {}
 	var color_counts := {}
-	for u in range(grid_x):
-		color_map[u] = []
-		color_map[u].resize(grid_y)
-		for v in range(grid_y):
-			var pixel := image.get_pixel(u, v)
-			if pixel.a < 0.5:
-				color_map[u][v] = -1
-			else:
-				var encoded := CellTypes.encode_rgb565(pixel)
-				color_map[u][v] = encoded
-				color_counts[encoded] = color_counts.get(encoded, 0) + 1
+	for key in face_keys:
+		var img: Image = faces[key]
+		var cmap: Array = []
+		cmap.resize(img.get_width())
+		for u in range(img.get_width()):
+			cmap[u] = []
+			cmap[u].resize(img.get_height())
+			for v in range(img.get_height()):
+				var pixel := img.get_pixel(u, v)
+				if pixel.a < 0.5:
+					cmap[u][v] = -1
+				else:
+					var encoded := CellTypes.encode_rgb565(pixel)
+					cmap[u][v] = encoded
+					color_counts[encoded] = color_counts.get(encoded, 0) + 1
+		color_maps[key] = cmap
 
 	var fill_color := 0
 	var best_count := 0
@@ -2085,66 +2210,57 @@ func _on_block_texture_selected(path: String) -> void:
 			for z in range(grid_z):
 				cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.SOLID, 0, fill_color)
 
-	# Front face (+Z) — surface at z=grid_z-1
-	for u in range(grid_x):
-		for v in range(grid_y):
-			var ci: int = color_map[u][v]
-			var y_cell := grid_y - 1 - v
-			if ci == -1:
-				cells[u][y_cell][grid_z - 1] = CellTypes.empty_cell()
-			else:
-				cells[u][y_cell][grid_z - 1][CellTypes.FACE_FRONT] = ci
+	_apply_face_texture(color_maps["front"], CellTypes.FACE_FRONT,
+		func(u: int, v: int) -> Vector3i:
+			return Vector3i(u, grid_y - 1 - v, grid_z - 1),
+		func(u: int, v: int) -> Vector3i:
+			return Vector3i(u, grid_y - 1 - v, grid_z - 1))
 
-	# Back face (-Z) — surface at z=0
-	for u in range(grid_x):
-		for v in range(grid_y):
-			var ci: int = color_map[u][v]
-			var y_cell := grid_y - 1 - v
-			if ci == -1:
-				cells[grid_x - 1 - u][y_cell][0] = CellTypes.empty_cell()
-			else:
-				cells[grid_x - 1 - u][y_cell][0][CellTypes.FACE_BACK] = ci
+	_apply_face_texture(color_maps["back"], CellTypes.FACE_BACK,
+		func(u: int, v: int) -> Vector3i:
+			return Vector3i(grid_x - 1 - u, grid_y - 1 - v, 0),
+		func(u: int, v: int) -> Vector3i:
+			return Vector3i(grid_x - 1 - u, grid_y - 1 - v, 0))
 
-	# Right face (+X) — surface at x=grid_x-1
-	for u in range(grid_z):
-		for v in range(grid_y):
-			var ci: int = color_map[u][v]
-			var y_cell := grid_y - 1 - v
-			if ci == -1:
-				cells[grid_x - 1][y_cell][grid_z - 1 - u] = CellTypes.empty_cell()
-			else:
-				cells[grid_x - 1][y_cell][grid_z - 1 - u][CellTypes.FACE_RIGHT] = ci
+	_apply_face_texture(color_maps["right"], CellTypes.FACE_RIGHT,
+		func(u: int, v: int) -> Vector3i:
+			return Vector3i(grid_x - 1, grid_y - 1 - v, grid_z - 1 - u),
+		func(u: int, v: int) -> Vector3i:
+			return Vector3i(grid_x - 1, grid_y - 1 - v, grid_z - 1 - u))
 
-	# Left face (-X) — surface at x=0
-	for u in range(grid_z):
-		for v in range(grid_y):
-			var ci: int = color_map[u][v]
-			var y_cell := grid_y - 1 - v
-			if ci == -1:
-				cells[0][y_cell][u] = CellTypes.empty_cell()
-			else:
-				cells[0][y_cell][u][CellTypes.FACE_LEFT] = ci
+	_apply_face_texture(color_maps["left"], CellTypes.FACE_LEFT,
+		func(u: int, v: int) -> Vector3i:
+			return Vector3i(0, grid_y - 1 - v, u),
+		func(u: int, v: int) -> Vector3i:
+			return Vector3i(0, grid_y - 1 - v, u))
 
-	# Top face (+Y) — surface at y=grid_y-1
-	for u in range(grid_x):
-		for v in range(grid_z):
-			var ci: int = color_map[u][v]
-			if ci == -1:
-				cells[u][grid_y - 1][v] = CellTypes.empty_cell()
-			else:
-				cells[u][grid_y - 1][v][CellTypes.FACE_TOP] = ci
+	_apply_face_texture(color_maps["top"], CellTypes.FACE_TOP,
+		func(u: int, v: int) -> Vector3i:
+			return Vector3i(u, grid_y - 1, v),
+		func(u: int, v: int) -> Vector3i:
+			return Vector3i(u, grid_y - 1, v))
 
-	# Bottom face (-Y) — surface at y=0
-	for u in range(grid_x):
-		for v in range(grid_z):
-			var ci: int = color_map[u][v]
-			if ci == -1:
-				cells[u][0][grid_z - 1 - v] = CellTypes.empty_cell()
-			else:
-				cells[u][0][grid_z - 1 - v][CellTypes.FACE_BOTTOM] = ci
+	_apply_face_texture(color_maps["bottom"], CellTypes.FACE_BOTTOM,
+		func(u: int, v: int) -> Vector3i:
+			return Vector3i(u, 0, grid_z - 1 - v),
+		func(u: int, v: int) -> Vector3i:
+			return Vector3i(u, 0, grid_z - 1 - v))
 
 	_mark_dirty()
 	_rebuild_mesh()
+
+func _apply_face_texture(color_map: Array, face_idx: int, erase_pos: Callable, color_pos: Callable) -> void:
+	var w: int = color_map.size()
+	var h: int = color_map[0].size()
+	for u in range(w):
+		for v in range(h):
+			var ci: int = color_map[u][v]
+			if ci == -1:
+				var p: Vector3i = erase_pos.call(u, v)
+				cells[p.x][p.y][p.z] = CellTypes.empty_cell()
+			else:
+				var p: Vector3i = color_pos.call(u, v)
+				cells[p.x][p.y][p.z][face_idx] = ci
 
 func _export_obj() -> void:
 	export_dialog.current_dir = "res://definitions"
