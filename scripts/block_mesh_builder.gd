@@ -47,11 +47,9 @@ static func build_mesh(cells: Array, gx: int, gy: int, gz: int, cell_size: float
 					else:
 						_build_prism(st_opaque, origin, cell_size, cell[1], CellTypes.decode_color(cell[2]))
 
-	st_opaque.generate_tangents()
 	var mesh := st_opaque.commit()
 
 	if has_cutout:
-		st_cutout.generate_tangents()
 		st_cutout.commit(mesh)
 
 	return mesh

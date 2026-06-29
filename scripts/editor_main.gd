@@ -23,6 +23,7 @@ var floor_y: int = 0
 var ceiling_y: int = -1
 var _ceiling_locked := false
 var _unsaved_changes := false
+var _mesh_dirty := false
 var _pending_action := ""
 var _preview_mode := false
 var _preview_light: DirectionalLight3D
@@ -143,6 +144,9 @@ func _ready() -> void:
 	_generate_presets()
 
 func _process(_delta: float) -> void:
+	if _mesh_dirty:
+		_mesh_dirty = false
+		_rebuild_mesh_now()
 	if camera and view_cube:
 		view_cube.set_orientation(camera.yaw, camera.pitch)
 
@@ -2940,6 +2944,9 @@ func _notification(what: int) -> void:
 # ─── Mesh Building ───
 
 func _rebuild_mesh() -> void:
+	_mesh_dirty = true
+
+func _rebuild_mesh_now() -> void:
 	var new_mesh := BlockMeshBuilder.build_mesh(cells, grid_x, grid_y, grid_z, CELL_SIZE)
 	mesh_instance.mesh = new_mesh
 	if new_mesh and new_mesh.get_surface_count() > 0:
