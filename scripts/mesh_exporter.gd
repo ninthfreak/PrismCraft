@@ -42,7 +42,7 @@ static func export_obj(path: String, cells: Array, gx: int, gy: int, gz: int, ce
 	for fd in face_defs:
 		if fd[0] != cur_color:
 			cur_color = fd[0]
-			text += "usemtl " + CellTypes.color_name_rgb565(cur_color) + "\n"
+			text += "usemtl " + CellTypes.color_name(cur_color) + "\n"
 		var vi: int = fd[1] + 1
 		var ni: int = fd[3] + 1
 		if fd[2] == 4:
@@ -63,12 +63,15 @@ static func export_obj(path: String, cells: Array, gx: int, gy: int, gz: int, ce
 
 	var mtl_text := ""
 	for ci in used_colors:
-		var c: Color = CellTypes.decode_rgb565(ci)
-		var cname: String = CellTypes.color_name_rgb565(ci)
+		var c: Color = CellTypes.decode_color(ci)
+		var cname: String = CellTypes.color_name(ci)
 		mtl_text += "newmtl " + cname + "\n"
 		mtl_text += "Kd %.4f %.4f %.4f\n" % [c.r, c.g, c.b]
 		mtl_text += "Ka 0.1 0.1 0.1\n"
-		mtl_text += "d 1.0\n\n"
+		if c.a < 1.0:
+			mtl_text += "d %.4f\n\n" % c.a
+		else:
+			mtl_text += "d 1.0\n\n"
 
 	var mtl_path := path.get_base_dir().path_join(mtl_file)
 	var mfile := FileAccess.open(mtl_path, FileAccess.WRITE)
@@ -104,7 +107,14 @@ static func _greedy_mesh_dir(cells: Array, gx: int, gy: int, gz: int, s: float, 
 					2, 3: cx = slice; cy = v; cz = u
 					_:    cx = u; cy = v; cz = slice
 
-				if cells[cx][cy][cz][0] != CellTypes.Type.SOLID:
+				var src_cell: Array = cells[cx][cy][cz]
+				if src_cell[0] != CellTypes.Type.SOLID:
+					grid[u][v] = -1
+					continue
+
+				var face_idx: int = dir + 2
+				var face_color: int = src_cell[face_idx]
+				if CellTypes.is_rgb5551(face_color) and CellTypes.decode_color(face_color).a < CellTypes.ALPHA_THRESHOLD:
 					grid[u][v] = -1
 					continue
 
@@ -117,13 +127,16 @@ static func _greedy_mesh_dir(cells: Array, gx: int, gy: int, gz: int, s: float, 
 					4: nx = cx; ny = cy; nz = cz + 1
 					_: nx = cx; ny = cy; nz = cz - 1
 
-				var face_idx: int = dir + 2
 				if nx < 0 or nx >= gx or ny < 0 or ny >= gy or nz < 0 or nz >= gz:
-					grid[u][v] = cells[cx][cy][cz][face_idx]
-				elif cells[nx][ny][nz][0] == CellTypes.Type.EMPTY:
-					grid[u][v] = cells[cx][cy][cz][face_idx]
+					grid[u][v] = face_color
 				else:
-					grid[u][v] = -1
+					var ncell: Array = cells[nx][ny][nz]
+					if ncell[0] == CellTypes.Type.EMPTY or ncell[0] == CellTypes.Type.PRISM or CellTypes.is_cutout_cell(ncell):
+						grid[u][v] = face_color
+					elif not CellTypes.is_cutout_cell(src_cell):
+						grid[u][v] = -1
+					else:
+						grid[u][v] = face_color
 
 		var visited: Array = []
 		visited.resize(u_size)

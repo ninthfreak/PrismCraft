@@ -25,6 +25,15 @@ const FAVORITES = [
 	Color(0.56, 0.20, 0.10),  # 15 Auburn
 ]
 
+# ─── Color encoding ───
+# RGB565 (opaque):  bits [15..11] R, [10..5] G, [4..0] B   — 65536 colors, no alpha
+# RGB5551 (cutout): bits [15..11] R, [10..6] G, [5..1] B, [0] A  — 32768 colors + 1-bit alpha
+# Stored values use bit 16 (RGB5551_FLAG) to distinguish format at decode time.
+# Both formats fit in a 32-bit int alongside the flag.
+
+const RGB5551_FLAG := 0x10000
+const ALPHA_THRESHOLD := 0.5  # import: alpha >= 0.5 → opaque (1); shader/discard: alpha < 0.5 → clip
+
 static func encode_rgb565(c: Color) -> int:
 	var r := clampi(int(c.r * 31.0 + 0.5), 0, 31)
 	var g := clampi(int(c.g * 63.0 + 0.5), 0, 63)
@@ -37,11 +46,53 @@ static func decode_rgb565(v: int) -> Color:
 	var b := (v & 0x1F) / 31.0
 	return Color(r, g, b)
 
+static func encode_rgb5551(c: Color) -> int:
+	var r := clampi(int(c.r * 31.0 + 0.5), 0, 31)
+	var g := clampi(int(c.g * 31.0 + 0.5), 0, 31)
+	var b := clampi(int(c.b * 31.0 + 0.5), 0, 31)
+	var a := 1 if c.a >= ALPHA_THRESHOLD else 0
+	return ((r << 11) | (g << 6) | (b << 1) | a) | RGB5551_FLAG
+
+static func decode_rgb5551(v: int) -> Color:
+	var raw := v & 0xFFFF
+	var r := ((raw >> 11) & 0x1F) / 31.0
+	var g := ((raw >> 6) & 0x1F) / 31.0
+	var b := ((raw >> 1) & 0x1F) / 31.0
+	var a := float(raw & 1)
+	return Color(r, g, b, a)
+
+static func is_rgb5551(v: int) -> bool:
+	return (v & RGB5551_FLAG) != 0
+
+static func decode_color(v: int) -> Color:
+	if (v & RGB5551_FLAG) != 0:
+		return decode_rgb5551(v)
+	return decode_rgb565(v)
+
+static func color_name(v: int) -> String:
+	var c := decode_color(v)
+	return "C_%02X%02X%02X" % [int(c.r * 255), int(c.g * 255), int(c.b * 255)]
+
 static func color_name_rgb565(v: int) -> String:
 	var r := (v >> 11) & 0x1F
 	var g := (v >> 5) & 0x3F
 	var b := v & 0x1F
 	return "C_%02X%02X%02X" % [r * 255 / 31, g * 255 / 63, b * 255 / 31]
+
+static func image_has_alpha(image: Image) -> bool:
+	for x in range(image.get_width()):
+		for y in range(image.get_height()):
+			if image.get_pixel(x, y).a < 1.0:
+				return true
+	return false
+
+static func is_cutout_cell(cell: Array) -> bool:
+	if cell[0] == Type.EMPTY:
+		return false
+	for fi in range(FACE_TOP, FACE_BACK + 1):
+		if is_rgb5551(cell[fi]):
+			return true
+	return false
 
 # Cell format: [type, orientation, c_top(+Y), c_bottom(-Y), c_right(+X), c_left(-X), c_front(+Z), c_back(-Z)]
 # Face indices within cell array:
