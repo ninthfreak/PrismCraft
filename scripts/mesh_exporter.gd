@@ -277,10 +277,31 @@ static func _emit_prisms(cells: Array, gx: int, gy: int, gz: int, s: float, ox: 
 						_: mz = z + r
 					visited[mx + my * gx + mz * gx * gy] = true
 
-				var o := Vector3(x * s - ox, y * s, z * s - oz)
-				_emit_merged_prism(o, s, orientation, color, run, faces)
+				var near_capped := true
+				var far_capped := true
+				var nnx: int = x; var nny: int = y; var nnz: int = z
+				match axis:
+					0: nny = y - 1
+					1: nnx = x - 1
+					_: nnz = z - 1
+				if nnx >= 0 and nny >= 0 and nnz >= 0:
+					var nc: Array = cells[nnx][nny][nnz]
+					if nc[0] == CellTypes.Type.PRISM and nc[1] == orientation:
+						near_capped = false
+				var fnx: int = x; var fny: int = y; var fnz: int = z
+				match axis:
+					0: fny = y + run
+					1: fnx = x + run
+					_: fnz = z + run
+				if fnx < gx and fny < gy and fnz < gz:
+					var nc: Array = cells[fnx][fny][fnz]
+					if nc[0] == CellTypes.Type.PRISM and nc[1] == orientation:
+						far_capped = false
 
-static func _emit_merged_prism(o: Vector3, s: float, orientation: int, color: int, run: int, faces: Array) -> void:
+				var o := Vector3(x * s - ox, y * s, z * s - oz)
+				_emit_merged_prism(o, s, orientation, color, run, near_capped, far_capped, faces)
+
+static func _emit_merged_prism(o: Vector3, s: float, orientation: int, color: int, run: int, near_cap: bool, far_cap: bool, faces: Array) -> void:
 	var axis: int = orientation / 4
 	var corner: int = orientation % 4
 
@@ -317,8 +338,10 @@ static func _emit_merged_prism(o: Vector3, s: float, orientation: int, color: in
 		1: axis_dir = Vector3.RIGHT
 		_: axis_dir = Vector3.BACK
 
-	faces.append([color, -axis_dir, [p_near[0], p_near[1], p_near[2]]])
-	faces.append([color, axis_dir, [p_far[2], p_far[1], p_far[0]]])
+	if near_cap:
+		faces.append([color, -axis_dir, [p_near[0], p_near[1], p_near[2]]])
+	if far_cap:
+		faces.append([color, axis_dir, [p_far[2], p_far[1], p_far[0]]])
 
 	for i in range(3):
 		var j := (i + 1) % 3

@@ -41,11 +41,29 @@ static func build_mesh(cells: Array, gx: int, gy: int, gz: int, cell_size: float
 					else:
 						_build_cube(st_opaque, cells, gx, gy, gz, x, y, z, origin, cell_size, cell, false)
 				elif cell_type == CellTypes.Type.PRISM:
+					var ori: int = cell[1]
+					var pax: int = ori / 4
+					var near_cap := true
+					var far_cap := true
+					var nnx: int = x; var nny: int = y; var nnz: int = z
+					var fnx: int = x; var fny: int = y; var fnz: int = z
+					match pax:
+						0: nny = y - 1; fny = y + 1
+						1: nnx = x - 1; fnx = x + 1
+						_: nnz = z - 1; fnz = z + 1
+					if nnx >= 0 and nny >= 0 and nnz >= 0:
+						var nc: Array = cells[nnx][nny][nnz]
+						if nc[0] == CellTypes.Type.PRISM and nc[1] == ori:
+							near_cap = false
+					if fnx < gx and fny < gy and fnz < gz:
+						var nc: Array = cells[fnx][fny][fnz]
+						if nc[0] == CellTypes.Type.PRISM and nc[1] == ori:
+							far_cap = false
 					if CellTypes.is_rgb5551(cell[2]):
-						_build_prism(st_cutout, origin, cell_size, cell[1], CellTypes.decode_color(cell[2]))
+						_build_prism(st_cutout, origin, cell_size, ori, CellTypes.decode_color(cell[2]), near_cap, far_cap)
 						has_cutout = true
 					else:
-						_build_prism(st_opaque, origin, cell_size, cell[1], CellTypes.decode_color(cell[2]))
+						_build_prism(st_opaque, origin, cell_size, ori, CellTypes.decode_color(cell[2]), near_cap, far_cap)
 
 	var mesh := st_opaque.commit()
 
@@ -97,7 +115,7 @@ static func _build_cube(st: SurfaceTool, cells: Array, gx: int, gy: int, gz: int
 		var normal: Vector3 = d[4]
 		_add_quad(st, o + q[0], o + q[1], o + q[2], o + q[3], normal, color)
 
-static func _build_prism(st: SurfaceTool, o: Vector3, s: float, orientation: int, color: Color) -> void:
+static func _build_prism(st: SurfaceTool, o: Vector3, s: float, orientation: int, color: Color, near_cap: bool = true, far_cap: bool = true) -> void:
 	var axis: int = orientation / 4
 	var corner: int = orientation % 4
 
@@ -133,11 +151,11 @@ static func _build_prism(st: SurfaceTool, o: Vector3, s: float, orientation: int
 		1: axis_dir = Vector3.RIGHT
 		_: axis_dir = Vector3.BACK
 
-	var near_normal := -axis_dir
-	_add_tri(st, p_near[0], p_near[1], p_near[2], near_normal, color)
+	if near_cap:
+		_add_tri(st, p_near[0], p_near[1], p_near[2], -axis_dir, color)
 
-	var far_normal := axis_dir
-	_add_tri(st, p_far[0], p_far[1], p_far[2], far_normal, color)
+	if far_cap:
+		_add_tri(st, p_far[0], p_far[1], p_far[2], axis_dir, color)
 
 	for i in range(3):
 		var j := (i + 1) % 3
