@@ -41,7 +41,11 @@ static func build_mesh(cells: Array, gx: int, gy: int, gz: int, cell_size: float
 					else:
 						_build_cube(st_opaque, cells, gx, gy, gz, x, y, z, origin, cell_size, cell, false)
 				elif cell_type == CellTypes.Type.PRISM:
-					_build_prism(st_opaque, origin, cell_size, cell[1], CellTypes.decode_color(cell[2]))
+					if CellTypes.is_rgb5551(cell[2]):
+						_build_prism(st_cutout, origin, cell_size, cell[1], CellTypes.decode_color(cell[2]))
+						has_cutout = true
+					else:
+						_build_prism(st_opaque, origin, cell_size, cell[1], CellTypes.decode_color(cell[2]))
 
 	st_opaque.generate_tangents()
 	var mesh := st_opaque.commit()
