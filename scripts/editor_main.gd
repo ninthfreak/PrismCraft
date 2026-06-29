@@ -68,6 +68,8 @@ var target_cell := Vector3i(-1, -1, -1)
 
 var mesh_instance: MeshInstance3D
 var grid_mesh_instance: MeshInstance3D
+var _cached_opaque_mat: ShaderMaterial
+var _cached_cutout_mat: ShaderMaterial
 var cursor_mesh_instance: MeshInstance3D
 var box_preview_instance: MeshInstance3D
 
@@ -172,6 +174,7 @@ func _init_cells() -> void:
 func _setup_scene() -> void:
 	mesh_instance = MeshInstance3D.new()
 	add_child(mesh_instance)
+	_invalidate_materials()
 
 	grid_mesh_instance = MeshInstance3D.new()
 	add_child(grid_mesh_instance)
@@ -645,6 +648,7 @@ func _toggle_preview_mode() -> void:
 	else:
 		if _preview_light:
 			_preview_light.visible = false
+	_invalidate_materials()
 	_rebuild_mesh()
 
 func _update_preview_light() -> void:
@@ -3009,12 +3013,14 @@ func _rebuild_mesh_now() -> void:
 	var new_mesh := BlockMeshBuilder.build_mesh(cells, grid_x, grid_y, grid_z, CELL_SIZE)
 	mesh_instance.mesh = new_mesh
 	if new_mesh and new_mesh.get_surface_count() > 0:
-		var opaque_mat := _make_ceiling_shader(false)
-		mesh_instance.set_surface_override_material(0, opaque_mat)
+		mesh_instance.set_surface_override_material(0, _cached_opaque_mat)
 		if new_mesh.get_surface_count() > 1:
-			var cutout_mat := _make_ceiling_shader(true)
-			mesh_instance.set_surface_override_material(1, cutout_mat)
+			mesh_instance.set_surface_override_material(1, _cached_cutout_mat)
 	_update_ceiling_uniforms()
+
+func _invalidate_materials() -> void:
+	_cached_opaque_mat = _make_ceiling_shader(false)
+	_cached_cutout_mat = _make_ceiling_shader(true)
 
 func _make_ceiling_shader(cutout: bool) -> ShaderMaterial:
 	var shader := Shader.new()
