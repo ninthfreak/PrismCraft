@@ -233,6 +233,13 @@ static func _make_quad(dir: int, slice: int, u: int, v: int, w: int, h: int, s: 
 				Vector3((u + w) * s - ox, v * s, z),
 			]
 
+static func _rgb565_near(a: int, b: int) -> bool:
+	if a == b:
+		return true
+	var ar := (a >> 11) & 0x1F; var ag := (a >> 5) & 0x3F; var ab := a & 0x1F
+	var br := (b >> 11) & 0x1F; var bg := (b >> 5) & 0x3F; var bb := b & 0x1F
+	return absi(ar - br) <= 1 and absi(ag - bg) <= 2 and absi(ab - bb) <= 1
+
 static func _emit_prisms(cells: Array, gx: int, gy: int, gz: int, s: float, ox: float, oz: float, faces: Array) -> void:
 	var visited := {}
 	for x in range(gx):
@@ -258,7 +265,7 @@ static func _emit_prisms(cells: Array, gx: int, gy: int, gz: int, s: float, ox: 
 					if nx >= gx or ny >= gy or nz >= gz:
 						break
 					var nc: Array = cells[nx][ny][nz]
-					if nc[0] != CellTypes.Type.PRISM or nc[1] != orientation or nc[2] != color:
+					if nc[0] != CellTypes.Type.PRISM or nc[1] != orientation or not _rgb565_near(nc[2], color):
 						break
 					run += 1
 

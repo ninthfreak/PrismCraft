@@ -637,10 +637,8 @@ func _on_view_menu(id: int) -> void:
 func _toggle_preview_mode() -> void:
 	_preview_mode = not _preview_mode
 	view_menu.set_item_checked(0, _preview_mode)
-	var shading: int
 	preview_light_container.visible = _preview_mode
 	if _preview_mode:
-		shading = BaseMaterial3D.SHADING_MODE_PER_PIXEL
 		if not _preview_light:
 			_preview_light = DirectionalLight3D.new()
 			_preview_light.shadow_enabled = true
@@ -648,14 +646,9 @@ func _toggle_preview_mode() -> void:
 		_preview_light.visible = true
 		_update_preview_light()
 	else:
-		shading = BaseMaterial3D.SHADING_MODE_UNSHADED
 		if _preview_light:
 			_preview_light.visible = false
-	if mesh_instance.mesh:
-		for si in range(mesh_instance.mesh.get_surface_count()):
-			var mat := mesh_instance.get_surface_override_material(si) as StandardMaterial3D
-			if mat:
-				mat.shading_mode = shading
+	_rebuild_mesh()
 
 func _update_preview_light() -> void:
 	if not _preview_light:
@@ -989,7 +982,7 @@ func _set_floor(y: int) -> void:
 		ceiling_y = floor_y
 		ceiling_slider.set_value_no_signal(ceiling_y)
 		ceiling_value_label.text = "Y = %d" % ceiling_y
-		_rebuild_mesh()
+		_update_ceiling_uniforms()
 	_rebuild_grid()
 
 func _set_ceiling(y: int) -> void:
@@ -1003,7 +996,7 @@ func _set_ceiling(y: int) -> void:
 		floor_y = ceiling_y
 		floor_slider.set_value_no_signal(floor_y)
 		floor_value_label.text = "Y = %d" % floor_y
-	_rebuild_mesh()
+	_update_ceiling_uniforms()
 	_rebuild_grid()
 
 func _set_ceiling_lock(on: bool) -> void:
@@ -2947,20 +2940,13 @@ func _notification(what: int) -> void:
 # ─── Mesh Building ───
 
 func _rebuild_mesh() -> void:
-	var new_mesh := BlockMeshBuilder.build_mesh(cells, grid_x, grid_y, grid_z, CELL_SIZE, ceiling_y)
+	var new_mesh := BlockMeshBuilder.build_mesh(cells, grid_x, grid_y, grid_z, CELL_SIZE)
 	mesh_instance.mesh = new_mesh
 	if new_mesh and new_mesh.get_surface_count() > 0:
-		var opaque_mat := StandardMaterial3D.new()
-		opaque_mat.vertex_color_use_as_albedo = true
-		opaque_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		var opaque_mat := _make_ceiling_shader(false)
 		mesh_instance.set_surface_override_material(0, opaque_mat)
 		if new_mesh.get_surface_count() > 1:
-			var cutout_mat := StandardMaterial3D.new()
-			cutout_mat.vertex_color_use_as_albedo = true
-			cutout_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-			cutout_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
-			cutout_mat.alpha_scissor_threshold = CellTypes.ALPHA_THRESHOLD
-			cutout_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+			var cutout_mat := _make_ceiling_shader(true)
 			mesh_instance.set_surface_override_material(1, cutout_mat)
 		var shape := ConcavePolygonShape3D.new()
 		shape.backface_collision = true
@@ -2968,6 +2954,41 @@ func _rebuild_mesh() -> void:
 		collision_shape.shape = shape
 	else:
 		collision_shape.shape = null
+	_update_ceiling_uniforms()
+
+func _make_ceiling_shader(cutout: bool) -> ShaderMaterial:
+	var shader := Shader.new()
+	var code := "shader_type spatial;\nrender_mode "
+	if not _preview_mode:
+		code += "unshaded"
+	else:
+		code += "diffuse_lambert"
+	if cutout:
+		code += ", cull_disabled"
+	code += ";\nuniform float ceiling_clip = -1.0;\n"
+	code += "varying vec3 world_pos;\n"
+	code += "void vertex() {\n\tworld_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;\n}\n"
+	code += "void fragment() {\n"
+	code += "\tif (ceiling_clip >= 0.0 && world_pos.y > ceiling_clip) { discard; }\n"
+	code += "\tALBEDO = COLOR.rgb;\n"
+	if cutout:
+		code += "\tALPHA = COLOR.a;\n\tALPHA_SCISSOR_THRESHOLD = %.1f;\n" % CellTypes.ALPHA_THRESHOLD
+	code += "}\n"
+	shader.code = code
+	var mat := ShaderMaterial.new()
+	mat.shader = shader
+	return mat
+
+func _update_ceiling_uniforms() -> void:
+	var clip_val: float = -1.0
+	if ceiling_y >= 0:
+		clip_val = (ceiling_y + 1) * CELL_SIZE
+	var mesh: ArrayMesh = mesh_instance.mesh
+	if mesh:
+		for si in range(mesh.get_surface_count()):
+			var mat: ShaderMaterial = mesh_instance.get_surface_override_material(si)
+			if mat:
+				mat.set_shader_parameter("ceiling_clip", clip_val)
 
 func _rebuild_grid() -> void:
 	var im := ImmediateMesh.new()
