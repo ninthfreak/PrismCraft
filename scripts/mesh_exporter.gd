@@ -234,18 +234,46 @@ static func _make_quad(dir: int, slice: int, u: int, v: int, w: int, h: int, s: 
 			]
 
 static func _emit_prisms(cells: Array, gx: int, gy: int, gz: int, s: float, ox: float, oz: float, faces: Array) -> void:
+	var visited := {}
 	for x in range(gx):
 		for y in range(gy):
 			for z in range(gz):
 				var cell: Array = cells[x][y][z]
 				if cell[0] != CellTypes.Type.PRISM:
 					continue
-				var o := Vector3(x * s - ox, y * s, z * s - oz)
+				var key := x + y * gx + z * gx * gy
+				if visited.has(key):
+					continue
 				var orientation: int = cell[1]
 				var color: int = cell[2]
-				_emit_single_prism(o, s, orientation, color, faces)
+				var axis: int = orientation / 4
 
-static func _emit_single_prism(o: Vector3, s: float, orientation: int, color: int, faces: Array) -> void:
+				var run := 1
+				while true:
+					var nx: int = x; var ny: int = y; var nz: int = z
+					match axis:
+						0: ny = y + run
+						1: nx = x + run
+						_: nz = z + run
+					if nx >= gx or ny >= gy or nz >= gz:
+						break
+					var nc: Array = cells[nx][ny][nz]
+					if nc[0] != CellTypes.Type.PRISM or nc[1] != orientation or nc[2] != color:
+						break
+					run += 1
+
+				for r in range(run):
+					var mx: int = x; var my: int = y; var mz: int = z
+					match axis:
+						0: my = y + r
+						1: mx = x + r
+						_: mz = z + r
+					visited[mx + my * gx + mz * gx * gy] = true
+
+				var o := Vector3(x * s - ox, y * s, z * s - oz)
+				_emit_merged_prism(o, s, orientation, color, run, faces)
+
+static func _emit_merged_prism(o: Vector3, s: float, orientation: int, color: int, run: int, faces: Array) -> void:
 	var axis: int = orientation / 4
 	var corner: int = orientation % 4
 
@@ -256,6 +284,7 @@ static func _emit_single_prism(o: Vector3, s: float, orientation: int, color: in
 		2: tri_2d = [Vector2(1, 1), Vector2(0, 1), Vector2(1, 0)]
 		_: tri_2d = [Vector2(0, 1), Vector2(0, 0), Vector2(1, 1)]
 
+	var run_s := run * s
 	var p_near: Array[Vector3] = []
 	var p_far: Array[Vector3] = []
 
@@ -265,13 +294,13 @@ static func _emit_single_prism(o: Vector3, s: float, orientation: int, color: in
 		match axis:
 			0:
 				near = o + Vector3(uv.x * s, 0, uv.y * s)
-				far = o + Vector3(uv.x * s, s, uv.y * s)
+				far = o + Vector3(uv.x * s, run_s, uv.y * s)
 			1:
 				near = o + Vector3(0, uv.x * s, uv.y * s)
-				far = o + Vector3(s, uv.x * s, uv.y * s)
+				far = o + Vector3(run_s, uv.x * s, uv.y * s)
 			_:
 				near = o + Vector3(uv.x * s, uv.y * s, 0)
-				far = o + Vector3(uv.x * s, uv.y * s, s)
+				far = o + Vector3(uv.x * s, uv.y * s, run_s)
 		p_near.append(near)
 		p_far.append(far)
 
