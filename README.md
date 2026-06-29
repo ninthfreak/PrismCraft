@@ -1,6 +1,6 @@
 # PrismCraft
 
-A 3D voxel editor built in Godot 4 for designing block definitions and character models. Supports solid cubes and right-isosceles prism cells with a 16-color palette.
+A 3D voxel editor built in Godot 4 for designing block definitions and character models. Supports solid cubes and right-isosceles prism cells with RGB565 high color (65,536 colors).
 
 ## Requirements
 
@@ -12,14 +12,15 @@ Open the project in Godot and run it (F5).
 
 ## Editor Modes
 
-- **Block** (32x32x32) -- for designing individual block definitions. Each voxel is 1/32 of a unit, so one block = 1x1x1 unit in-game.
-- **Character** (64x128x64) -- for designing character models at double resolution. The grid is 2x4x2 blocks worth of space but at 1/64 unit per voxel, so a character stands exactly **2 blocks tall** (2 units) despite the finer detail.
+- **Block** (48x48x48) -- for designing individual block definitions. Each voxel is 1/48 of a unit, so one block = 1x1x1 unit in-game.
+- **Character** (96x192x96) -- for designing character models at double resolution. The grid is 2x4x2 blocks worth of space but at 1/96 unit per voxel, so a character stands exactly **2 blocks tall** (2 units) despite the finer detail.
 
 ## Tools
 
 | Tool | Description |
 |------|-------------|
 | Pencil | Place a single voxel |
+| Paint | Recolor an existing voxel without changing its shape |
 | Box Fill | Fill a rectangular region (two clicks) |
 | Eraser | Remove a single voxel |
 | Box Erase | Clear a rectangular region (two clicks) |
@@ -44,7 +45,7 @@ Hold **Shift** with Line to lock to an axis, with Rectangle to force a square, o
 | Up / Down | Change floor layer |
 | Tab | Toggle Solid / Prism cell type |
 | Q / E | Rotate prism orientation |
-| 1-8 | Quick-select palette color |
+| 1-8 | Quick-select favorite color |
 | Escape | Cancel current operation |
 | Ctrl+N | New |
 | Ctrl+O | Open |
@@ -54,13 +55,13 @@ Hold **Shift** with Line to lock to an axis, with Rectangle to force a square, o
 
 ## Features
 
-- **16-color palette** with named colors
+- **RGB565 color** with full color picker and 16 favorite color shortcuts
 - **Prism cells** with 12 orientations (3 axes x 4 corners) for diagonal geometry
 - **3D view cube** in the top-right corner for quick camera orientation -- click a face to snap to that view, or drag to orbit
-- **Import PNG** to place a flat image as voxels mapped to the nearest palette colors
+- **Import PNG** to place a flat image as voxels with direct RGB565 color encoding
 - **Import Block Texture** to wrap a PNG onto all 6 faces of a solid block
 - **Import Character Sprites** to generate a rough 3D model from a front and side PNG using silhouette intersection
-- **Export OBJ** generates an optimized mesh using greedy face merging, with materials per palette color
+- **Export OBJ** generates an optimized mesh using greedy face merging, with materials per unique color
 - **Unsaved changes protection** on New, Open, mode switch, and quit
 - **Extrude tool** with flood-fill surface detection for pushing/pulling connected faces
 - **Axis Overlay** toggle (View menu) shows semi-transparent planes at the grid center along X and Z axes
@@ -72,10 +73,10 @@ Hold **Shift** with Line to lock to an axis, with Rectangle to force a square, o
 
 | Mode | Grid | Voxel Size | World Size | Notes |
 |------|------|-----------|------------|-------|
-| Block | 32x32x32 | 1/32 unit | 1x1x1 | Standard building block |
-| Character | 64x128x64 | 1/64 unit | 1x2x1 | Same height as 2 stacked blocks |
+| Block | 48x48x48 | 1/48 unit | 1x1x1 | Standard building block |
+| Character | 96x192x96 | 1/96 unit | 1x2x1 | Same height as 2 stacked blocks |
 
-Characters have double the voxel resolution of blocks in every axis, giving 4x the surface detail while occupying the same physical footprint as a 1x2x1 column of blocks.
+Characters have double the voxel resolution of blocks in every axis, giving 4x the surface detail while occupying the same physical footprint as a 1x2x1 column of blocks. Grid dimensions are chosen to be divisible by 2, 3, 4, 6, 8, 12, 16, and 24.
 
 ## File Format
 
@@ -84,9 +85,9 @@ Working definitions are saved as Godot `.tres` resources using the `VoxelDefinit
 ## Architecture
 
 - `scripts/editor_main.gd` -- main editor logic, UI, input handling, and tools
-- `scripts/cell_types.gd` -- cell type enum, palette colors, and orientation names
+- `scripts/cell_types.gd` -- cell type enum, RGB565 color encoding, favorite colors, and orientation names
 - `scripts/block_mesh_builder.gd` -- generates meshes from cell arrays with face culling
-- `scripts/mesh_exporter.gd` -- exports optimized OBJ with greedy meshing and MTL palette materials
+- `scripts/mesh_exporter.gd` -- exports optimized OBJ with greedy meshing and MTL materials per color
 - `scripts/voxel_definition.gd` -- resource class for saving/loading definitions
 - `scripts/orbit_camera.gd` -- orbit camera with right-click drag, pan, and zoom
 - `scripts/view_cube.gd` -- 3D orientation widget with face clicking and drag rotation
