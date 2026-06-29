@@ -25,7 +25,14 @@ const FAVORITES = [
 	Color(0.56, 0.20, 0.10),  # 15 Auburn
 ]
 
+# ─── Color encoding ───
+# RGB565 (opaque):  bits [15..11] R, [10..5] G, [4..0] B   — 65536 colors, no alpha
+# RGB5551 (cutout): bits [15..11] R, [10..6] G, [5..1] B, [0] A  — 32768 colors + 1-bit alpha
+# Stored values use bit 16 (RGB5551_FLAG) to distinguish format at decode time.
+# Both formats fit in a 32-bit int alongside the flag.
+
 const RGB5551_FLAG := 0x10000
+const ALPHA_THRESHOLD := 0.5  # import: alpha >= 0.5 → opaque (1); shader/discard: alpha < 0.5 → clip
 
 static func encode_rgb565(c: Color) -> int:
 	var r := clampi(int(c.r * 31.0 + 0.5), 0, 31)
@@ -43,7 +50,7 @@ static func encode_rgb5551(c: Color) -> int:
 	var r := clampi(int(c.r * 31.0 + 0.5), 0, 31)
 	var g := clampi(int(c.g * 31.0 + 0.5), 0, 31)
 	var b := clampi(int(c.b * 31.0 + 0.5), 0, 31)
-	var a := 1 if c.a >= 0.5 else 0
+	var a := 1 if c.a >= ALPHA_THRESHOLD else 0
 	return ((r << 11) | (g << 6) | (b << 1) | a) | RGB5551_FLAG
 
 static func decode_rgb5551(v: int) -> Color:
@@ -75,8 +82,16 @@ static func color_name_rgb565(v: int) -> String:
 static func image_has_alpha(image: Image) -> bool:
 	for x in range(image.get_width()):
 		for y in range(image.get_height()):
-			if image.get_pixel(x, y).a < 0.99:
+			if image.get_pixel(x, y).a < 1.0:
 				return true
+	return false
+
+static func is_cutout_cell(cell: Array) -> bool:
+	if cell[0] == Type.EMPTY:
+		return false
+	for fi in range(FACE_TOP, FACE_BACK + 1):
+		if is_rgb5551(cell[fi]):
+			return true
 	return false
 
 # Cell format: [type, orientation, c_top(+Y), c_bottom(-Y), c_right(+X), c_left(-X), c_front(+Z), c_back(-Z)]

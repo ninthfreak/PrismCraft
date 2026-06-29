@@ -161,10 +161,6 @@ func _init_cells() -> void:
 func _setup_scene() -> void:
 	mesh_instance = MeshInstance3D.new()
 	add_child(mesh_instance)
-	var mat := StandardMaterial3D.new()
-	mat.vertex_color_use_as_albedo = true
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mesh_instance.material_override = mat
 
 	collision_body = StaticBody3D.new()
 	add_child(collision_body)
@@ -602,10 +598,10 @@ func _on_view_menu(id: int) -> void:
 func _toggle_preview_mode() -> void:
 	_preview_mode = not _preview_mode
 	view_menu.set_item_checked(0, _preview_mode)
-	var mat := mesh_instance.material_override as StandardMaterial3D
+	var shading: int
 	preview_light_container.visible = _preview_mode
 	if _preview_mode:
-		mat.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
+		shading = BaseMaterial3D.SHADING_MODE_PER_PIXEL
 		if not _preview_light:
 			_preview_light = DirectionalLight3D.new()
 			_preview_light.shadow_enabled = true
@@ -613,9 +609,14 @@ func _toggle_preview_mode() -> void:
 		_preview_light.visible = true
 		_update_preview_light()
 	else:
-		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		shading = BaseMaterial3D.SHADING_MODE_UNSHADED
 		if _preview_light:
 			_preview_light.visible = false
+	if mesh_instance.mesh:
+		for si in range(mesh_instance.mesh.get_surface_count()):
+			var mat := mesh_instance.get_surface_override_material(si) as StandardMaterial3D
+			if mat:
+				mat.shading_mode = shading
 
 func _update_preview_light() -> void:
 	if not _preview_light:
@@ -2624,6 +2625,18 @@ func _rebuild_mesh() -> void:
 	var new_mesh := BlockMeshBuilder.build_mesh(cells, grid_x, grid_y, grid_z, CELL_SIZE)
 	mesh_instance.mesh = new_mesh
 	if new_mesh and new_mesh.get_surface_count() > 0:
+		var opaque_mat := StandardMaterial3D.new()
+		opaque_mat.vertex_color_use_as_albedo = true
+		opaque_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mesh_instance.set_surface_override_material(0, opaque_mat)
+		if new_mesh.get_surface_count() > 1:
+			var cutout_mat := StandardMaterial3D.new()
+			cutout_mat.vertex_color_use_as_albedo = true
+			cutout_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+			cutout_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+			cutout_mat.alpha_scissor_threshold = CellTypes.ALPHA_THRESHOLD
+			cutout_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+			mesh_instance.set_surface_override_material(1, cutout_mat)
 		var shape := ConcavePolygonShape3D.new()
 		shape.backface_collision = true
 		shape.set_faces(new_mesh.get_faces())
