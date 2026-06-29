@@ -20,6 +20,8 @@ var current_orientation: int = 0
 var current_color: int = CellTypes.encode_rgb565(CellTypes.FAVORITES[0])
 var current_file_path := ""
 var floor_y: int = 0
+var ceiling_y: int = -1
+var _ceiling_locked := false
 var _unsaved_changes := false
 var _pending_action := ""
 var _preview_mode := false
@@ -79,6 +81,9 @@ var orient_container: HBoxContainer
 var orient_label: Label
 var floor_slider: HSlider
 var floor_value_label: Label
+var ceiling_slider: HSlider
+var ceiling_value_label: Label
+var ceiling_lock_btn: CheckButton
 
 var mode_group: ButtonGroup
 var tool_group: ButtonGroup
@@ -408,6 +413,36 @@ func _setup_ui() -> void:
 	floor_value_label.text = "Y = 0"
 	vbox.add_child(floor_value_label)
 
+	# Ceiling
+	_add_section_label(vbox, "Ceiling Layer")
+	var ceiling_row := HBoxContainer.new()
+	vbox.add_child(ceiling_row)
+	var ceiling_down := Button.new()
+	ceiling_down.text = "-"
+	ceiling_down.custom_minimum_size = Vector2(28, 0)
+	ceiling_down.pressed.connect(func(): _set_ceiling(ceiling_y - 1))
+	ceiling_row.add_child(ceiling_down)
+	ceiling_slider = HSlider.new()
+	ceiling_slider.min_value = -1
+	ceiling_slider.max_value = grid_y - 1
+	ceiling_slider.step = 1
+	ceiling_slider.value = -1
+	ceiling_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ceiling_slider.value_changed.connect(func(v: float): _set_ceiling(int(v)))
+	ceiling_row.add_child(ceiling_slider)
+	var ceiling_up := Button.new()
+	ceiling_up.text = "+"
+	ceiling_up.custom_minimum_size = Vector2(28, 0)
+	ceiling_up.pressed.connect(func(): _set_ceiling(ceiling_y + 1))
+	ceiling_row.add_child(ceiling_up)
+	ceiling_value_label = Label.new()
+	ceiling_value_label.text = "Off"
+	vbox.add_child(ceiling_value_label)
+	ceiling_lock_btn = CheckButton.new()
+	ceiling_lock_btn.text = "Lock to Floor"
+	ceiling_lock_btn.toggled.connect(func(on: bool): _set_ceiling_lock(on))
+	vbox.add_child(ceiling_lock_btn)
+
 	vbox.add_child(HSeparator.new())
 
 	# File info
@@ -469,7 +504,7 @@ func _setup_ui() -> void:
 	var help := Label.new()
 	help.position = Vector2(PANEL_WIDTH + 10, 1050)
 	help.add_theme_font_size_override("font_size", 11)
-	help.text = "Up/Down: Floor | Tab: Toggle Type | Q/E: Rotate Prism | Ctrl+Z: Undo | Esc: Cancel"
+	help.text = "Up/Down: Floor | Shift+Up/Down: Ceiling | Tab: Toggle Type | Q/E: Rotate Prism | Ctrl+Z: Undo | Esc: Cancel"
 	ui_layer.add_child(help)
 
 	# View cube
@@ -950,7 +985,33 @@ func _set_floor(y: int) -> void:
 	floor_y = clampi(y, 0, grid_y - 1)
 	floor_slider.set_value_no_signal(floor_y)
 	floor_value_label.text = "Y = %d" % floor_y
+	if _ceiling_locked:
+		ceiling_y = floor_y
+		ceiling_slider.set_value_no_signal(ceiling_y)
+		ceiling_value_label.text = "Y = %d" % ceiling_y
+		_rebuild_mesh()
 	_rebuild_grid()
+
+func _set_ceiling(y: int) -> void:
+	ceiling_y = clampi(y, -1, grid_y - 1)
+	ceiling_slider.set_value_no_signal(ceiling_y)
+	if ceiling_y < 0:
+		ceiling_value_label.text = "Off"
+	else:
+		ceiling_value_label.text = "Y = %d" % ceiling_y
+	if _ceiling_locked and ceiling_y >= 0:
+		floor_y = ceiling_y
+		floor_slider.set_value_no_signal(floor_y)
+		floor_value_label.text = "Y = %d" % floor_y
+	_rebuild_mesh()
+	_rebuild_grid()
+
+func _set_ceiling_lock(on: bool) -> void:
+	_ceiling_locked = on
+	if on and ceiling_y < 0:
+		_set_ceiling(floor_y)
+	elif on and ceiling_y != floor_y:
+		_set_floor(ceiling_y)
 
 func _set_edit_mode(mode: int) -> void:
 	if mode == edit_mode:
@@ -980,6 +1041,12 @@ func _do_set_edit_mode(mode: int) -> void:
 	floor_slider.max_value = grid_y - 1
 	floor_slider.set_value_no_signal(0)
 	floor_value_label.text = "Y = 0"
+	ceiling_y = -1
+	ceiling_slider.max_value = grid_y - 1
+	ceiling_slider.set_value_no_signal(-1)
+	ceiling_value_label.text = "Off"
+	_ceiling_locked = false
+	ceiling_lock_btn.set_pressed_no_signal(false)
 	_init_cells()
 	_rebuild_mesh()
 	_rebuild_grid()
@@ -1005,8 +1072,16 @@ func _unhandled_input(event: InputEvent) -> void:
 				get_viewport().set_input_as_handled()
 			KEY_Q: _cycle_orientation(-1)
 			KEY_E: _cycle_orientation(1)
-			KEY_UP: _set_floor(floor_y + 1)
-			KEY_DOWN: _set_floor(floor_y - 1)
+			KEY_UP:
+				if event.shift_pressed:
+					_set_ceiling(ceiling_y + 1)
+				else:
+					_set_floor(floor_y + 1)
+			KEY_DOWN:
+				if event.shift_pressed:
+					_set_ceiling(ceiling_y - 1)
+				else:
+					_set_floor(floor_y - 1)
 			KEY_ESCAPE:
 				_cancel_box()
 				_cancel_extrude()
@@ -2780,6 +2855,12 @@ func _load_from_path(path: String) -> void:
 	floor_slider.max_value = grid_y - 1
 	floor_slider.set_value_no_signal(0)
 	floor_value_label.text = "Y = 0"
+	ceiling_y = -1
+	ceiling_slider.max_value = grid_y - 1
+	ceiling_slider.set_value_no_signal(-1)
+	ceiling_value_label.text = "Off"
+	_ceiling_locked = false
+	ceiling_lock_btn.set_pressed_no_signal(false)
 	var buttons := mode_group.get_buttons()
 	buttons[0].button_pressed = edit_mode == EditMode.BLOCK
 	buttons[1].button_pressed = edit_mode == EditMode.CHARACTER
@@ -2866,7 +2947,7 @@ func _notification(what: int) -> void:
 # ─── Mesh Building ───
 
 func _rebuild_mesh() -> void:
-	var new_mesh := BlockMeshBuilder.build_mesh(cells, grid_x, grid_y, grid_z, CELL_SIZE)
+	var new_mesh := BlockMeshBuilder.build_mesh(cells, grid_x, grid_y, grid_z, CELL_SIZE, ceiling_y)
 	mesh_instance.mesh = new_mesh
 	if new_mesh and new_mesh.get_surface_count() > 0:
 		var opaque_mat := StandardMaterial3D.new()
@@ -2897,6 +2978,7 @@ func _rebuild_grid() -> void:
 
 	# Floor grid at current floor_y
 	im.surface_begin(Mesh.PRIMITIVE_LINES)
+	im.surface_set_color(Color(0.3, 0.7, 1.0, 0.35))
 	for i in range(grid_x + 1):
 		var t := i * CELL_SIZE
 		im.surface_add_vertex(Vector3(t, fy, 0))
@@ -2909,6 +2991,7 @@ func _rebuild_grid() -> void:
 
 	# Bounding box edges
 	im.surface_begin(Mesh.PRIMITIVE_LINES)
+	im.surface_set_color(Color(0.3, 0.7, 1.0, 0.35))
 	var c: Array[Vector3] = [
 		Vector3(0, 0, 0), Vector3(wx, 0, 0), Vector3(wx, 0, wz), Vector3(0, 0, wz),
 		Vector3(0, wy, 0), Vector3(wx, wy, 0), Vector3(wx, wy, wz), Vector3(0, wy, wz),
@@ -2918,10 +3001,24 @@ func _rebuild_grid() -> void:
 		im.surface_add_vertex(c[e[1]])
 	im.surface_end()
 
+	if ceiling_y >= 0:
+		var cy := (ceiling_y + 1) * CELL_SIZE
+		im.surface_begin(Mesh.PRIMITIVE_LINES)
+		im.surface_set_color(Color(1.0, 0.4, 0.2, 0.5))
+		for i in range(grid_x + 1):
+			var t := i * CELL_SIZE
+			im.surface_add_vertex(Vector3(t, cy, 0))
+			im.surface_add_vertex(Vector3(t, cy, wz))
+		for i in range(grid_z + 1):
+			var t := i * CELL_SIZE
+			im.surface_add_vertex(Vector3(0, cy, t))
+			im.surface_add_vertex(Vector3(wx, cy, t))
+		im.surface_end()
+
 	grid_mesh_instance.mesh = im
 
 	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.3, 0.7, 1.0, 0.35)
+	mat.vertex_color_use_as_albedo = true
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	grid_mesh_instance.material_override = mat

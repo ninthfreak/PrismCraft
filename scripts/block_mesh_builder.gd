@@ -17,15 +17,16 @@ static func _add_quad(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Ve
 	_add_tri(st, a, b, c, normal, color)
 	_add_tri(st, a, c, d, normal, color)
 
-static func build_mesh(cells: Array, gx: int, gy: int, gz: int, cell_size: float) -> ArrayMesh:
+static func build_mesh(cells: Array, gx: int, gy: int, gz: int, cell_size: float, ceiling_y: int = -1) -> ArrayMesh:
 	var st_opaque := SurfaceTool.new()
 	st_opaque.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var st_cutout := SurfaceTool.new()
 	st_cutout.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var has_cutout := false
+	var max_y := gy if ceiling_y < 0 else mini(ceiling_y + 1, gy)
 
 	for x in range(gx):
-		for y in range(gy):
+		for y in range(max_y):
 			for z in range(gz):
 				var cell: Array = cells[x][y][z]
 				var cell_type: int = cell[0]
