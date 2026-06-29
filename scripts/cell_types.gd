@@ -33,6 +33,9 @@ const FAVORITES = [
 
 const OCTAGON_CHAMFER := 9
 
+static func octagon_chamfer(footprint: int) -> int:
+	return roundi((2.0 - sqrt(2.0)) / 2.0 * footprint)
+
 const RGB5551_FLAG := 0x10000
 const ALPHA_THRESHOLD := 0.5  # import: alpha >= 0.5 → opaque (1); shader/discard: alpha < 0.5 → clip
 
