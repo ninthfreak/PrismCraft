@@ -67,7 +67,10 @@ var smooth_pixels_per_cell := 1.0
 var place_cell := Vector3i(-1, -1, -1)
 var target_cell := Vector3i(-1, -1, -1)
 
-var mesh_instance: MeshInstance3D
+const CHUNK_SIZE := 16
+var _chunk_container: Node3D
+var _chunk_meshes: Dictionary = {}
+var _dirty_chunks: Dictionary = {}
 var grid_mesh_instance: MeshInstance3D
 var _cached_opaque_mat: ShaderMaterial
 var _cached_cutout_mat: ShaderMaterial
@@ -159,7 +162,14 @@ func _generate_presets() -> void:
 func _center_camera() -> void:
 	camera.pivot = Vector3(grid_x, grid_y, grid_z) * CELL_SIZE * 0.5
 
+func _clear_chunks() -> void:
+	for mi: MeshInstance3D in _chunk_meshes.values():
+		mi.queue_free()
+	_chunk_meshes.clear()
+	_dirty_chunks.clear()
+
 func _init_cells() -> void:
+	_clear_chunks()
 	cells.resize(grid_x)
 	for x in range(grid_x):
 		cells[x] = []
@@ -173,8 +183,8 @@ func _init_cells() -> void:
 # ─── Scene Setup ───
 
 func _setup_scene() -> void:
-	mesh_instance = MeshInstance3D.new()
-	add_child(mesh_instance)
+	_chunk_container = Node3D.new()
+	add_child(_chunk_container)
 	_invalidate_materials()
 
 	grid_mesh_instance = MeshInstance3D.new()
@@ -1307,7 +1317,7 @@ func _on_left_click() -> void:
 				_push_undo()
 				_place_with_mirror(place_cell, current_type, current_orientation, current_color)
 				_mark_dirty()
-				_rebuild_mesh()
+				_mark_mirror_chunks_dirty(place_cell)
 		ToolType.BOX:
 			if not box_active:
 				if _in_bounds(place_cell):
@@ -1322,7 +1332,7 @@ func _on_left_click() -> void:
 				_push_undo()
 				_erase_with_mirror(target_cell)
 				_mark_dirty()
-				_rebuild_mesh()
+				_mark_mirror_chunks_dirty(target_cell)
 		ToolType.PAINT:
 			if _in_bounds(target_cell) and cells[target_cell.x][target_cell.y][target_cell.z][0] != CellTypes.Type.EMPTY:
 				var face_normal := place_cell - target_cell
@@ -1344,7 +1354,7 @@ func _on_left_click() -> void:
 					if _in_bounds(mxz):
 						cells[mxz.x][mxz.y][mxz.z][fi] = current_color
 				_mark_dirty()
-				_rebuild_mesh()
+				_mark_mirror_chunks_dirty(target_cell)
 		ToolType.BOX_ERASE:
 			if not box_active:
 				if _in_bounds(target_cell):
@@ -3015,21 +3025,85 @@ func _notification(what: int) -> void:
 
 # ─── Mesh Building ───
 
+func _mark_mirror_chunks_dirty(pos: Vector3i) -> void:
+	_mark_chunk_dirty_at(pos.x, pos.y, pos.z)
+	if _mirror_x:
+		var mx := _mirror_pos_x(pos)
+		if _in_bounds(mx):
+			_mark_chunk_dirty_at(mx.x, mx.y, mx.z)
+	if _mirror_z:
+		var mz := _mirror_pos_z(pos)
+		if _in_bounds(mz):
+			_mark_chunk_dirty_at(mz.x, mz.y, mz.z)
+	if _mirror_x and _mirror_z:
+		var mxz := _mirror_pos_x(_mirror_pos_z(pos))
+		if _in_bounds(mxz):
+			_mark_chunk_dirty_at(mxz.x, mxz.y, mxz.z)
+
 func _rebuild_mesh() -> void:
+	for cx in range(ceili(float(grid_x) / CHUNK_SIZE)):
+		for cy in range(ceili(float(grid_y) / CHUNK_SIZE)):
+			for cz in range(ceili(float(grid_z) / CHUNK_SIZE)):
+				_dirty_chunks[Vector3i(cx, cy, cz)] = true
+	_mesh_dirty = true
+
+func _mark_chunk_dirty_at(x: int, y: int, z: int) -> void:
+	var key := Vector3i(x / CHUNK_SIZE, y / CHUNK_SIZE, z / CHUNK_SIZE)
+	_dirty_chunks[key] = true
+	var lx := x % CHUNK_SIZE
+	var ly := y % CHUNK_SIZE
+	var lz := z % CHUNK_SIZE
+	if lx == 0 and key.x > 0:
+		_dirty_chunks[key + Vector3i(-1, 0, 0)] = true
+	if lx == CHUNK_SIZE - 1 and (key.x + 1) * CHUNK_SIZE < grid_x:
+		_dirty_chunks[key + Vector3i(1, 0, 0)] = true
+	if ly == 0 and key.y > 0:
+		_dirty_chunks[key + Vector3i(0, -1, 0)] = true
+	if ly == CHUNK_SIZE - 1 and (key.y + 1) * CHUNK_SIZE < grid_y:
+		_dirty_chunks[key + Vector3i(0, 1, 0)] = true
+	if lz == 0 and key.z > 0:
+		_dirty_chunks[key + Vector3i(0, 0, -1)] = true
+	if lz == CHUNK_SIZE - 1 and (key.z + 1) * CHUNK_SIZE < grid_z:
+		_dirty_chunks[key + Vector3i(0, 0, 1)] = true
 	_mesh_dirty = true
 
 func _rebuild_mesh_now() -> void:
-	var new_mesh := BlockMeshBuilder.build_mesh(cells, grid_x, grid_y, grid_z, CELL_SIZE)
-	mesh_instance.mesh = new_mesh
+	for key in _dirty_chunks:
+		_rebuild_chunk(key)
+	_dirty_chunks.clear()
+
+func _rebuild_chunk(key: Vector3i) -> void:
+	var x0 := key.x * CHUNK_SIZE
+	var y0 := key.y * CHUNK_SIZE
+	var z0 := key.z * CHUNK_SIZE
+	var x1 := mini(x0 + CHUNK_SIZE, grid_x)
+	var y1 := mini(y0 + CHUNK_SIZE, grid_y)
+	var z1 := mini(z0 + CHUNK_SIZE, grid_z)
+	var new_mesh := BlockMeshBuilder.build_chunk_mesh(cells, grid_x, grid_y, grid_z, x0, y0, z0, x1, y1, z1, CELL_SIZE)
+	var mi: MeshInstance3D
+	if _chunk_meshes.has(key):
+		mi = _chunk_meshes[key]
+	else:
+		mi = MeshInstance3D.new()
+		_chunk_container.add_child(mi)
+		_chunk_meshes[key] = mi
+	mi.mesh = new_mesh
 	if new_mesh and new_mesh.get_surface_count() > 0:
-		mesh_instance.set_surface_override_material(0, _cached_opaque_mat)
+		mi.set_surface_override_material(0, _cached_opaque_mat)
 		if new_mesh.get_surface_count() > 1:
-			mesh_instance.set_surface_override_material(1, _cached_cutout_mat)
-	_update_ceiling_uniforms()
+			mi.set_surface_override_material(1, _cached_cutout_mat)
+	_update_chunk_ceiling(mi)
 
 func _invalidate_materials() -> void:
 	_cached_opaque_mat = _make_ceiling_shader(false)
 	_cached_cutout_mat = _make_ceiling_shader(true)
+	for mi: MeshInstance3D in _chunk_meshes.values():
+		var mesh: ArrayMesh = mi.mesh
+		if mesh and mesh.get_surface_count() > 0:
+			mi.set_surface_override_material(0, _cached_opaque_mat)
+			if mesh.get_surface_count() > 1:
+				mi.set_surface_override_material(1, _cached_cutout_mat)
+	_update_ceiling_uniforms()
 
 func _make_ceiling_shader(cutout: bool) -> ShaderMaterial:
 	var shader := Shader.new()
@@ -3068,10 +3142,20 @@ func _update_ceiling_uniforms() -> void:
 	var clip_val: float = -1.0
 	if ceiling_y >= 0:
 		clip_val = (ceiling_y + 1) * CELL_SIZE
-	var mesh: ArrayMesh = mesh_instance.mesh
+	for mi: MeshInstance3D in _chunk_meshes.values():
+		_update_chunk_ceiling_val(mi, clip_val)
+
+func _update_chunk_ceiling(mi: MeshInstance3D) -> void:
+	var clip_val: float = -1.0
+	if ceiling_y >= 0:
+		clip_val = (ceiling_y + 1) * CELL_SIZE
+	_update_chunk_ceiling_val(mi, clip_val)
+
+func _update_chunk_ceiling_val(mi: MeshInstance3D, clip_val: float) -> void:
+	var mesh: ArrayMesh = mi.mesh
 	if mesh:
 		for si in range(mesh.get_surface_count()):
-			var mat: ShaderMaterial = mesh_instance.get_surface_override_material(si)
+			var mat: ShaderMaterial = mi.get_surface_override_material(si)
 			if mat:
 				mat.set_shader_parameter("ceiling_clip", clip_val)
 
