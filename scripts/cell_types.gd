@@ -150,15 +150,3 @@ static func get_orientation_name(orientation: int) -> String:
 	var axis_names := ["Y", "X", "Z"]
 	var corner_names := ["SW", "SE", "NE", "NW"]
 	return axis_names[orientation / 4] + "-" + corner_names[orientation % 4]
-
-# Face directions (0=+Y,1=-Y,2=+X,3=-X,4=+Z,5=-Z) covered by each prism orientation's
-# axis-aligned rectangular side faces. Used to suppress overlapping solid cell faces.
-const _PRISM_FACE_DIRS: Array = [
-	[5, 3], [2, 5], [4, 2], [3, 4],  # axis 0 (Y), corners 0-3
-	[5, 1], [0, 5], [4, 0], [1, 4],  # axis 1 (X), corners 0-3
-	[1, 3], [2, 1], [0, 2], [3, 0],  # axis 2 (Z), corners 0-3
-]
-
-static func prism_covers_face(orientation: int, face_dir: int) -> bool:
-	var dirs: Array = _PRISM_FACE_DIRS[orientation]
-	return dirs[0] == face_dir or dirs[1] == face_dir

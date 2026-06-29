@@ -131,9 +131,7 @@ static func _greedy_mesh_dir(cells: Array, gx: int, gy: int, gz: int, s: float, 
 					grid[u][v] = face_color
 				else:
 					var ncell: Array = cells[nx][ny][nz]
-					if ncell[0] == CellTypes.Type.EMPTY or CellTypes.is_cutout_cell(ncell):
-						grid[u][v] = face_color
-					elif ncell[0] == CellTypes.Type.PRISM and not CellTypes.prism_covers_face(ncell[1], dir ^ 1):
+					if ncell[0] == CellTypes.Type.EMPTY or ncell[0] == CellTypes.Type.PRISM or CellTypes.is_cutout_cell(ncell):
 						grid[u][v] = face_color
 					elif not CellTypes.is_cutout_cell(src_cell):
 						grid[u][v] = -1

@@ -107,11 +107,9 @@ static func _build_cube(st: SurfaceTool, cells: Array, gx: int, gy: int, gz: int
 		var nz: int = cz + d[2]
 		if _is_opaque_solid(cells, gx, gy, gz, nx, ny, nz):
 			continue
-		if nx >= 0 and nx < gx and ny >= 0 and ny < gy and nz >= 0 and nz < gz:
+		if not is_cutout and nx >= 0 and nx < gx and ny >= 0 and ny < gy and nz >= 0 and nz < gz:
 			var ncell: Array = cells[nx][ny][nz]
-			if not is_cutout and ncell[0] == CellTypes.Type.SOLID and not CellTypes.is_cutout_cell(ncell):
-				continue
-			if ncell[0] == CellTypes.Type.PRISM and CellTypes.prism_covers_face(ncell[1], i ^ 1):
+			if ncell[0] == CellTypes.Type.SOLID and not CellTypes.is_cutout_cell(ncell):
 				continue
 		var q: Array = quads[i]
 		var normal: Vector3 = d[4]
