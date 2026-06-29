@@ -67,8 +67,6 @@ var place_cell := Vector3i(-1, -1, -1)
 var target_cell := Vector3i(-1, -1, -1)
 
 var mesh_instance: MeshInstance3D
-var collision_body: StaticBody3D
-var collision_shape: CollisionShape3D
 var grid_mesh_instance: MeshInstance3D
 var cursor_mesh_instance: MeshInstance3D
 var box_preview_instance: MeshInstance3D
@@ -174,11 +172,6 @@ func _init_cells() -> void:
 func _setup_scene() -> void:
 	mesh_instance = MeshInstance3D.new()
 	add_child(mesh_instance)
-
-	collision_body = StaticBody3D.new()
-	add_child(collision_body)
-	collision_shape = CollisionShape3D.new()
-	collision_body.add_child(collision_shape)
 
 	grid_mesh_instance = MeshInstance3D.new()
 	add_child(grid_mesh_instance)
@@ -1162,17 +1155,15 @@ func _update_raycast() -> void:
 	var geo_dist := INF
 	var floor_dist := INF
 
-	# Geometry raycast
-	var space := get_world_3d().direct_space_state
-	var query := PhysicsRayQueryParameters3D.create(from, from + dir * 100.0)
-	var result := space.intersect_ray(query)
+	# Geometry raycast via grid traversal
+	var result := _grid_raycast(from, dir)
 
-	if result:
+	if not result.is_empty():
 		var hit_pos: Vector3 = result["position"]
 		var hit_normal: Vector3 = result["normal"]
 		geo_dist = from.distance_to(hit_pos)
-		target_cell = _world_to_cell(hit_pos - hit_normal * 0.01)
-		var adj := _world_to_cell(hit_pos + hit_normal * 0.01)
+		target_cell = result["cell"]
+		var adj := target_cell + Vector3i(hit_normal)
 		if _in_bounds(adj) and cells[adj.x][adj.y][adj.z][0] == CellTypes.Type.EMPTY:
 			place_cell = adj
 
@@ -1221,6 +1212,78 @@ func _world_to_cell(world_pos: Vector3) -> Vector3i:
 
 func _in_bounds(pos: Vector3i) -> bool:
 	return pos.x >= 0 and pos.x < grid_x and pos.y >= 0 and pos.y < grid_y and pos.z >= 0 and pos.z < grid_z
+
+func _grid_raycast(from: Vector3, dir: Vector3) -> Dictionary:
+	var s := CELL_SIZE
+	var grid_end := Vector3(grid_x * s, grid_y * s, grid_z * s)
+	var t_near := 0.0
+	var t_far := 100.0
+	for ax in range(3):
+		if abs(dir[ax]) < 1e-8:
+			if from[ax] < 0.0 or from[ax] > grid_end[ax]:
+				return {}
+		else:
+			var t0 := -from[ax] / dir[ax]
+			var t1 := (grid_end[ax] - from[ax]) / dir[ax]
+			if t0 > t1:
+				var tmp := t0; t0 = t1; t1 = tmp
+			t_near = maxf(t_near, t0)
+			t_far = minf(t_far, t1)
+			if t_near > t_far:
+				return {}
+
+	var entry := from + dir * maxf(t_near - 1e-4, 0.0)
+	var cx := int(floor(entry.x / s))
+	var cy := int(floor(entry.y / s))
+	var cz := int(floor(entry.z / s))
+	cx = clampi(cx, 0, grid_x - 1)
+	cy = clampi(cy, 0, grid_y - 1)
+	cz = clampi(cz, 0, grid_z - 1)
+
+	var step_x := 1 if dir.x >= 0 else -1
+	var step_y := 1 if dir.y >= 0 else -1
+	var step_z := 1 if dir.z >= 0 else -1
+
+	var t_max_x := ((cx + (1 if step_x > 0 else 0)) * s - from.x) / dir.x if abs(dir.x) > 1e-8 else INF
+	var t_max_y := ((cy + (1 if step_y > 0 else 0)) * s - from.y) / dir.y if abs(dir.y) > 1e-8 else INF
+	var t_max_z := ((cz + (1 if step_z > 0 else 0)) * s - from.z) / dir.z if abs(dir.z) > 1e-8 else INF
+
+	var t_delta_x := abs(s / dir.x) if abs(dir.x) > 1e-8 else INF
+	var t_delta_y := abs(s / dir.y) if abs(dir.y) > 1e-8 else INF
+	var t_delta_z := abs(s / dir.z) if abs(dir.z) > 1e-8 else INF
+
+	var normal := Vector3i.ZERO
+	var max_steps := grid_x + grid_y + grid_z
+	for _i in range(max_steps):
+		if cx >= 0 and cx < grid_x and cy >= 0 and cy < grid_y and cz >= 0 and cz < grid_z:
+			if cells[cx][cy][cz][0] != CellTypes.Type.EMPTY:
+				var t_hit := maxf(t_near, 0.0)
+				if normal != Vector3i.ZERO:
+					if t_max_x - t_delta_x > t_max_y - t_delta_y:
+						if t_max_x - t_delta_x > t_max_z - t_delta_z:
+							t_hit = t_max_x - t_delta_x
+						else:
+							t_hit = t_max_z - t_delta_z
+					else:
+						if t_max_y - t_delta_y > t_max_z - t_delta_z:
+							t_hit = t_max_y - t_delta_y
+						else:
+							t_hit = t_max_z - t_delta_z
+				var hit_pos := from + dir * t_hit
+				return {"position": hit_pos, "normal": Vector3(normal), "cell": Vector3i(cx, cy, cz)}
+
+		if t_max_x < t_max_y:
+			if t_max_x < t_max_z:
+				cx += step_x; t_max_x += t_delta_x; normal = Vector3i(-step_x, 0, 0)
+			else:
+				cz += step_z; t_max_z += t_delta_z; normal = Vector3i(0, 0, -step_z)
+		else:
+			if t_max_y < t_max_z:
+				cy += step_y; t_max_y += t_delta_y; normal = Vector3i(0, -step_y, 0)
+			else:
+				cz += step_z; t_max_z += t_delta_z; normal = Vector3i(0, 0, -step_z)
+
+	return {}
 
 # ─── Click Actions ───
 
@@ -1339,16 +1402,14 @@ func _smooth_edge_start(mouse_pos: Vector2) -> void:
 
 	var from := camera.project_ray_origin(mouse_pos)
 	var dir := camera.project_ray_normal(mouse_pos)
-	var space := get_world_3d().direct_space_state
-	var query := PhysicsRayQueryParameters3D.create(from, from + dir * 100.0)
-	var result := space.intersect_ray(query)
+	var result := _grid_raycast(from, dir)
 
-	if not result:
+	if result.is_empty():
 		return
 
 	var hit_pos: Vector3 = result["position"]
 	var hit_normal: Vector3 = result["normal"]
-	var cell := _world_to_cell(hit_pos - hit_normal * 0.01)
+	var cell: Vector3i = result["cell"]
 
 	if not _in_bounds(cell) or cells[cell.x][cell.y][cell.z][0] != CellTypes.Type.SOLID:
 		return
@@ -1583,16 +1644,14 @@ func _extrude_start(mouse_pos: Vector2) -> void:
 
 	var from := camera.project_ray_origin(mouse_pos)
 	var dir := camera.project_ray_normal(mouse_pos)
-	var space := get_world_3d().direct_space_state
-	var query := PhysicsRayQueryParameters3D.create(from, from + dir * 100.0)
-	var result := space.intersect_ray(query)
+	var result := _grid_raycast(from, dir)
 
-	if not result:
+	if result.is_empty():
 		return
 
 	var hit_pos: Vector3 = result["position"]
 	var hit_normal: Vector3 = result["normal"]
-	var cell := _world_to_cell(hit_pos - hit_normal * 0.01)
+	var cell: Vector3i = result["cell"]
 
 	if not _in_bounds(cell) or cells[cell.x][cell.y][cell.z][0] == CellTypes.Type.EMPTY:
 		return
@@ -2955,12 +3014,6 @@ func _rebuild_mesh_now() -> void:
 		if new_mesh.get_surface_count() > 1:
 			var cutout_mat := _make_ceiling_shader(true)
 			mesh_instance.set_surface_override_material(1, cutout_mat)
-		var shape := ConcavePolygonShape3D.new()
-		shape.backface_collision = true
-		shape.set_faces(new_mesh.get_faces())
-		collision_shape.shape = shape
-	else:
-		collision_shape.shape = null
 	_update_ceiling_uniforms()
 
 func _make_ceiling_shader(cutout: bool) -> ShaderMaterial:
