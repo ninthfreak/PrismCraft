@@ -25,6 +25,7 @@ var _ceiling_locked := false
 var _unsaved_changes := false
 var _mesh_dirty := false
 var _pending_action := ""
+var _flat_color_mode := false
 var _preview_mode := false
 var _preview_light: DirectionalLight3D
 var _undo_stack: Array = []
@@ -263,12 +264,13 @@ func _setup_ui() -> void:
 
 	view_menu = PopupMenu.new()
 	view_menu.name = "View"
-	view_menu.add_check_item("Preview Lighting", 0)
+	view_menu.add_check_item("Flat Colors", 0)
+	view_menu.add_check_item("Preview Lighting", 1)
 	view_menu.add_separator()
-	view_menu.add_check_item("Axis Overlay", 1)
+	view_menu.add_check_item("Axis Overlay", 2)
 	view_menu.add_separator()
-	view_menu.add_check_item("Mirror X", 2)
-	view_menu.add_check_item("Mirror Z", 3)
+	view_menu.add_check_item("Mirror X", 3)
+	view_menu.add_check_item("Mirror Z", 4)
 	view_menu.id_pressed.connect(_on_view_menu)
 	menu_bar.add_child(view_menu)
 
@@ -629,14 +631,21 @@ func _on_edit_menu(id: int) -> void:
 
 func _on_view_menu(id: int) -> void:
 	match id:
-		0: _toggle_preview_mode()
-		1: _toggle_axis_overlay()
-		2: _toggle_mirror_x()
-		3: _toggle_mirror_z()
+		0: _toggle_flat_color_mode()
+		1: _toggle_preview_mode()
+		2: _toggle_axis_overlay()
+		3: _toggle_mirror_x()
+		4: _toggle_mirror_z()
+
+func _toggle_flat_color_mode() -> void:
+	_flat_color_mode = not _flat_color_mode
+	view_menu.set_item_checked(0, _flat_color_mode)
+	_invalidate_materials()
+	_rebuild_mesh()
 
 func _toggle_preview_mode() -> void:
 	_preview_mode = not _preview_mode
-	view_menu.set_item_checked(0, _preview_mode)
+	view_menu.set_item_checked(1, _preview_mode)
 	preview_light_container.visible = _preview_mode
 	if _preview_mode:
 		if not _preview_light:
@@ -664,18 +673,18 @@ func _update_preview_light() -> void:
 
 func _toggle_axis_overlay() -> void:
 	_show_axis_overlay = not _show_axis_overlay
-	view_menu.set_item_checked(view_menu.get_item_index(1), _show_axis_overlay)
+	view_menu.set_item_checked(view_menu.get_item_index(2), _show_axis_overlay)
 	_update_axis_overlay_visibility()
 
 func _toggle_mirror_x() -> void:
 	_mirror_x = not _mirror_x
-	view_menu.set_item_checked(view_menu.get_item_index(2), _mirror_x)
+	view_menu.set_item_checked(view_menu.get_item_index(3), _mirror_x)
 	_update_axis_overlay_visibility()
 	_update_raycast()
 
 func _toggle_mirror_z() -> void:
 	_mirror_z = not _mirror_z
-	view_menu.set_item_checked(view_menu.get_item_index(3), _mirror_z)
+	view_menu.set_item_checked(view_menu.get_item_index(4), _mirror_z)
 	_update_axis_overlay_visibility()
 	_update_raycast()
 
@@ -3025,10 +3034,10 @@ func _invalidate_materials() -> void:
 func _make_ceiling_shader(cutout: bool) -> ShaderMaterial:
 	var shader := Shader.new()
 	var code := "shader_type spatial;\nrender_mode "
-	if not _preview_mode:
-		code += "unshaded"
-	else:
+	if _preview_mode:
 		code += "diffuse_lambert"
+	else:
+		code += "unshaded"
 	if cutout:
 		code += ", cull_disabled"
 	code += ";\nuniform float ceiling_clip = -1.0;\n"
@@ -3036,7 +3045,17 @@ func _make_ceiling_shader(cutout: bool) -> ShaderMaterial:
 	code += "void vertex() {\n\tworld_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;\n}\n"
 	code += "void fragment() {\n"
 	code += "\tif (ceiling_clip >= 0.0 && world_pos.y > ceiling_clip) { discard; }\n"
-	code += "\tALBEDO = COLOR.rgb;\n"
+	if not _preview_mode and not _flat_color_mode:
+		code += "\tfloat ny = abs(NORMAL.y);\n"
+		code += "\tfloat nx = abs(NORMAL.x);\n"
+		code += "\tfloat nz = abs(NORMAL.z);\n"
+		code += "\tfloat shade = 1.0;\n"
+		code += "\tif (ny > 0.9) { shade = NORMAL.y > 0.0 ? 1.0 : 0.5; }\n"
+		code += "\telse if (nx > nz) { shade = 0.8; }\n"
+		code += "\telse { shade = 0.7; }\n"
+		code += "\tALBEDO = COLOR.rgb * shade;\n"
+	else:
+		code += "\tALBEDO = COLOR.rgb;\n"
 	if cutout:
 		code += "\tALPHA = COLOR.a;\n\tALPHA_SCISSOR_THRESHOLD = %.1f;\n" % CellTypes.ALPHA_THRESHOLD
 	code += "}\n"
