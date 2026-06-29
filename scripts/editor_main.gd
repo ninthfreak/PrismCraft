@@ -3,14 +3,15 @@ extends Node3D
 enum EditMode { BLOCK, CHARACTER }
 enum ToolType { PENCIL, BOX, ERASER, BOX_ERASE, EXTRUDE, LINE, RECT, OVAL, SMOOTH_EDGE, PAINT }
 
-const CELL_RES := 32
-const CELL_SIZE := 1.0 / CELL_RES
+const BLOCK_RES := 48
+const CHAR_RES := 96
+var CELL_SIZE := 1.0 / BLOCK_RES
 const PANEL_WIDTH := 180
 
 var edit_mode: int = EditMode.BLOCK
-var grid_x := 32
-var grid_y := 32
-var grid_z := 32
+var grid_x := 48
+var grid_y := 48
+var grid_z := 48
 
 var cells: Array = []
 var current_tool: int = ToolType.PENCIL
@@ -953,9 +954,11 @@ func _do_set_edit_mode(mode: int) -> void:
 	edit_mode = mode
 	_undo_stack.clear()
 	if edit_mode == EditMode.BLOCK:
-		grid_x = 32; grid_y = 32; grid_z = 32
+		grid_x = 48; grid_y = 48; grid_z = 48
+		CELL_SIZE = 1.0 / BLOCK_RES
 	else:
-		grid_x = 64; grid_y = 128; grid_z = 64
+		grid_x = 96; grid_y = 192; grid_z = 96
+		CELL_SIZE = 1.0 / CHAR_RES
 	current_file_path = ""
 	_unsaved_changes = false
 	place_cell = Vector3i(-1, -1, -1)
@@ -2359,6 +2362,7 @@ func _load_from_path(path: String) -> void:
 	grid_x = def.grid_x
 	grid_y = def.grid_y
 	grid_z = def.grid_z
+	CELL_SIZE = 1.0 / CHAR_RES if edit_mode == EditMode.CHARACTER else 1.0 / BLOCK_RES
 	cells = def.to_cells()
 	current_file_path = path
 	_unsaved_changes = false

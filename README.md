@@ -12,8 +12,8 @@ Open the project in Godot and run it (F5).
 
 ## Editor Modes
 
-- **Block** (32x32x32) -- for designing individual block definitions. Each voxel is 1/32 of a unit, so one block = 1x1x1 unit in-game.
-- **Character** (64x128x64) -- for designing character models at double resolution. The grid is 2x4x2 blocks worth of space but at 1/64 unit per voxel, so a character stands exactly **2 blocks tall** (2 units) despite the finer detail.
+- **Block** (48x48x48) -- for designing individual block definitions. Each voxel is 1/48 of a unit, so one block = 1x1x1 unit in-game.
+- **Character** (96x192x96) -- for designing character models at double resolution. The grid is 2x4x2 blocks worth of space but at 1/96 unit per voxel, so a character stands exactly **2 blocks tall** (2 units) despite the finer detail.
 
 ## Tools
 
@@ -72,10 +72,10 @@ Hold **Shift** with Line to lock to an axis, with Rectangle to force a square, o
 
 | Mode | Grid | Voxel Size | World Size | Notes |
 |------|------|-----------|------------|-------|
-| Block | 32x32x32 | 1/32 unit | 1x1x1 | Standard building block |
-| Character | 64x128x64 | 1/64 unit | 1x2x1 | Same height as 2 stacked blocks |
+| Block | 48x48x48 | 1/48 unit | 1x1x1 | Standard building block |
+| Character | 96x192x96 | 1/96 unit | 1x2x1 | Same height as 2 stacked blocks |
 
-Characters have double the voxel resolution of blocks in every axis, giving 4x the surface detail while occupying the same physical footprint as a 1x2x1 column of blocks.
+Characters have double the voxel resolution of blocks in every axis, giving 4x the surface detail while occupying the same physical footprint as a 1x2x1 column of blocks. Grid dimensions are chosen to be divisible by 2, 3, 4, 6, 8, 12, 16, and 24.
 
 ## File Format
 
