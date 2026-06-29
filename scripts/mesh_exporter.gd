@@ -117,10 +117,11 @@ static func _greedy_mesh_dir(cells: Array, gx: int, gy: int, gz: int, s: float, 
 					4: nx = cx; ny = cy; nz = cz + 1
 					_: nx = cx; ny = cy; nz = cz - 1
 
+				var face_idx: int = dir + 2
 				if nx < 0 or nx >= gx or ny < 0 or ny >= gy or nz < 0 or nz >= gz:
-					grid[u][v] = cells[cx][cy][cz][2]
+					grid[u][v] = cells[cx][cy][cz][face_idx]
 				elif cells[nx][ny][nz][0] == CellTypes.Type.EMPTY:
-					grid[u][v] = cells[cx][cy][cz][2]
+					grid[u][v] = cells[cx][cy][cz][face_idx]
 				else:
 					grid[u][v] = -1
 

@@ -12,15 +12,14 @@ func set_from_cells(p_cells: Array, gx: int, gy: int, gz: int, mode: int) -> voi
 	grid_y = gy
 	grid_z = gz
 	edit_mode = mode
-	cell_data.resize(gx * gy * gz * 3)
+	cell_data.resize(gx * gy * gz * 8)
 	for x in range(gx):
 		for y in range(gy):
 			for z in range(gz):
-				var idx := (x * gy * gz + y * gz + z) * 3
+				var idx := (x * gy * gz + y * gz + z) * 8
 				var cell: Array = p_cells[x][y][z]
-				cell_data[idx] = cell[0]
-				cell_data[idx + 1] = cell[1]
-				cell_data[idx + 2] = cell[2]
+				for i in range(8):
+					cell_data[idx + i] = cell[i]
 
 func to_cells() -> Array:
 	var p_cells := []
@@ -32,18 +31,22 @@ func to_cells() -> Array:
 			p_cells[x][y] = []
 			p_cells[x][y].resize(grid_z)
 			for z in range(grid_z):
-				var idx := (x * grid_y * grid_z + y * grid_z + z) * 3
-				if idx + 2 < cell_data.size():
-					p_cells[x][y][z] = [cell_data[idx], cell_data[idx + 1], cell_data[idx + 2]]
+				var idx := (x * grid_y * grid_z + y * grid_z + z) * 8
+				if idx + 7 < cell_data.size():
+					var cell: Array = []
+					cell.resize(8)
+					for i in range(8):
+						cell[i] = cell_data[idx + i]
+					p_cells[x][y][z] = cell
 				else:
-					p_cells[x][y][z] = [CellTypes.Type.EMPTY, 0, 0]
+					p_cells[x][y][z] = CellTypes.empty_cell()
 	return p_cells
 
 static func _fill_box(p_cells: Array, x0: int, y0: int, z0: int, x1: int, y1: int, z1: int, cell_type: int, orientation: int, color: int) -> void:
 	for x in range(x0, x1 + 1):
 		for y in range(y0, y1 + 1):
 			for z in range(z0, z1 + 1):
-				p_cells[x][y][z] = [cell_type, orientation, color]
+				p_cells[x][y][z] = CellTypes.make_cell(cell_type, orientation, color)
 
 static func _fill_box_3x(p_cells: Array, x0: int, y0: int, z0: int, x1: int, y1: int, z1: int, cell_type: int, orientation: int, color: int) -> void:
 	_fill_box(p_cells, x0 * 3, y0 * 3, z0 * 3, x1 * 3 + 2, y1 * 3 + 2, z1 * 3 + 2, cell_type, orientation, color)
@@ -52,7 +55,7 @@ static func _set_3x(p_cells: Array, x: int, y: int, z: int, data: Array) -> void
 	for dx in range(3):
 		for dy in range(3):
 			for dz in range(3):
-				p_cells[x * 3 + dx][y * 3 + dy][z * 3 + dz] = [data[0], data[1], data[2]]
+				p_cells[x * 3 + dx][y * 3 + dy][z * 3 + dz] = CellTypes.make_cell(data[0], data[1], data[2])
 
 static func _clear_3x(p_cells: Array, x: int, y: int, z: int) -> void:
 	_set_3x(p_cells, x, y, z, [CellTypes.Type.EMPTY, 0, 0])
@@ -67,7 +70,7 @@ static func _make_empty_cells(gx: int, gy: int, gz: int) -> Array:
 			p_cells[x][y] = []
 			p_cells[x][y].resize(gz)
 			for z in range(gz):
-				p_cells[x][y][z] = [CellTypes.Type.EMPTY, 0, 0]
+				p_cells[x][y][z] = CellTypes.empty_cell()
 	return p_cells
 
 static func _c(color: Color) -> int:

@@ -43,6 +43,29 @@ static func color_name_rgb565(v: int) -> String:
 	var b := v & 0x1F
 	return "C_%02X%02X%02X" % [r * 255 / 31, g * 255 / 63, b * 255 / 31]
 
+# Cell format: [type, orientation, c_top(+Y), c_bottom(-Y), c_right(+X), c_left(-X), c_front(+Z), c_back(-Z)]
+# Face indices within cell array:
+const FACE_TOP := 2     # +Y
+const FACE_BOTTOM := 3  # -Y
+const FACE_RIGHT := 4   # +X
+const FACE_LEFT := 5    # -X
+const FACE_FRONT := 6   # +Z
+const FACE_BACK := 7    # -Z
+
+static func make_cell(cell_type: int, orientation: int, color: int) -> Array:
+	return [cell_type, orientation, color, color, color, color, color, color]
+
+static func empty_cell() -> Array:
+	return [Type.EMPTY, 0, 0, 0, 0, 0, 0, 0]
+
+static func face_index_from_normal(normal: Vector3i) -> int:
+	if normal.y > 0: return FACE_TOP
+	if normal.y < 0: return FACE_BOTTOM
+	if normal.x > 0: return FACE_RIGHT
+	if normal.x < 0: return FACE_LEFT
+	if normal.z > 0: return FACE_FRONT
+	return FACE_BACK
+
 static func get_orientation_name(orientation: int) -> String:
 	var axis_names := ["Y", "X", "Z"]
 	var corner_names := ["SW", "SE", "NE", "NW"]

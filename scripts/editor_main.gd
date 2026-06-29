@@ -149,7 +149,7 @@ func _init_cells() -> void:
 			cells[x][y] = []
 			cells[x][y].resize(grid_z)
 			for z in range(grid_z):
-				cells[x][y][z] = [CellTypes.Type.EMPTY, 0, 0]
+				cells[x][y][z] = CellTypes.empty_cell()
 
 # ─── Scene Setup ───
 
@@ -792,42 +792,42 @@ func _mirror_orientation_z(orientation: int) -> int:
 		_: new_corner = 0
 	return axis * 4 + new_corner
 
-func _place_with_mirror(pos: Vector3i, cell_type: int, orientation: int, color_idx: int) -> void:
+func _place_with_mirror(pos: Vector3i, cell_type: int, orientation: int, color: int) -> void:
 	if _in_bounds(pos):
-		cells[pos.x][pos.y][pos.z] = [cell_type, orientation, color_idx]
+		cells[pos.x][pos.y][pos.z] = CellTypes.make_cell(cell_type, orientation, color)
 	if _mirror_x:
 		var mx := _mirror_pos_x(pos)
 		if _in_bounds(mx):
 			var mo := _mirror_orientation_x(orientation) if cell_type == CellTypes.Type.PRISM else orientation
-			cells[mx.x][mx.y][mx.z] = [cell_type, mo, color_idx]
+			cells[mx.x][mx.y][mx.z] = CellTypes.make_cell(cell_type, mo, color)
 	if _mirror_z:
 		var mz := _mirror_pos_z(pos)
 		if _in_bounds(mz):
 			var mo := _mirror_orientation_z(orientation) if cell_type == CellTypes.Type.PRISM else orientation
-			cells[mz.x][mz.y][mz.z] = [cell_type, mo, color_idx]
+			cells[mz.x][mz.y][mz.z] = CellTypes.make_cell(cell_type, mo, color)
 	if _mirror_x and _mirror_z:
 		var mxz := _mirror_pos_x(_mirror_pos_z(pos))
 		if _in_bounds(mxz):
 			var mo := orientation
 			if cell_type == CellTypes.Type.PRISM:
 				mo = _mirror_orientation_x(_mirror_orientation_z(orientation))
-			cells[mxz.x][mxz.y][mxz.z] = [cell_type, mo, color_idx]
+			cells[mxz.x][mxz.y][mxz.z] = CellTypes.make_cell(cell_type, mo, color)
 
 func _erase_with_mirror(pos: Vector3i) -> void:
 	if _in_bounds(pos):
-		cells[pos.x][pos.y][pos.z] = [CellTypes.Type.EMPTY, 0, 0]
+		cells[pos.x][pos.y][pos.z] = CellTypes.empty_cell()
 	if _mirror_x:
 		var mx := _mirror_pos_x(pos)
 		if _in_bounds(mx):
-			cells[mx.x][mx.y][mx.z] = [CellTypes.Type.EMPTY, 0, 0]
+			cells[mx.x][mx.y][mx.z] = CellTypes.empty_cell()
 	if _mirror_z:
 		var mz := _mirror_pos_z(pos)
 		if _in_bounds(mz):
-			cells[mz.x][mz.y][mz.z] = [CellTypes.Type.EMPTY, 0, 0]
+			cells[mz.x][mz.y][mz.z] = CellTypes.empty_cell()
 	if _mirror_x and _mirror_z:
 		var mxz := _mirror_pos_x(_mirror_pos_z(pos))
 		if _in_bounds(mxz):
-			cells[mxz.x][mxz.y][mxz.z] = [CellTypes.Type.EMPTY, 0, 0]
+			cells[mxz.x][mxz.y][mxz.z] = CellTypes.empty_cell()
 
 func _draw_mirror_cursors(cursor_pos: Vector3i) -> void:
 	if not _mirror_x and not _mirror_z:
@@ -1166,9 +1166,24 @@ func _on_left_click() -> void:
 				_rebuild_mesh()
 		ToolType.PAINT:
 			if _in_bounds(target_cell) and cells[target_cell.x][target_cell.y][target_cell.z][0] != CellTypes.Type.EMPTY:
+				var face_normal := place_cell - target_cell
+				if face_normal == Vector3i.ZERO:
+					return
+				var fi := CellTypes.face_index_from_normal(face_normal)
 				_push_undo()
-				var cell: Array = cells[target_cell.x][target_cell.y][target_cell.z]
-				_place_with_mirror(target_cell, cell[0], cell[1], current_color)
+				cells[target_cell.x][target_cell.y][target_cell.z][fi] = current_color
+				if _mirror_x:
+					var mx := _mirror_pos_x(target_cell)
+					if _in_bounds(mx):
+						cells[mx.x][mx.y][mx.z][fi] = current_color
+				if _mirror_z:
+					var mz := _mirror_pos_z(target_cell)
+					if _in_bounds(mz):
+						cells[mz.x][mz.y][mz.z][fi] = current_color
+				if _mirror_x and _mirror_z:
+					var mxz := _mirror_pos_x(_mirror_pos_z(target_cell))
+					if _in_bounds(mxz):
+						cells[mxz.x][mxz.y][mxz.z][fi] = current_color
 				_mark_dirty()
 				_rebuild_mesh()
 		ToolType.BOX_ERASE:
@@ -1459,12 +1474,12 @@ func _on_smooth_apply() -> void:
 			for j in range(depth - 1 - i):
 				var remove_pos: Vector3i = ep - smooth_normal_a * i - smooth_normal_b * j
 				if _in_bounds(remove_pos):
-					cells[remove_pos.x][remove_pos.y][remove_pos.z] = [CellTypes.Type.EMPTY, 0, 0]
+					cells[remove_pos.x][remove_pos.y][remove_pos.z] = CellTypes.empty_cell()
 			# Place prism at the chamfer surface
 			var prism_pos: Vector3i = ep - smooth_normal_a * i - smooth_normal_b * (depth - 1 - i)
 			if _in_bounds(prism_pos) and cells[prism_pos.x][prism_pos.y][prism_pos.z][0] != CellTypes.Type.EMPTY:
-				var color_idx: int = cells[prism_pos.x][prism_pos.y][prism_pos.z][2]
-				cells[prism_pos.x][prism_pos.y][prism_pos.z] = [CellTypes.Type.PRISM, orientation, color_idx]
+				var old_color: int = cells[prism_pos.x][prism_pos.y][prism_pos.z][2]
+				cells[prism_pos.x][prism_pos.y][prism_pos.z] = CellTypes.make_cell(CellTypes.Type.PRISM, orientation, old_color)
 
 	smooth_path.clear()
 	box_preview_instance.visible = false
@@ -1544,13 +1559,13 @@ func _extrude_finish() -> void:
 				var nc: Vector3i = cell + extrude_normal * d
 				if _in_bounds(nc):
 					var src: Array = cells[cell.x][cell.y][cell.z]
-					cells[nc.x][nc.y][nc.z] = [src[0], src[1], src[2]]
+					cells[nc.x][nc.y][nc.z] = src.duplicate()
 	elif extrude_depth < 0:
 		for d in range(0, -extrude_depth):
 			for cell in extrude_cells:
 				var rc: Vector3i = cell - extrude_normal * d
 				if _in_bounds(rc):
-					cells[rc.x][rc.y][rc.z] = [CellTypes.Type.EMPTY, 0, 0]
+					cells[rc.x][rc.y][rc.z] = CellTypes.empty_cell()
 
 	var did_change := extrude_depth != 0
 	extrude_active = false
@@ -1569,7 +1584,8 @@ func _find_coplanar_surface(start: Vector3i, normal: Vector3i) -> Array:
 	var visited := {}
 	var queue: Array = [start]
 	visited[start] = true
-	var start_color: int = cells[start.x][start.y][start.z][2]
+	var face_ci := CellTypes.face_index_from_normal(normal)
+	var start_color: int = cells[start.x][start.y][start.z][face_ci]
 
 	var dirs: Array = []
 	if normal.x != 0:
@@ -1585,7 +1601,7 @@ func _find_coplanar_surface(start: Vector3i, normal: Vector3i) -> Array:
 			continue
 		if cells[cell.x][cell.y][cell.z][0] == CellTypes.Type.EMPTY:
 			continue
-		if cells[cell.x][cell.y][cell.z][2] != start_color:
+		if cells[cell.x][cell.y][cell.z][face_ci] != start_color:
 			continue
 		var face_neighbor: Vector3i = cell + normal
 		if _in_bounds(face_neighbor) and cells[face_neighbor.x][face_neighbor.y][face_neighbor.z][0] != CellTypes.Type.EMPTY:
@@ -2012,7 +2028,7 @@ func _on_import_file_selected(path: String) -> void:
 			var cell_x := px
 			var cell_y := grid_y - 1 - py
 			if cell_x >= 0 and cell_x < grid_x and cell_y >= 0 and cell_y < grid_y:
-				cells[cell_x][cell_y][0] = [CellTypes.Type.SOLID, 0, CellTypes.encode_rgb565(color)]
+				cells[cell_x][cell_y][0] = CellTypes.make_cell(CellTypes.Type.SOLID, 0, CellTypes.encode_rgb565(color))
 
 	_mark_dirty()
 	_rebuild_mesh()
@@ -2067,43 +2083,65 @@ func _on_block_texture_selected(path: String) -> void:
 	for x in range(grid_x):
 		for y in range(grid_y):
 			for z in range(grid_z):
-				cells[x][y][z] = [CellTypes.Type.SOLID, 0, fill_color]
+				cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.SOLID, 0, fill_color)
 
-	# Front/back faces (+Z/-Z) — paint color through full Z depth
+	# Front face (+Z) — surface at z=grid_z-1
 	for u in range(grid_x):
 		for v in range(grid_y):
 			var ci: int = color_map[u][v]
 			var y_cell := grid_y - 1 - v
 			if ci == -1:
-				cells[u][y_cell][grid_z - 1] = [CellTypes.Type.EMPTY, 0, 0]
-				cells[grid_x - 1 - u][y_cell][0] = [CellTypes.Type.EMPTY, 0, 0]
+				cells[u][y_cell][grid_z - 1] = CellTypes.empty_cell()
 			else:
-				for z in range(grid_z):
-					cells[u][y_cell][z][2] = ci
+				cells[u][y_cell][grid_z - 1][CellTypes.FACE_FRONT] = ci
 
-	# Right/left faces (+X/-X) — paint color through full X depth
+	# Back face (-Z) — surface at z=0
+	for u in range(grid_x):
+		for v in range(grid_y):
+			var ci: int = color_map[u][v]
+			var y_cell := grid_y - 1 - v
+			if ci == -1:
+				cells[grid_x - 1 - u][y_cell][0] = CellTypes.empty_cell()
+			else:
+				cells[grid_x - 1 - u][y_cell][0][CellTypes.FACE_BACK] = ci
+
+	# Right face (+X) — surface at x=grid_x-1
 	for u in range(grid_z):
 		for v in range(grid_y):
 			var ci: int = color_map[u][v]
 			var y_cell := grid_y - 1 - v
-			var z_right := grid_z - 1 - u
 			if ci == -1:
-				cells[grid_x - 1][y_cell][z_right] = [CellTypes.Type.EMPTY, 0, 0]
-				cells[0][y_cell][u] = [CellTypes.Type.EMPTY, 0, 0]
+				cells[grid_x - 1][y_cell][grid_z - 1 - u] = CellTypes.empty_cell()
 			else:
-				for x in range(grid_x):
-					cells[x][y_cell][z_right][2] = ci
+				cells[grid_x - 1][y_cell][grid_z - 1 - u][CellTypes.FACE_RIGHT] = ci
 
-	# Top/bottom faces (+Y/-Y) — paint color through full Y depth
+	# Left face (-X) — surface at x=0
+	for u in range(grid_z):
+		for v in range(grid_y):
+			var ci: int = color_map[u][v]
+			var y_cell := grid_y - 1 - v
+			if ci == -1:
+				cells[0][y_cell][u] = CellTypes.empty_cell()
+			else:
+				cells[0][y_cell][u][CellTypes.FACE_LEFT] = ci
+
+	# Top face (+Y) — surface at y=grid_y-1
 	for u in range(grid_x):
 		for v in range(grid_z):
 			var ci: int = color_map[u][v]
 			if ci == -1:
-				cells[u][grid_y - 1][v] = [CellTypes.Type.EMPTY, 0, 0]
-				cells[u][0][grid_z - 1 - v] = [CellTypes.Type.EMPTY, 0, 0]
+				cells[u][grid_y - 1][v] = CellTypes.empty_cell()
 			else:
-				for y in range(grid_y):
-					cells[u][y][v][2] = ci
+				cells[u][grid_y - 1][v][CellTypes.FACE_TOP] = ci
+
+	# Bottom face (-Y) — surface at y=0
+	for u in range(grid_x):
+		for v in range(grid_z):
+			var ci: int = color_map[u][v]
+			if ci == -1:
+				cells[u][0][grid_z - 1 - v] = CellTypes.empty_cell()
+			else:
+				cells[u][0][grid_z - 1 - v][CellTypes.FACE_BOTTOM] = ci
 
 	_mark_dirty()
 	_rebuild_mesh()
@@ -2289,7 +2327,7 @@ func _on_wizard_generate() -> void:
 				var sz := z if flip_side else (grid_z - 1 - z)
 				var side_pixel := side.get_pixel(sz, grid_y - 1 - y)
 				if side_pixel.a >= 0.5:
-					cells[x][y][z] = [CellTypes.Type.SOLID, 0, color_idx]
+					cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.SOLID, 0, color_idx)
 
 	# Recolor left/right surfaces from side sprite
 	for y in range(grid_y):
@@ -2301,11 +2339,11 @@ func _on_wizard_generate() -> void:
 			var side_color := CellTypes.encode_rgb565(side_pixel)
 			for x in range(grid_x):
 				if cells[x][y][z][0] != CellTypes.Type.EMPTY:
-					cells[x][y][z][2] = side_color
+					cells[x][y][z][CellTypes.FACE_LEFT] = side_color
 					break
 			for x in range(grid_x - 1, -1, -1):
 				if cells[x][y][z][0] != CellTypes.Type.EMPTY:
-					cells[x][y][z][2] = side_color
+					cells[x][y][z][CellTypes.FACE_RIGHT] = side_color
 					break
 
 	_ground_cells()
@@ -2331,7 +2369,7 @@ func _ground_cells() -> void:
 				if src_y < grid_y:
 					cells[x][y][z] = cells[x][src_y][z].duplicate()
 				else:
-					cells[x][y][z] = [CellTypes.Type.EMPTY, 0, 0]
+					cells[x][y][z] = CellTypes.empty_cell()
 
 
 func _load_from_path(path: String) -> void:
