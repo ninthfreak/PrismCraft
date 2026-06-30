@@ -3289,9 +3289,14 @@ func _make_ceiling_shader(cutout: bool) -> ShaderMaterial:
 		code += ", cull_disabled"
 	code += ";\nuniform float ceiling_clip = -1.0;\n"
 	code += "varying vec3 world_pos;\n"
-	code += "void vertex() {\n\tworld_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;\n}\n"
+	code += "varying vec3 world_normal;\n"
+	code += "void vertex() {\n\tworld_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;\n\tworld_normal = (MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz;\n}\n"
 	code += "void fragment() {\n"
 	code += "\tif (ceiling_clip >= 0.0 && world_pos.y > ceiling_clip) { discard; }\n"
+	# The cell above the ceiling keeps its downward-facing bottom face, which sits
+	# exactly on the clip plane and isn't caught by the strict-greater test above.
+	# Discard it so it can't z-fight with the baked top cap of the ceiling layer.
+	code += "\tif (ceiling_clip >= 0.0 && world_pos.y > ceiling_clip - 0.001 && world_normal.y < -0.5) { discard; }\n"
 	if not _preview_mode and not _flat_color_mode:
 		code += "\tfloat ny = abs(NORMAL.y);\n"
 		code += "\tfloat nx = abs(NORMAL.x);\n"
