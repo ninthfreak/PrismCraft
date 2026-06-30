@@ -1283,6 +1283,7 @@ func _update_raycast() -> void:
 
 	if _debug_trace and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
 		print("TRACE raycast: target=%s place=%s normal=%s geo_dist=%.2f floor_dist=%.2f geo_oob=%s floor_y=%d ceiling_y=%d" % [target_cell, place_cell, _hit_normal, geo_dist, floor_dist, geo_oob, floor_y, ceiling_y])
+		_audit_layer_at(from, dir)
 
 	# Update cursor display
 	var cursor_pos: Vector3i
@@ -1303,6 +1304,49 @@ func _update_raycast() -> void:
 
 	_update_joint_marker()
 	_update_box_preview()
+
+func _audit_layer_at(from: Vector3, dir: Vector3) -> void:
+	# Project the ray onto the bottom, middle, and top horizontal planes of the floor layer
+	var planes := {
+		"bottom": floor_y * CELL_SIZE,
+		"middle": (floor_y + 0.5) * CELL_SIZE,
+		"top": (floor_y + 1.0) * CELL_SIZE,
+	}
+	var center := Vector3i(-1, -1, -1)
+	if abs(dir.y) > 0.0001:
+		for label in planes:
+			var py: float = planes[label]
+			var t := (py - from.y) / dir.y
+			if t > 0:
+				var hit := from + dir * t
+				var c := _world_to_cell(hit)
+				c.y = floor_y
+				var tp := -1
+				if _in_bounds(c):
+					tp = cells[c.x][c.y][c.z][0]
+				print("  AUDIT %s-plane -> cell=%s type=%d (world %.2f,%.2f,%.2f)" % [label, c, tp, hit.x, hit.y, hit.z])
+				if label == "middle":
+					center = c
+	# Print a 5x5 type map at Y=floor_y centered on the middle-plane cell
+	if _in_bounds(center):
+		print("  AUDIT 5x5 type map at Y=%d centered on (%d,%d) [0=empty]:" % [floor_y, center.x, center.z])
+		for dz in range(-2, 3):
+			var row := ""
+			for dx in range(-2, 3):
+				var cx := center.x + dx
+				var cz := center.z + dz
+				if cx >= 0 and cx < grid_x and cz >= 0 and cz < grid_z:
+					var marker := "."
+					if cells[cx][floor_y][cz][0] != CellTypes.Type.EMPTY:
+						marker = "#"
+					if dx == 0 and dz == 0:
+						marker = "[" + marker + "]"
+					else:
+						marker = " " + marker + " "
+					row += marker
+				else:
+					row += " ? "
+			print("    " + row)
 
 func _world_to_cell(world_pos: Vector3) -> Vector3i:
 	return Vector3i(
