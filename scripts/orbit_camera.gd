@@ -33,7 +33,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				_panning = event.pressed
 			MOUSE_BUTTON_WHEEL_UP:
 				if event.pressed:
-					distance = max(1.0, distance * 0.85)
+					distance = max(0.1, distance * 0.85)
 					_update_transform()
 			MOUSE_BUTTON_WHEEL_DOWN:
 				if event.pressed:

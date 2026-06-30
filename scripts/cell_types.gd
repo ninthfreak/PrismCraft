@@ -23,6 +23,22 @@ const FAVORITES = [
 	Color(0.95, 0.82, 0.70),  # 13 Skin Light
 	Color(0.80, 0.64, 0.48),  # 14 Tan
 	Color(0.56, 0.20, 0.10),  # 15 Auburn
+	Color(0.90, 0.85, 0.20),  # 16 Yellow
+	Color(0.90, 0.50, 0.15),  # 17 Orange
+	Color(0.55, 0.25, 0.70),  # 18 Purple
+	Color(0.20, 0.75, 0.75),  # 19 Cyan
+	Color(0.50, 0.70, 0.90),  # 20 Light Blue
+	Color(0.55, 0.80, 0.45),  # 21 Light Green
+	Color(0.35, 0.35, 0.38),  # 22 Dark Gray
+	Color(0.85, 0.80, 0.70),  # 23 Beige
+	Color(0.15, 0.20, 0.50),  # 24 Navy
+	Color(0.85, 0.30, 0.60),  # 25 Magenta
+	Color(0.45, 0.50, 0.20),  # 26 Olive
+	Color(0.20, 0.50, 0.45),  # 27 Teal
+	Color(0.90, 0.55, 0.45),  # 28 Coral
+	Color(0.70, 0.60, 0.85),  # 29 Lavender
+	Color(0.85, 0.70, 0.20),  # 30 Gold
+	Color(0.50, 0.10, 0.15),  # 31 Maroon
 ]
 
 # ─── Color encoding ───
