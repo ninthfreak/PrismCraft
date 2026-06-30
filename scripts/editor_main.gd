@@ -1332,6 +1332,9 @@ func _grid_raycast(from: Vector3, dir: Vector3) -> Dictionary:
 	cy = clampi(cy, 0, grid_y - 1)
 	cz = clampi(cz, 0, grid_z - 1)
 
+	var y_min := floor_y
+	var y_max := ceiling_y if ceiling_y >= 0 else grid_y - 1
+
 	var step_x := 1 if dir.x >= 0 else -1
 	var step_y := 1 if dir.y >= 0 else -1
 	var step_z := 1 if dir.z >= 0 else -1
@@ -1347,7 +1350,19 @@ func _grid_raycast(from: Vector3, dir: Vector3) -> Dictionary:
 	var normal := Vector3i.ZERO
 	var max_steps := grid_x + grid_y + grid_z
 	for _i in range(max_steps):
-		if cx >= 0 and cx < grid_x and cy >= 0 and cy < grid_y and cz >= 0 and cz < grid_z:
+		if cy < y_min or cy > y_max:
+			if (step_y > 0 and cy > y_max) or (step_y < 0 and cy < y_min):
+				break
+			if t_max_y < t_max_x and t_max_y < t_max_z:
+				cy += step_y; t_max_y += t_delta_y; normal = Vector3i(0, -step_y, 0)
+				continue
+			elif t_max_x < t_max_z:
+				cx += step_x; t_max_x += t_delta_x; normal = Vector3i(-step_x, 0, 0)
+				continue
+			else:
+				cz += step_z; t_max_z += t_delta_z; normal = Vector3i(0, 0, -step_z)
+				continue
+		if cx >= 0 and cx < grid_x and cz >= 0 and cz < grid_z:
 			if cells[cx][cy][cz][0] != CellTypes.Type.EMPTY:
 				var t_hit := maxf(t_near, 0.0)
 				if normal != Vector3i.ZERO:
