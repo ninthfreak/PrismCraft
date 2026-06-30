@@ -66,6 +66,7 @@ var smooth_pixels_per_cell := 1.0
 
 var place_cell := Vector3i(-1, -1, -1)
 var target_cell := Vector3i(-1, -1, -1)
+var _hit_normal := Vector3i.ZERO
 
 const CHUNK_SIZE := 16
 var _chunk_container: Node3D
@@ -918,13 +919,13 @@ func _bucket_fill(start: Vector3i) -> void:
 	_mark_dirty()
 	_rebuild_mesh()
 
-func _eyedrop_color(target: Vector3i, place: Vector3i) -> void:
+func _eyedrop_color(target: Vector3i) -> void:
 	var cell: Array = cells[target.x][target.y][target.z]
 	var picked_color: int
 	if cell[0] == CellTypes.Type.PRISM:
 		picked_color = cell[2]
 	else:
-		var face_normal := place - target
+		var face_normal := _hit_normal
 		if face_normal == Vector3i.ZERO:
 			picked_color = cell[2]
 		else:
@@ -1221,6 +1222,7 @@ func _update_raycast() -> void:
 
 	place_cell = Vector3i(-1, -1, -1)
 	target_cell = Vector3i(-1, -1, -1)
+	_hit_normal = Vector3i.ZERO
 
 	var geo_dist := INF
 	var floor_dist := INF
@@ -1233,6 +1235,7 @@ func _update_raycast() -> void:
 		var hit_normal: Vector3 = result["normal"]
 		geo_dist = from.distance_to(hit_pos)
 		target_cell = result["cell"]
+		_hit_normal = Vector3i(hit_normal)
 		var adj := target_cell + Vector3i(hit_normal)
 		if _in_bounds(adj) and cells[adj.x][adj.y][adj.z][0] == CellTypes.Type.EMPTY:
 			place_cell = adj
@@ -1401,7 +1404,7 @@ func _on_left_click() -> void:
 				_mark_mirror_chunks_dirty(target_cell)
 		ToolType.PAINT:
 			if _in_bounds(target_cell) and cells[target_cell.x][target_cell.y][target_cell.z][0] != CellTypes.Type.EMPTY:
-				var face_normal := place_cell - target_cell
+				var face_normal := _hit_normal
 				if face_normal == Vector3i.ZERO:
 					return
 				var fi := CellTypes.face_index_from_normal(face_normal)
@@ -1426,7 +1429,7 @@ func _on_left_click() -> void:
 				_bucket_fill(target_cell)
 		ToolType.EYEDROP:
 			if _in_bounds(target_cell) and cells[target_cell.x][target_cell.y][target_cell.z][0] != CellTypes.Type.EMPTY:
-				_eyedrop_color(target_cell, place_cell)
+				_eyedrop_color(target_cell)
 		ToolType.BOX_ERASE:
 			if not box_active:
 				if _in_bounds(target_cell):
