@@ -1048,9 +1048,16 @@ func _set_floor(y: int) -> void:
 	floor_slider.set_value_no_signal(floor_y)
 	floor_value_label.text = "Y = %d" % floor_y
 	if _ceiling_locked:
+		var old_ceiling := ceiling_y
 		ceiling_y = floor_y
 		ceiling_slider.set_value_no_signal(ceiling_y)
 		ceiling_value_label.text = "Y = %d" % ceiling_y
+		# The mesh bakes top faces for the ceiling layer, so moving the locked
+		# ceiling must rebuild the old and new ceiling layers (otherwise the
+		# revealed voxels render as hollow "phantoms").
+		if old_ceiling != ceiling_y:
+			_mark_layer_chunks_dirty(old_ceiling)
+			_mark_layer_chunks_dirty(ceiling_y)
 		_update_ceiling_uniforms()
 	_rebuild_grid()
 
