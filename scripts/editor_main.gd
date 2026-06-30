@@ -1253,6 +1253,18 @@ func _update_raycast() -> void:
 				elif geo_dist == INF:
 					place_cell = fc
 
+	# Clamp to floor/ceiling editing bounds
+	if target_cell.y >= 0 and target_cell.y < floor_y:
+		target_cell = Vector3i(-1, -1, -1)
+		place_cell = Vector3i(-1, -1, -1)
+	if ceiling_y >= 0 and target_cell.y >= 0 and target_cell.y > ceiling_y:
+		target_cell = Vector3i(-1, -1, -1)
+		place_cell = Vector3i(-1, -1, -1)
+	if place_cell.y >= 0 and place_cell.y < floor_y:
+		place_cell = Vector3i(-1, -1, -1)
+	if ceiling_y >= 0 and place_cell.y >= 0 and place_cell.y > ceiling_y:
+		place_cell = Vector3i(-1, -1, -1)
+
 	# Update cursor display
 	var cursor_pos: Vector3i
 	if current_tool == ToolType.ERASER or current_tool == ToolType.BOX_ERASE or current_tool == ToolType.EXTRUDE or current_tool == ToolType.SMOOTH_EDGE or current_tool == ToolType.PAINT:
