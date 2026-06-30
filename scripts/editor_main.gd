@@ -3126,6 +3126,7 @@ func _rebuild_mesh() -> void:
 func _mark_chunk_dirty_at(x: int, y: int, z: int) -> void:
 	var key := Vector3i(x / CHUNK_SIZE, y / CHUNK_SIZE, z / CHUNK_SIZE)
 	_dirty_chunks[key] = true
+	_mesh_dirty = true
 	var lx := x % CHUNK_SIZE
 	var ly := y % CHUNK_SIZE
 	var lz := z % CHUNK_SIZE
