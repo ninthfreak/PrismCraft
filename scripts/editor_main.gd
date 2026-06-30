@@ -67,6 +67,7 @@ var smooth_pixels_per_cell := 1.0
 var place_cell := Vector3i(-1, -1, -1)
 var target_cell := Vector3i(-1, -1, -1)
 var _hit_normal := Vector3i.ZERO
+var _debug_trace := true
 
 const CHUNK_SIZE := 16
 var _chunk_container: Node3D
@@ -1274,6 +1275,14 @@ func _update_raycast() -> void:
 		place_cell = Vector3i(-1, -1, -1)
 	if ceiling_y >= 0 and place_cell.y >= 0 and place_cell.y > ceiling_y:
 		place_cell = Vector3i(-1, -1, -1)
+	if not _in_bounds(place_cell) and floor_dist < INF:
+		var fc2 := _world_to_cell(_floor_hit_pos)
+		fc2.y = floor_y
+		if _in_bounds(fc2) and cells[fc2.x][fc2.y][fc2.z][0] == CellTypes.Type.EMPTY:
+			place_cell = fc2
+
+	if _debug_trace and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
+		print("TRACE raycast: target=%s place=%s normal=%s geo_dist=%.2f floor_dist=%.2f geo_oob=%s floor_y=%d ceiling_y=%d" % [target_cell, place_cell, _hit_normal, geo_dist, floor_dist, geo_oob, floor_y, ceiling_y])
 
 	# Update cursor display
 	var cursor_pos: Vector3i
@@ -1397,6 +1406,8 @@ func _grid_raycast(from: Vector3, dir: Vector3) -> Dictionary:
 func _on_left_click() -> void:
 	match current_tool:
 		ToolType.PENCIL:
+			if _debug_trace:
+				print("CLICK pencil: place=%s target=%s normal=%s" % [place_cell, target_cell, _hit_normal])
 			if _in_bounds(place_cell):
 				_push_undo()
 				_place_with_mirror(place_cell, current_type, current_orientation, current_color)
@@ -1418,11 +1429,15 @@ func _on_left_click() -> void:
 				_mark_dirty()
 				_mark_mirror_chunks_dirty(target_cell)
 		ToolType.PAINT:
+			if _debug_trace:
+				print("CLICK paint: target=%s normal=%s mirror_x=%s mirror_z=%s" % [target_cell, _hit_normal, _mirror_x, _mirror_z])
 			if _in_bounds(target_cell) and cells[target_cell.x][target_cell.y][target_cell.z][0] != CellTypes.Type.EMPTY:
 				var face_normal := _hit_normal
 				if face_normal == Vector3i.ZERO:
 					return
 				var fi := CellTypes.face_index_from_normal(face_normal)
+				if _debug_trace:
+					print("  paint face_idx=%d cell_type=%d" % [fi, cells[target_cell.x][target_cell.y][target_cell.z][0]])
 				_push_undo()
 				cells[target_cell.x][target_cell.y][target_cell.z][fi] = current_color
 				if _mirror_x:
