@@ -75,12 +75,6 @@ static func build_chunk_mesh(cells: Array, gx: int, gy: int, gz: int, x0: int, y
 
 	return mesh
 
-static func _is_opaque_solid(cells: Array, gx: int, gy: int, gz: int, x: int, y: int, z: int) -> bool:
-	if x < 0 or x >= gx or y < 0 or y >= gy or z < 0 or z >= gz:
-		return false
-	var cell: Array = cells[x][y][z]
-	return cell[0] == CellTypes.Type.SOLID and not CellTypes.is_cutout_cell(cell)
-
 static func _build_cube(st: SurfaceTool, cells: Array, gx: int, gy: int, gz: int, cx: int, cy: int, cz: int, o: Vector3, s: float, cell: Array, is_cutout: bool, ceiling_y: int = -1) -> void:
 	var dirs := [
 		[0, 1, 0, CellTypes.FACE_TOP, Vector3.UP],
@@ -113,12 +107,17 @@ static func _build_cube(st: SurfaceTool, cells: Array, gx: int, gy: int, gz: int
 			var nx: int = cx + d[0]
 			var ny: int = cy + d[1]
 			var nz: int = cz + d[2]
-			if _is_opaque_solid(cells, gx, gy, gz, nx, ny, nz):
-				continue
-			if not is_cutout and nx >= 0 and nx < gx and ny >= 0 and ny < gy and nz >= 0 and nz < gz:
+			if nx >= 0 and nx < gx and ny >= 0 and ny < gy and nz >= 0 and nz < gz:
 				var ncell: Array = cells[nx][ny][nz]
-				if ncell[0] == CellTypes.Type.SOLID and not CellTypes.is_cutout_cell(ncell):
-					continue
+				# A face between two solid cells is hidden when the neighbor's
+				# facing side is opaque. RGB5551 alpha is 1-bit, so every visible
+				# face is fully opaque; only genuine alpha-0 holes stay see-through.
+				# This also culls the interior faces of opaque cutout cells, which
+				# otherwise bloat the mesh and z-fight at the ceiling clip plane.
+				if ncell[0] == CellTypes.Type.SOLID:
+					var opp_fv: int = ncell[dirs[i ^ 1][3]]
+					if CellTypes.decode_color(opp_fv).a >= CellTypes.ALPHA_THRESHOLD:
+						continue
 		var q: Array = quads[i]
 		var normal: Vector3 = d[4]
 		_add_quad(st, o + q[0], o + q[1], o + q[2], o + q[3], normal, color)
