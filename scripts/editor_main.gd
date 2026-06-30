@@ -1253,11 +1253,20 @@ func _update_raycast() -> void:
 				elif geo_dist == INF:
 					place_cell = fc
 
-	# Clamp to floor/ceiling editing bounds
+	# Discard geometry hit outside floor/ceiling bounds and fall back to floor plane
+	var geo_oob := false
 	if target_cell.y >= 0 and target_cell.y < floor_y:
-		target_cell = Vector3i(-1, -1, -1)
+		geo_oob = true
 	if ceiling_y >= 0 and target_cell.y >= 0 and target_cell.y > ceiling_y:
+		geo_oob = true
+	if geo_oob:
 		target_cell = Vector3i(-1, -1, -1)
+		place_cell = Vector3i(-1, -1, -1)
+		if floor_dist < INF:
+			var fc := _world_to_cell(_floor_hit_pos)
+			fc.y = floor_y
+			if _in_bounds(fc):
+				place_cell = fc
 	if place_cell.y >= 0 and place_cell.y < floor_y:
 		place_cell = Vector3i(-1, -1, -1)
 	if ceiling_y >= 0 and place_cell.y >= 0 and place_cell.y > ceiling_y:
