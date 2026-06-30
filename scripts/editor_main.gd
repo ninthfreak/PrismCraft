@@ -1428,7 +1428,8 @@ func _on_left_click() -> void:
 					_clear_region(box_start, target_cell)
 				_cancel_box()
 		ToolType.LINE, ToolType.RECT, ToolType.OVAL:
-			var floor_cell := Vector3i(place_cell.x, floor_y, place_cell.z)
+			var shape_ref := place_cell if _in_bounds(place_cell) else target_cell
+			var floor_cell := Vector3i(shape_ref.x, floor_y, shape_ref.z)
 			if not box_active:
 				if _in_bounds(floor_cell):
 					box_start = floor_cell
@@ -2106,7 +2107,7 @@ func _update_box_preview() -> void:
 
 	var end_cell: Vector3i
 	if current_tool in [ToolType.BOX, ToolType.LINE, ToolType.RECT, ToolType.OVAL]:
-		end_cell = place_cell
+		end_cell = place_cell if _in_bounds(place_cell) else target_cell
 	else:
 		end_cell = target_cell
 
