@@ -1001,7 +1001,7 @@ func _on_mode_pressed(btn: BaseButton) -> void:
 func _on_tool_pressed(btn: BaseButton) -> void:
 	# Rect/Oval buttons append a center-draw suffix (" (C)"/" (J)") to their
 	# text, so match on the base name to keep the tool selection working.
-	var tool_name := btn.text
+	var tool_name: String = btn.text
 	if tool_name.ends_with(" (C)") or tool_name.ends_with(" (J)"):
 		tool_name = tool_name.substr(0, tool_name.length() - 4)
 	match tool_name:
