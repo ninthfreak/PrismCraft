@@ -799,7 +799,13 @@ func _update_joint_marker() -> void:
 		center_joint_marker.visible = false
 		return
 
-	var cell := place_cell
+	# Match the shape-draw reference: fall back to the geometry cell so the
+	# marker still shows when hovering voxels below others (place_cell invalid).
+	var shape_ref := place_cell if _in_bounds(place_cell) else target_cell
+	if not _in_bounds(shape_ref):
+		center_joint_marker.visible = false
+		return
+	var cell := Vector3i(shape_ref.x, floor_y, shape_ref.z)
 	if not _in_bounds(cell):
 		center_joint_marker.visible = false
 		return
