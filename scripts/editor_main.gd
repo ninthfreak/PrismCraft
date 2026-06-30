@@ -1256,10 +1256,8 @@ func _update_raycast() -> void:
 	# Clamp to floor/ceiling editing bounds
 	if target_cell.y >= 0 and target_cell.y < floor_y:
 		target_cell = Vector3i(-1, -1, -1)
-		place_cell = Vector3i(-1, -1, -1)
 	if ceiling_y >= 0 and target_cell.y >= 0 and target_cell.y > ceiling_y:
 		target_cell = Vector3i(-1, -1, -1)
-		place_cell = Vector3i(-1, -1, -1)
 	if place_cell.y >= 0 and place_cell.y < floor_y:
 		place_cell = Vector3i(-1, -1, -1)
 	if ceiling_y >= 0 and place_cell.y >= 0 and place_cell.y > ceiling_y:
