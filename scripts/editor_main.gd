@@ -906,7 +906,7 @@ func _bucket_fill(start: Vector3i) -> void:
 			if cell[fi] == match_color:
 				cell[fi] = current_color
 		for d in [Vector3i(1,0,0), Vector3i(-1,0,0), Vector3i(0,1,0), Vector3i(0,-1,0), Vector3i(0,0,1), Vector3i(0,0,-1)]:
-			var np := pos + d
+			var np: Vector3i = pos + d
 			if not _in_bounds(np) or visited.has(np):
 				continue
 			var nc: Array = cells[np.x][np.y][np.z]
