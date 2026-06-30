@@ -67,7 +67,7 @@ var smooth_pixels_per_cell := 1.0
 var place_cell := Vector3i(-1, -1, -1)
 var target_cell := Vector3i(-1, -1, -1)
 var _hit_normal := Vector3i.ZERO
-var _debug_trace := true
+var _debug_trace := false
 
 const CHUNK_SIZE := 16
 var _chunk_container: Node3D
@@ -1055,8 +1055,14 @@ func _set_floor(y: int) -> void:
 	_rebuild_grid()
 
 func _set_ceiling(y: int) -> void:
+	var old_ceiling := ceiling_y
 	ceiling_y = clampi(y, -1, grid_y - 1)
 	ceiling_slider.set_value_no_signal(ceiling_y)
+	# The mesh bakes top faces for the ceiling layer, so the old and new
+	# ceiling layers must be rebuilt when the ceiling moves.
+	if old_ceiling != ceiling_y:
+		_mark_layer_chunks_dirty(old_ceiling)
+		_mark_layer_chunks_dirty(ceiling_y)
 	if ceiling_y < 0:
 		ceiling_value_label.text = "Off"
 	else:
@@ -3197,6 +3203,15 @@ func _rebuild_mesh() -> void:
 				_dirty_chunks[Vector3i(cx, cy, cz)] = true
 	_mesh_dirty = true
 
+func _mark_layer_chunks_dirty(layer_y: int) -> void:
+	if layer_y < 0 or layer_y >= grid_y:
+		return
+	var cy := layer_y / CHUNK_SIZE
+	for cx in range(ceili(float(grid_x) / CHUNK_SIZE)):
+		for cz in range(ceili(float(grid_z) / CHUNK_SIZE)):
+			_dirty_chunks[Vector3i(cx, cy, cz)] = true
+	_mesh_dirty = true
+
 func _mark_chunk_dirty_at(x: int, y: int, z: int) -> void:
 	var key := Vector3i(x / CHUNK_SIZE, y / CHUNK_SIZE, z / CHUNK_SIZE)
 	_dirty_chunks[key] = true
@@ -3230,7 +3245,7 @@ func _rebuild_chunk(key: Vector3i) -> void:
 	var x1 := mini(x0 + CHUNK_SIZE, grid_x)
 	var y1 := mini(y0 + CHUNK_SIZE, grid_y)
 	var z1 := mini(z0 + CHUNK_SIZE, grid_z)
-	var new_mesh := BlockMeshBuilder.build_chunk_mesh(cells, grid_x, grid_y, grid_z, x0, y0, z0, x1, y1, z1, CELL_SIZE)
+	var new_mesh := BlockMeshBuilder.build_chunk_mesh(cells, grid_x, grid_y, grid_z, x0, y0, z0, x1, y1, z1, CELL_SIZE, ceiling_y)
 	var mi: MeshInstance3D
 	if _chunk_meshes.has(key):
 		mi = _chunk_meshes[key]
