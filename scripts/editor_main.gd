@@ -1,7 +1,7 @@
 extends Node3D
 
 enum EditMode { BLOCK, CHARACTER }
-enum ToolType { PENCIL, BOX, ERASER, BOX_ERASE, EXTRUDE, LINE, RECT, OVAL, SMOOTH_EDGE, PAINT }
+enum ToolType { PENCIL, BOX, ERASER, BOX_ERASE, EXTRUDE, LINE, RECT, OVAL, SMOOTH_EDGE, PAINT, BUCKET, EYEDROP }
 
 const BLOCK_RES := 32
 const CHAR_RES := 64
@@ -94,6 +94,7 @@ var mode_group: ButtonGroup
 var tool_group: ButtonGroup
 var type_group: ButtonGroup
 var color_group: ButtonGroup
+var _color_picker_btn: ColorPickerButton
 
 var menu_bar: MenuBar
 var file_menu: PopupMenu
@@ -320,8 +321,9 @@ func _setup_ui() -> void:
 	# Tool
 	_add_section_label(vbox, "Tool")
 	tool_group = ButtonGroup.new()
-	var tool_row1 := _add_button_row(vbox, ["Pencil", "Paint", "Box Fill"], tool_group)
-	var tool_row2 := _add_button_row(vbox, ["Eraser", "Box Erase"], tool_group)
+	var tool_row1 := _add_button_row(vbox, ["Pencil", "Paint", "Bucket"], tool_group)
+	var tool_row2 := _add_button_row(vbox, ["Eraser", "Box Erase", "Eyedrop"], tool_group)
+	var _tool_row_fill := _add_button_row(vbox, ["Box Fill"], tool_group)
 	var _tool_row3 := _add_button_row(vbox, ["Extrude", "Smooth"], tool_group)
 	var tool_row4 := _add_button_row(vbox, ["Line", "Rect", "Oval"], tool_group)
 	_rect_btn = tool_row4[1]
@@ -363,12 +365,12 @@ func _setup_ui() -> void:
 
 	# Color
 	_add_section_label(vbox, "Color")
-	var color_picker_btn := ColorPickerButton.new()
-	color_picker_btn.custom_minimum_size = Vector2(0, 28)
-	color_picker_btn.color = CellTypes.decode_color(current_color)
-	color_picker_btn.edit_alpha = false
-	color_picker_btn.color_changed.connect(_on_color_picker_changed)
-	vbox.add_child(color_picker_btn)
+	_color_picker_btn = ColorPickerButton.new()
+	_color_picker_btn.custom_minimum_size = Vector2(0, 28)
+	_color_picker_btn.color = CellTypes.decode_color(current_color)
+	_color_picker_btn.edit_alpha = false
+	_color_picker_btn.color_changed.connect(_on_color_picker_changed)
+	vbox.add_child(_color_picker_btn)
 
 	color_group = ButtonGroup.new()
 	var fav_grid := GridContainer.new()
@@ -888,6 +890,49 @@ func _erase_with_mirror(pos: Vector3i) -> void:
 		if _in_bounds(mxz):
 			cells[mxz.x][mxz.y][mxz.z] = CellTypes.empty_cell()
 
+func _bucket_fill(start: Vector3i) -> void:
+	var start_cell: Array = cells[start.x][start.y][start.z]
+	var match_color: int = start_cell[2]
+	if match_color == current_color:
+		return
+	_push_undo()
+	var queue: Array[Vector3i] = [start]
+	var visited := {}
+	visited[start] = true
+	while not queue.is_empty():
+		var pos: Vector3i = queue.pop_front()
+		var cell: Array = cells[pos.x][pos.y][pos.z]
+		for fi in range(2, 8):
+			if cell[fi] == match_color:
+				cell[fi] = current_color
+		for d in [Vector3i(1,0,0), Vector3i(-1,0,0), Vector3i(0,1,0), Vector3i(0,-1,0), Vector3i(0,0,1), Vector3i(0,0,-1)]:
+			var np := pos + d
+			if not _in_bounds(np) or visited.has(np):
+				continue
+			var nc: Array = cells[np.x][np.y][np.z]
+			if nc[0] == CellTypes.Type.EMPTY:
+				continue
+			if nc[2] == match_color:
+				visited[np] = true
+				queue.append(np)
+	_mark_dirty()
+	_rebuild_mesh()
+
+func _eyedrop_color(target: Vector3i, place: Vector3i) -> void:
+	var cell: Array = cells[target.x][target.y][target.z]
+	var picked_color: int
+	if cell[0] == CellTypes.Type.PRISM:
+		picked_color = cell[2]
+	else:
+		var face_normal := place - target
+		if face_normal == Vector3i.ZERO:
+			picked_color = cell[2]
+		else:
+			var fi := CellTypes.face_index_from_normal(face_normal)
+			picked_color = cell[fi]
+	current_color = picked_color
+	_color_picker_btn.color = CellTypes.decode_color(picked_color)
+
 func _draw_mirror_cursors(cursor_pos: Vector3i) -> void:
 	if not _mirror_x and not _mirror_z:
 		mirror_cursor_instance.visible = false
@@ -956,9 +1001,11 @@ func _on_tool_pressed(btn: BaseButton) -> void:
 	match btn.text:
 		"Pencil": current_tool = ToolType.PENCIL
 		"Paint": current_tool = ToolType.PAINT
+		"Bucket": current_tool = ToolType.BUCKET
 		"Box Fill": current_tool = ToolType.BOX
 		"Eraser": current_tool = ToolType.ERASER
 		"Box Erase": current_tool = ToolType.BOX_ERASE
+		"Eyedrop": current_tool = ToolType.EYEDROP
 		"Extrude": current_tool = ToolType.EXTRUDE
 		"Line": current_tool = ToolType.LINE
 		"Rect": current_tool = ToolType.RECT
@@ -1355,6 +1402,12 @@ func _on_left_click() -> void:
 						cells[mxz.x][mxz.y][mxz.z][fi] = current_color
 				_mark_dirty()
 				_mark_mirror_chunks_dirty(target_cell)
+		ToolType.BUCKET:
+			if _in_bounds(target_cell) and cells[target_cell.x][target_cell.y][target_cell.z][0] != CellTypes.Type.EMPTY:
+				_bucket_fill(target_cell)
+		ToolType.EYEDROP:
+			if _in_bounds(target_cell) and cells[target_cell.x][target_cell.y][target_cell.z][0] != CellTypes.Type.EMPTY:
+				_eyedrop_color(target_cell, place_cell)
 		ToolType.BOX_ERASE:
 			if not box_active:
 				if _in_bounds(target_cell):
