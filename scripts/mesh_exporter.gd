@@ -1,15 +1,18 @@
 class_name MeshExporter
 
+# Greedy-mesh the whole model into a flat list of faces: [color_id, normal, quad_verts].
+static func _collect_faces(cells: Array, gx: int, gy: int, gz: int, s: float, ox: float, oz: float) -> Array:
+	var faces: Array = []
+	for dir in range(6):
+		_greedy_mesh_dir(cells, gx, gy, gz, s, ox, oz, dir, faces)
+	_emit_prisms(cells, gx, gy, gz, s, ox, oz, faces)
+	return faces
+
 static func export_obj(path: String, cells: Array, gx: int, gy: int, gz: int, cell_size: float) -> int:
 	var s := cell_size
 	var ox := gx * s / 2.0
 	var oz := gz * s / 2.0
-	var faces: Array = []
-
-	for dir in range(6):
-		_greedy_mesh_dir(cells, gx, gy, gz, s, ox, oz, dir, faces)
-
-	_emit_prisms(cells, gx, gy, gz, s, ox, oz, faces)
+	var faces := _collect_faces(cells, gx, gy, gz, s, ox, oz)
 
 	if faces.is_empty():
 		return 0
@@ -91,6 +94,134 @@ static func export_obj(path: String, cells: Array, gx: int, gy: int, gz: int, ce
 
 	return face_count
 
+# Binary glTF (.glb): one mesh, indexed, welded, baked vertex colors, single
+# material — designed for one draw call at runtime. Returns triangle count.
+static func export_glb(path: String, cells: Array, gx: int, gy: int, gz: int, cell_size: float) -> int:
+	var s := cell_size
+	var ox := gx * s / 2.0
+	var oz := gz * s / 2.0
+	var faces := _collect_faces(cells, gx, gy, gz, s, ox, oz)
+	if faces.is_empty():
+		return 0
+
+	var vmap := {}
+	var positions := PackedFloat32Array()
+	var normals := PackedFloat32Array()
+	var colors := PackedByteArray()
+	var indices := PackedInt32Array()
+	var minp := Vector3(INF, INF, INF)
+	var maxp := Vector3(-INF, -INF, -INF)
+	var tri_count := 0
+
+	for face in faces:
+		var color_id: int = face[0]
+		var n: Vector3 = face[1]
+		var quad: Array = face[2]
+		var col := CellTypes.decode_color(color_id)
+		var cr := clampi(int(round(col.r * 255.0)), 0, 255)
+		var cg := clampi(int(round(col.g * 255.0)), 0, 255)
+		var cb := clampi(int(round(col.b * 255.0)), 0, 255)
+		var ca := clampi(int(round(col.a * 255.0)), 0, 255)
+
+		# order verts so the front face (CCW) agrees with the normal
+		var cross: Vector3 = (quad[1] - quad[0]).cross(quad[2] - quad[0])
+		var ordered: Array = quad if cross.dot(n) > 0 else _reversed(quad)
+
+		var idx: Array = []
+		for vp in ordered:
+			# weld by position + normal + color to preserve flat shading
+			var key := "%d_%d_%d_%d_%d_%d_%d" % [
+				int(round(vp.x * 1024.0)), int(round(vp.y * 1024.0)), int(round(vp.z * 1024.0)),
+				int(round(n.x)), int(round(n.y)), int(round(n.z)), color_id]
+			var vi: int
+			if vmap.has(key):
+				vi = vmap[key]
+			else:
+				vi = positions.size() / 3
+				vmap[key] = vi
+				positions.push_back(vp.x); positions.push_back(vp.y); positions.push_back(vp.z)
+				normals.push_back(n.x); normals.push_back(n.y); normals.push_back(n.z)
+				colors.push_back(cr); colors.push_back(cg); colors.push_back(cb); colors.push_back(ca)
+				minp.x = minf(minp.x, vp.x); minp.y = minf(minp.y, vp.y); minp.z = minf(minp.z, vp.z)
+				maxp.x = maxf(maxp.x, vp.x); maxp.y = maxf(maxp.y, vp.y); maxp.z = maxf(maxp.z, vp.z)
+			idx.append(vi)
+		for t in range(1, idx.size() - 1):
+			indices.push_back(idx[0]); indices.push_back(idx[t]); indices.push_back(idx[t + 1])
+			tri_count += 1
+
+	var nverts := positions.size() / 3
+	var pos_bytes := positions.to_byte_array()
+	var norm_bytes := normals.to_byte_array()
+	var idx_bytes := indices.to_byte_array()
+
+	var bin := PackedByteArray()
+	var pos_off := bin.size(); bin.append_array(pos_bytes)
+	var norm_off := bin.size(); bin.append_array(norm_bytes)
+	var col_off := bin.size(); bin.append_array(colors)
+	var idx_off := bin.size(); bin.append_array(idx_bytes)
+	while bin.size() % 4 != 0:
+		bin.push_back(0)
+
+	var gltf := {
+		"asset": {"version": "2.0", "generator": "PrismCraft"},
+		"scene": 0,
+		"scenes": [{"nodes": [0]}],
+		"nodes": [{"mesh": 0}],
+		"meshes": [{"primitives": [{
+			"attributes": {"POSITION": 0, "NORMAL": 1, "COLOR_0": 2},
+			"indices": 3, "material": 0, "mode": 4}]}],
+		"materials": [{
+			"name": "voxel",
+			"pbrMetallicRoughness": {"baseColorFactor": [1, 1, 1, 1], "metallicFactor": 0.0, "roughnessFactor": 1.0},
+			"doubleSided": false}],
+		"buffers": [{"byteLength": bin.size()}],
+		"bufferViews": [
+			{"buffer": 0, "byteOffset": pos_off, "byteLength": pos_bytes.size(), "target": 34962},
+			{"buffer": 0, "byteOffset": norm_off, "byteLength": norm_bytes.size(), "target": 34962},
+			{"buffer": 0, "byteOffset": col_off, "byteLength": colors.size(), "target": 34962},
+			{"buffer": 0, "byteOffset": idx_off, "byteLength": idx_bytes.size(), "target": 34963}],
+		"accessors": [
+			{"bufferView": 0, "componentType": 5126, "count": nverts, "type": "VEC3",
+				"min": [minp.x, minp.y, minp.z], "max": [maxp.x, maxp.y, maxp.z]},
+			{"bufferView": 1, "componentType": 5126, "count": nverts, "type": "VEC3"},
+			{"bufferView": 2, "componentType": 5121, "normalized": true, "count": nverts, "type": "VEC4"},
+			{"bufferView": 3, "componentType": 5125, "count": indices.size(), "type": "SCALAR"}]
+	}
+
+	var json_bytes := JSON.stringify(gltf).to_utf8_buffer()
+	while json_bytes.size() % 4 != 0:
+		json_bytes.push_back(0x20)
+
+	var total := 12 + 8 + json_bytes.size() + 8 + bin.size()
+	var out := PackedByteArray()
+	out.append_array(_u32(0x46546C67))   # "glTF"
+	out.append_array(_u32(2))
+	out.append_array(_u32(total))
+	out.append_array(_u32(json_bytes.size()))
+	out.append_array(_u32(0x4E4F534A))   # "JSON"
+	out.append_array(json_bytes)
+	out.append_array(_u32(bin.size()))
+	out.append_array(_u32(0x004E4942))   # "BIN\0"
+	out.append_array(bin)
+
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	if not file:
+		return 0
+	file.store_buffer(out)
+	file.close()
+	return tri_count
+
+static func _reversed(arr: Array) -> Array:
+	var r := arr.duplicate()
+	r.reverse()
+	return r
+
+static func _u32(v: int) -> PackedByteArray:
+	var b := PackedByteArray()
+	b.resize(4)
+	b.encode_u32(0, v)
+	return b
+
 static func _greedy_mesh_dir(cells: Array, gx: int, gy: int, gz: int, s: float, ox: float, oz: float, dir: int, faces: Array) -> void:
 	var slice_count: int
 	var u_size: int
@@ -141,12 +272,19 @@ static func _greedy_mesh_dir(cells: Array, gx: int, gy: int, gz: int, s: float, 
 					grid[u][v] = face_color
 				else:
 					var ncell: Array = cells[nx][ny][nz]
-					if ncell[0] == CellTypes.Type.EMPTY or ncell[0] == CellTypes.Type.PRISM or CellTypes.is_cutout_cell(ncell):
+					if ncell[0] != CellTypes.Type.SOLID:
+						# empty or prism neighbor never fully occludes this face
 						grid[u][v] = face_color
-					elif not CellTypes.is_cutout_cell(src_cell):
-						grid[u][v] = -1
 					else:
-						grid[u][v] = face_color
+						# A face between two solid cells is hidden when the neighbor's
+						# facing side is opaque (RGB5551 alpha is 1-bit). Only a genuine
+						# alpha-0 hole leaves it visible. Matches block_mesh_builder and
+						# avoids exporting the model's hidden interior geometry.
+						var opp: int = ncell[(dir ^ 1) + 2]
+						if CellTypes.is_rgb5551(opp) and CellTypes.decode_color(opp).a < CellTypes.ALPHA_THRESHOLD:
+							grid[u][v] = face_color
+						else:
+							grid[u][v] = -1
 
 		var visited: Array = []
 		visited.resize(u_size)

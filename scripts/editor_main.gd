@@ -277,7 +277,7 @@ func _setup_ui() -> void:
 	file_menu.add_item("Import Block Texture...", 5)
 	file_menu.add_item("Import Character Sprites...", 4)
 	file_menu.add_separator()
-	file_menu.add_item("Export OBJ...", 6)
+	file_menu.add_item("Export Model (.glb / .obj)...", 6)
 	file_menu.id_pressed.connect(_on_file_menu)
 
 	menu_bar.add_child(file_menu)
@@ -628,8 +628,9 @@ func _setup_ui() -> void:
 	export_dialog = FileDialog.new()
 	export_dialog.file_mode = FileDialog.FILE_MODE_SAVE_FILE
 	export_dialog.access = FileDialog.ACCESS_FILESYSTEM
+	export_dialog.add_filter("*.glb ; glTF Binary (recommended)")
 	export_dialog.add_filter("*.obj ; Wavefront OBJ")
-	export_dialog.title = "Export OBJ"
+	export_dialog.title = "Export Model"
 	export_dialog.size = Vector2i(700, 500)
 	export_dialog.file_selected.connect(_on_export_obj_selected)
 	add_child(export_dialog)
@@ -3039,11 +3040,14 @@ func _export_obj() -> void:
 	export_dialog.popup_centered()
 
 func _on_export_obj_selected(path: String) -> void:
-	var face_count := MeshExporter.export_obj(path, cells, grid_x, grid_y, grid_z, CELL_SIZE)
-	if face_count > 0:
-		dims_label.text = "Exported %d faces" % face_count
+	if path.get_extension().to_lower() == "obj":
+		var face_count := MeshExporter.export_obj(path, cells, grid_x, grid_y, grid_z, CELL_SIZE)
+		dims_label.text = "Exported %d faces (OBJ)" % face_count if face_count > 0 else "Export failed"
 	else:
-		dims_label.text = "Export failed"
+		if path.get_extension() == "":
+			path += ".glb"
+		var tris := MeshExporter.export_glb(path, cells, grid_x, grid_y, grid_z, CELL_SIZE)
+		dims_label.text = "Exported %d triangles (glb)" % tris if tris > 0 else "Export failed"
 
 func _import_character_sprites() -> void:
 	if _unsaved_changes:
