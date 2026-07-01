@@ -19,8 +19,11 @@ var current_type: int = CellTypes.Type.SOLID
 var current_orientation: int = 0
 var current_color: int = CellTypes.encode_rgb565(CellTypes.FAVORITES[0])
 var current_file_path := ""
-var floor_y: int = 0
-var ceiling_y: int = -1
+var floor_y: int = 0      # clamp lower bound, measured along edit_axis
+var ceiling_y: int = -1   # clamp upper bound along edit_axis (-1 = off)
+var edit_axis: int = 1    # 0 = X, 1 = Y, 2 = Z. The floor/ceiling clamp and
+                          # the flat shape tools (line/rect/oval) operate on
+                          # the plane perpendicular to this axis.
 var _ceiling_locked := false
 var _unsaved_changes := false
 var _mesh_dirty := false
@@ -405,6 +408,22 @@ func _setup_ui() -> void:
 
 	vbox.add_child(HSeparator.new())
 
+	# Clamp / draw axis (which axis the floor/ceiling clamp + shape tools use)
+	_add_section_label(vbox, "Clamp / Draw Axis")
+	var axis_row := HBoxContainer.new()
+	vbox.add_child(axis_row)
+	var axis_group := ButtonGroup.new()
+	for i in range(3):
+		var ab := Button.new()
+		ab.text = ["X", "Y", "Z"][i]
+		ab.toggle_mode = true
+		ab.button_group = axis_group
+		ab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		ab.button_pressed = (i == edit_axis)
+		var idx := i
+		ab.pressed.connect(func(): _set_edit_axis(idx))
+		axis_row.add_child(ab)
+
 	# Floor
 	_add_section_label(vbox, "Floor Layer")
 	var floor_row := HBoxContainer.new()
@@ -762,44 +781,48 @@ func _compute_center_draw(center: Vector3i, end_cell: Vector3i, constrain: bool)
 	if _center_draw == 0 or not current_tool in [ToolType.RECT, ToolType.OVAL]:
 		return [center, end_cell, constrain]
 
+	var cuv := _cell_uv(center)
+	var euv := _cell_uv(end_cell)
 	if _center_draw == 1:
-		var dx := absi(end_cell.x - center.x)
-		var dz := absi(end_cell.z - center.z)
+		var dx := absi(euv.x - cuv.x)
+		var dz := absi(euv.y - cuv.y)
 		if constrain:
 			var r := maxi(dx, dz)
 			dx = r
 			dz = r
-		var start := Vector3i(center.x - dx, floor_y, center.z - dz)
-		var end := Vector3i(center.x + dx, floor_y, center.z + dz)
+		var start := _make_cell(cuv.x - dx, cuv.y - dz, floor_y)
+		var end := _make_cell(cuv.x + dx, cuv.y + dz, floor_y)
 		return [start, end, false]
 
-	# Joint center mode (_center_draw == 2)
+	# Joint center mode (_center_draw == 2) — _joint_center holds (u, v)
 	var jx := _joint_center.x
 	var jz := _joint_center.y
 	var dx: int
 	var dz: int
-	if end_cell.x >= jx:
-		dx = end_cell.x - jx + 1
+	if euv.x >= jx:
+		dx = euv.x - jx + 1
 	else:
-		dx = jx - end_cell.x
-	if end_cell.z >= jz:
-		dz = end_cell.z - jz + 1
+		dx = jx - euv.x
+	if euv.y >= jz:
+		dz = euv.y - jz + 1
 	else:
-		dz = jz - end_cell.z
+		dz = jz - euv.y
 	if constrain:
 		var r := maxi(dx, dz)
 		dx = r
 		dz = r
-	var start := Vector3i(jx - dx, floor_y, jz - dz)
-	var end := Vector3i(jx + dx - 1, floor_y, jz + dz - 1)
+	var start := _make_cell(jx - dx, jz - dz, floor_y)
+	var end := _make_cell(jx + dx - 1, jz + dz - 1, floor_y)
 	return [start, end, false]
 
 func _compute_joint_center(cell: Vector3i) -> Vector2i:
-	var local_x := _floor_hit_pos.x / CELL_SIZE - cell.x
-	var local_z := _floor_hit_pos.z / CELL_SIZE - cell.z
-	var jx := cell.x if local_x < 0.5 else cell.x + 1
-	var jz := cell.z if local_z < 0.5 else cell.z + 1
-	return Vector2i(jx, jz)
+	var huv := _world_uv(_floor_hit_pos)
+	var cuv := _cell_uv(cell)
+	var local_u := huv.x - cuv.x
+	var local_v := huv.y - cuv.y
+	var ju := cuv.x if local_u < 0.5 else cuv.x + 1
+	var jv := cuv.y if local_v < 0.5 else cuv.y + 1
+	return Vector2i(ju, jv)
 
 func _update_joint_marker() -> void:
 	if _center_draw != 2 or not current_tool in [ToolType.RECT, ToolType.OVAL]:
@@ -818,25 +841,25 @@ func _update_joint_marker() -> void:
 	if not _in_bounds(shape_ref):
 		center_joint_marker.visible = false
 		return
-	var cell := Vector3i(shape_ref.x, floor_y, shape_ref.z)
+	var cell := _cell_on_floor(shape_ref)
 	if not _in_bounds(cell):
 		center_joint_marker.visible = false
 		return
 
 	_joint_center = _compute_joint_center(cell)
-	var jx_world := _joint_center.x * CELL_SIZE
-	var jz_world := _joint_center.y * CELL_SIZE
-	var jy_world := float(floor_y) * CELL_SIZE
+	var ju: float = _joint_center.x
+	var jv: float = _joint_center.y
+	var dep := floor_y + 0.002
+	var arm := 0.4
 
 	var im := ImmediateMesh.new()
-	var arm := CELL_SIZE * 0.4
 	im.surface_begin(Mesh.PRIMITIVE_LINES)
-	im.surface_add_vertex(Vector3(jx_world - arm, jy_world + 0.001, jz_world))
-	im.surface_add_vertex(Vector3(jx_world + arm, jy_world + 0.001, jz_world))
-	im.surface_add_vertex(Vector3(jx_world, jy_world + 0.001, jz_world - arm))
-	im.surface_add_vertex(Vector3(jx_world, jy_world + 0.001, jz_world + arm))
-	im.surface_add_vertex(Vector3(jx_world, jy_world - arm, jz_world))
-	im.surface_add_vertex(Vector3(jx_world, jy_world + arm, jz_world))
+	im.surface_add_vertex(_uv_world_pos(ju - arm, jv, dep))
+	im.surface_add_vertex(_uv_world_pos(ju + arm, jv, dep))
+	im.surface_add_vertex(_uv_world_pos(ju, jv - arm, dep))
+	im.surface_add_vertex(_uv_world_pos(ju, jv + arm, dep))
+	im.surface_add_vertex(_uv_world_pos(ju, jv, floor_y - arm))
+	im.surface_add_vertex(_uv_world_pos(ju, jv, floor_y + arm))
 	im.surface_end()
 	center_joint_marker.mesh = im
 	center_joint_marker.visible = not box_active
@@ -1068,14 +1091,14 @@ func _cycle_orientation(delta: int) -> void:
 	_update_raycast()
 
 func _set_floor(y: int) -> void:
-	floor_y = clampi(y, 0, grid_y - 1)
+	floor_y = clampi(y, 0, _axis_size(edit_axis) - 1)
 	floor_slider.set_value_no_signal(floor_y)
-	floor_value_label.text = "Y = %d" % floor_y
+	floor_value_label.text = "%s = %d" % [_axis_letter(), floor_y]
 	if _ceiling_locked:
 		var old_ceiling := ceiling_y
 		ceiling_y = floor_y
 		ceiling_slider.set_value_no_signal(ceiling_y)
-		ceiling_value_label.text = "Y = %d" % ceiling_y
+		ceiling_value_label.text = "%s = %d" % [_axis_letter(), ceiling_y]
 		# The mesh bakes top faces for the ceiling layer, so moving the locked
 		# ceiling must rebuild the old and new ceiling layers (otherwise the
 		# revealed voxels render as hollow "phantoms").
@@ -1087,9 +1110,9 @@ func _set_floor(y: int) -> void:
 
 func _set_ceiling(y: int) -> void:
 	var old_ceiling := ceiling_y
-	ceiling_y = clampi(y, -1, grid_y - 1)
+	ceiling_y = clampi(y, -1, _axis_size(edit_axis) - 1)
 	ceiling_slider.set_value_no_signal(ceiling_y)
-	# The mesh bakes top faces for the ceiling layer, so the old and new
+	# The mesh bakes cap faces for the ceiling layer, so the old and new
 	# ceiling layers must be rebuilt when the ceiling moves.
 	if old_ceiling != ceiling_y:
 		_mark_layer_chunks_dirty(old_ceiling)
@@ -1097,11 +1120,11 @@ func _set_ceiling(y: int) -> void:
 	if ceiling_y < 0:
 		ceiling_value_label.text = "Off"
 	else:
-		ceiling_value_label.text = "Y = %d" % ceiling_y
+		ceiling_value_label.text = "%s = %d" % [_axis_letter(), ceiling_y]
 	if _ceiling_locked and ceiling_y >= 0:
 		floor_y = ceiling_y
 		floor_slider.set_value_no_signal(floor_y)
-		floor_value_label.text = "Y = %d" % floor_y
+		floor_value_label.text = "%s = %d" % [_axis_letter(), floor_y]
 	_update_ceiling_uniforms()
 	_rebuild_grid()
 
@@ -1111,6 +1134,25 @@ func _set_ceiling_lock(on: bool) -> void:
 		_set_ceiling(floor_y)
 	elif on and ceiling_y != floor_y:
 		_set_floor(ceiling_y)
+
+func _set_edit_axis(axis: int) -> void:
+	if axis == edit_axis:
+		return
+	edit_axis = axis
+	var amax := _axis_size(edit_axis) - 1
+	floor_slider.max_value = amax
+	ceiling_slider.max_value = amax
+	floor_y = clampi(floor_y, 0, amax)
+	ceiling_y = clampi(ceiling_y, -1, amax)
+	floor_slider.set_value_no_signal(floor_y)
+	ceiling_slider.set_value_no_signal(ceiling_y)
+	floor_value_label.text = "%s = %d" % [_axis_letter(), floor_y]
+	ceiling_value_label.text = "Off" if ceiling_y < 0 else "%s = %d" % [_axis_letter(), ceiling_y]
+	# The baked cap and clip depend on the axis, so rebuild the whole mesh.
+	_rebuild_mesh()
+	_update_ceiling_uniforms()
+	_rebuild_grid()
+	_update_raycast()
 
 func _set_edit_mode(mode: int) -> void:
 	if mode == edit_mode:
@@ -1137,11 +1179,11 @@ func _do_set_edit_mode(mode: int) -> void:
 	cursor_mesh_instance.visible = false
 	_cancel_box()
 	floor_y = 0
-	floor_slider.max_value = grid_y - 1
+	floor_slider.max_value = _axis_size(edit_axis) - 1
 	floor_slider.set_value_no_signal(0)
-	floor_value_label.text = "Y = 0"
+	floor_value_label.text = "%s = 0" % _axis_letter()
 	ceiling_y = -1
-	ceiling_slider.max_value = grid_y - 1
+	ceiling_slider.max_value = _axis_size(edit_axis) - 1
 	ceiling_slider.set_value_no_signal(-1)
 	ceiling_value_label.text = "Off"
 	_ceiling_locked = false
@@ -1283,16 +1325,16 @@ func _update_raycast() -> void:
 		if _in_bounds(adj) and cells[adj.x][adj.y][adj.z][0] == CellTypes.Type.EMPTY:
 			place_cell = adj
 
-	# Floor plane raycast
-	var floor_world_y := floor_y * CELL_SIZE
-	if abs(dir.y) > 0.0001:
-		var t := (floor_world_y - from.y) / dir.y
+	# Floor plane raycast (plane perpendicular to edit_axis at floor_y)
+	var floor_world := floor_y * CELL_SIZE
+	var dir_axis: float = dir[edit_axis]
+	if abs(dir_axis) > 0.0001:
+		var t: float = (floor_world - from[edit_axis]) / dir_axis
 		if t > 0:
 			floor_dist = t * dir.length()
 			var hit := from + dir * t
 			_floor_hit_pos = hit
-			var fc := _world_to_cell(hit)
-			fc.y = floor_y
+			var fc := _cell_on_floor(_world_to_cell(hit))
 			if _in_bounds(fc):
 				if floor_dist < geo_dist and cells[fc.x][fc.y][fc.z][0] == CellTypes.Type.EMPTY:
 					place_cell = fc
@@ -1301,25 +1343,25 @@ func _update_raycast() -> void:
 
 	# Discard geometry hit outside floor/ceiling bounds and fall back to floor plane
 	var geo_oob := false
-	if target_cell.y >= 0 and target_cell.y < floor_y:
-		geo_oob = true
-	if ceiling_y >= 0 and target_cell.y >= 0 and target_cell.y > ceiling_y:
-		geo_oob = true
+	if _in_bounds(target_cell):
+		var td := _cell_depth(target_cell)
+		if td < floor_y:
+			geo_oob = true
+		if ceiling_y >= 0 and td > ceiling_y:
+			geo_oob = true
 	if geo_oob:
 		target_cell = Vector3i(-1, -1, -1)
 		place_cell = Vector3i(-1, -1, -1)
 		if floor_dist < INF:
-			var fc := _world_to_cell(_floor_hit_pos)
-			fc.y = floor_y
+			var fc := _cell_on_floor(_world_to_cell(_floor_hit_pos))
 			if _in_bounds(fc):
 				place_cell = fc
-	if place_cell.y >= 0 and place_cell.y < floor_y:
-		place_cell = Vector3i(-1, -1, -1)
-	if ceiling_y >= 0 and place_cell.y >= 0 and place_cell.y > ceiling_y:
-		place_cell = Vector3i(-1, -1, -1)
+	if _in_bounds(place_cell):
+		var pd := _cell_depth(place_cell)
+		if pd < floor_y or (ceiling_y >= 0 and pd > ceiling_y):
+			place_cell = Vector3i(-1, -1, -1)
 	if not _in_bounds(place_cell) and floor_dist < INF:
-		var fc2 := _world_to_cell(_floor_hit_pos)
-		fc2.y = floor_y
+		var fc2 := _cell_on_floor(_world_to_cell(_floor_hit_pos))
 		if _in_bounds(fc2) and cells[fc2.x][fc2.y][fc2.z][0] == CellTypes.Type.EMPTY:
 			place_cell = fc2
 
@@ -1353,6 +1395,58 @@ func _world_to_cell(world_pos: Vector3) -> Vector3i:
 func _in_bounds(pos: Vector3i) -> bool:
 	return pos.x >= 0 and pos.x < grid_x and pos.y >= 0 and pos.y < grid_y and pos.z >= 0 and pos.z < grid_z
 
+# ─── Edit-axis helpers ───
+# The clamp and flat shape tools operate on the plane perpendicular to edit_axis.
+# "depth" = coordinate along edit_axis; "uv" = the two in-plane coordinates.
+func _axis_size(a: int) -> int:
+	match a:
+		0: return grid_x
+		1: return grid_y
+		_: return grid_z
+
+func _axis_letter() -> String:
+	match edit_axis:
+		0: return "X"
+		1: return "Y"
+		_: return "Z"
+
+func _cell_depth(cell: Vector3i) -> int:
+	match edit_axis:
+		0: return cell.x
+		1: return cell.y
+		_: return cell.z
+
+func _cell_uv(cell: Vector3i) -> Vector2i:
+	match edit_axis:
+		0: return Vector2i(cell.y, cell.z)
+		1: return Vector2i(cell.x, cell.z)
+		_: return Vector2i(cell.x, cell.y)
+
+func _make_cell(u: int, v: int, depth: int) -> Vector3i:
+	match edit_axis:
+		0: return Vector3i(depth, u, v)
+		1: return Vector3i(u, depth, v)
+		_: return Vector3i(u, v, depth)
+
+# world position -> in-plane (u,v) in cell units (float)
+func _world_uv(pos: Vector3) -> Vector2:
+	match edit_axis:
+		0: return Vector2(pos.y, pos.z) / CELL_SIZE
+		1: return Vector2(pos.x, pos.z) / CELL_SIZE
+		_: return Vector2(pos.x, pos.y) / CELL_SIZE
+
+# a cell built from another cell's uv but forced onto the floor depth-layer
+func _cell_on_floor(ref: Vector3i) -> Vector3i:
+	var uv := _cell_uv(ref)
+	return _make_cell(uv.x, uv.y, floor_y)
+
+# in-plane (u,v) + depth, in cell units, mapped to a world position
+func _uv_world_pos(u: float, v: float, depth: float) -> Vector3:
+	match edit_axis:
+		0: return Vector3(depth, u, v) * CELL_SIZE
+		1: return Vector3(u, depth, v) * CELL_SIZE
+		_: return Vector3(u, v, depth) * CELL_SIZE
+
 func _grid_raycast(from: Vector3, dir: Vector3) -> Dictionary:
 	var s := CELL_SIZE
 	var grid_end := Vector3(grid_x * s, grid_y * s, grid_z * s)
@@ -1380,8 +1474,8 @@ func _grid_raycast(from: Vector3, dir: Vector3) -> Dictionary:
 	cy = clampi(cy, 0, grid_y - 1)
 	cz = clampi(cz, 0, grid_z - 1)
 
-	var y_min := floor_y
-	var y_max := ceiling_y if ceiling_y >= 0 else grid_y - 1
+	var d_min := floor_y
+	var d_max := ceiling_y if ceiling_y >= 0 else _axis_size(edit_axis) - 1
 
 	var step_x := 1 if dir.x >= 0 else -1
 	var step_y := 1 if dir.y >= 0 else -1
@@ -1398,19 +1492,28 @@ func _grid_raycast(from: Vector3, dir: Vector3) -> Dictionary:
 	var normal := Vector3i.ZERO
 	var max_steps := grid_x + grid_y + grid_z
 	for _i in range(max_steps):
-		if cy < y_min or cy > y_max:
-			if (step_y > 0 and cy > y_max) or (step_y < 0 and cy < y_min):
+		var cd: int
+		var step_d: int
+		match edit_axis:
+			0: cd = cx; step_d = step_x
+			1: cd = cy; step_d = step_y
+			_: cd = cz; step_d = step_z
+		if cd < d_min or cd > d_max:
+			if (step_d > 0 and cd > d_max) or (step_d < 0 and cd < d_min):
 				break
-			if t_max_y < t_max_x and t_max_y < t_max_z:
-				cy += step_y; t_max_y += t_delta_y; normal = Vector3i(0, -step_y, 0)
-				continue
-			elif t_max_x < t_max_z:
-				cx += step_x; t_max_x += t_delta_x; normal = Vector3i(-step_x, 0, 0)
-				continue
+			# advance one DDA step following the ray back toward the band
+			if t_max_x < t_max_y:
+				if t_max_x < t_max_z:
+					cx += step_x; t_max_x += t_delta_x; normal = Vector3i(-step_x, 0, 0)
+				else:
+					cz += step_z; t_max_z += t_delta_z; normal = Vector3i(0, 0, -step_z)
 			else:
-				cz += step_z; t_max_z += t_delta_z; normal = Vector3i(0, 0, -step_z)
-				continue
-		if cx >= 0 and cx < grid_x and cz >= 0 and cz < grid_z:
+				if t_max_y < t_max_z:
+					cy += step_y; t_max_y += t_delta_y; normal = Vector3i(0, -step_y, 0)
+				else:
+					cz += step_z; t_max_z += t_delta_z; normal = Vector3i(0, 0, -step_z)
+			continue
+		if cx >= 0 and cx < grid_x and cy >= 0 and cy < grid_y and cz >= 0 and cz < grid_z:
 			if cells[cx][cy][cz][0] != CellTypes.Type.EMPTY:
 				var t_hit := maxf(t_near, 0.0)
 				if normal != Vector3i.ZERO:
@@ -1504,7 +1607,7 @@ func _on_left_click() -> void:
 				_cancel_box()
 		ToolType.LINE, ToolType.RECT, ToolType.OVAL:
 			var shape_ref := place_cell if _in_bounds(place_cell) else target_cell
-			var floor_cell := Vector3i(shape_ref.x, floor_y, shape_ref.z)
+			var floor_cell := _cell_on_floor(shape_ref)
 			if not box_active:
 				if _in_bounds(floor_cell):
 					box_start = floor_cell
@@ -1999,10 +2102,12 @@ func _clear_region(a: Vector3i, b: Vector3i) -> void:
 # ─── Shape Tools ───
 
 func _get_line_cells(start: Vector3i, end: Vector3i, constrain: bool) -> Array:
-	var ax := start.x
-	var az := start.z
-	var bx := end.x
-	var bz := end.z
+	var sa := _cell_uv(start)
+	var ea := _cell_uv(end)
+	var ax := sa.x
+	var az := sa.y
+	var bx := ea.x
+	var bz := ea.y
 	if constrain:
 		var dx := absi(bx - ax)
 		var dz := absi(bz - az)
@@ -2020,7 +2125,7 @@ func _get_line_cells(start: Vector3i, end: Vector3i, constrain: bool) -> Array:
 	var x := ax
 	var z := az
 	while true:
-		var cell := Vector3i(x, floor_y, z)
+		var cell := _make_cell(x, z, floor_y)
 		if _in_bounds(cell):
 			result.append(cell)
 		if x == bx and z == bz:
@@ -2035,10 +2140,12 @@ func _get_line_cells(start: Vector3i, end: Vector3i, constrain: bool) -> Array:
 	return result
 
 func _get_rect_cells(start: Vector3i, end: Vector3i, constrain: bool) -> Array:
-	var x1 := start.x
-	var z1 := start.z
-	var x2 := end.x
-	var z2 := end.z
+	var sa := _cell_uv(start)
+	var ea := _cell_uv(end)
+	var x1 := sa.x
+	var z1 := sa.y
+	var x2 := ea.x
+	var z2 := ea.y
 	if constrain:
 		var dx := absi(x2 - x1)
 		var dz := absi(z2 - z1)
@@ -2055,23 +2162,25 @@ func _get_rect_cells(start: Vector3i, end: Vector3i, constrain: bool) -> Array:
 	var seen := {}
 	for x in range(mn_x, mx_x + 1):
 		for z in [mn_z, mx_z]:
-			var cell := Vector3i(x, floor_y, z)
+			var cell := _make_cell(x, z, floor_y)
 			if _in_bounds(cell) and not seen.has(cell):
 				result.append(cell)
 				seen[cell] = true
 	for z in range(mn_z + 1, mx_z):
 		for x in [mn_x, mx_x]:
-			var cell := Vector3i(x, floor_y, z)
+			var cell := _make_cell(x, z, floor_y)
 			if _in_bounds(cell) and not seen.has(cell):
 				result.append(cell)
 				seen[cell] = true
 	return result
 
 func _get_oval_cells(start: Vector3i, end: Vector3i, constrain: bool) -> Array:
-	var x1 := start.x
-	var z1 := start.z
-	var x2 := end.x
-	var z2 := end.z
+	var sa := _cell_uv(start)
+	var ea := _cell_uv(end)
+	var x1 := sa.x
+	var z1 := sa.y
+	var x2 := ea.x
+	var z2 := ea.y
 	if constrain:
 		var dx := absi(x2 - x1)
 		var dz := absi(z2 - z1)
@@ -2090,7 +2199,7 @@ func _get_oval_cells(start: Vector3i, end: Vector3i, constrain: bool) -> Array:
 	var cz := (mn_z + mx_z) / 2.0
 
 	if a < 0.5 and b < 0.5:
-		var cell := Vector3i(int(round(cx)), floor_y, int(round(cz)))
+		var cell := _make_cell(int(round(cx)), int(round(cz)), floor_y)
 		if _in_bounds(cell):
 			return [cell]
 		return []
@@ -2106,7 +2215,7 @@ func _get_oval_cells(start: Vector3i, end: Vector3i, constrain: bool) -> Array:
 		var angle := TAU * i / steps
 		var px := int(round(cx + a * cos(angle)))
 		var pz := int(round(cz + b * sin(angle)))
-		var cell := Vector3i(px, floor_y, pz)
+		var cell := _make_cell(px, pz, floor_y)
 		if _in_bounds(cell) and not seen.has(cell):
 			result.append(cell)
 			seen[cell] = true
@@ -2187,7 +2296,7 @@ func _update_box_preview() -> void:
 		end_cell = target_cell
 
 	if current_tool in [ToolType.LINE, ToolType.RECT, ToolType.OVAL]:
-		end_cell = Vector3i(end_cell.x, floor_y, end_cell.z)
+		end_cell = _cell_on_floor(end_cell)
 
 	if not _in_bounds(end_cell):
 		box_preview_instance.visible = false
@@ -2202,10 +2311,10 @@ func _update_box_preview() -> void:
 			ToolType.LINE: shape_cells = _get_line_cells(result[0], result[1], result[2])
 			ToolType.RECT: shape_cells = _get_rect_cells(result[0], result[1], result[2])
 			ToolType.OVAL: shape_cells = _get_oval_cells(result[0], result[1], result[2])
-		var s: Vector3i = result[0]
-		var e: Vector3i = result[1]
-		var w := absi(e.x - s.x) + 1
-		var h := absi(e.z - s.z) + 1
+		var suv := _cell_uv(result[0])
+		var euv := _cell_uv(result[1])
+		var w := absi(euv.x - suv.x) + 1
+		var h := absi(euv.y - suv.y) + 1
 		dims_label.text = "Size: %d x %d  (%d cells)" % [w, h, shape_cells.size()]
 		_draw_shape_preview(shape_cells)
 		return
@@ -3080,11 +3189,11 @@ func _load_from_path(path: String) -> void:
 	target_cell = Vector3i(-1, -1, -1)
 	cursor_mesh_instance.visible = false
 	floor_y = 0
-	floor_slider.max_value = grid_y - 1
+	floor_slider.max_value = _axis_size(edit_axis) - 1
 	floor_slider.set_value_no_signal(0)
-	floor_value_label.text = "Y = 0"
+	floor_value_label.text = "%s = 0" % _axis_letter()
 	ceiling_y = -1
-	ceiling_slider.max_value = grid_y - 1
+	ceiling_slider.max_value = _axis_size(edit_axis) - 1
 	ceiling_slider.set_value_no_signal(-1)
 	ceiling_value_label.text = "Off"
 	_ceiling_locked = false
@@ -3196,13 +3305,28 @@ func _rebuild_mesh() -> void:
 				_dirty_chunks[Vector3i(cx, cy, cz)] = true
 	_mesh_dirty = true
 
-func _mark_layer_chunks_dirty(layer_y: int) -> void:
-	if layer_y < 0 or layer_y >= grid_y:
+func _mark_layer_chunks_dirty(layer: int) -> void:
+	# Marks every chunk intersecting the given depth-layer along edit_axis.
+	if layer < 0 or layer >= _axis_size(edit_axis):
 		return
-	var cy := layer_y / CHUNK_SIZE
-	for cx in range(ceili(float(grid_x) / CHUNK_SIZE)):
-		for cz in range(ceili(float(grid_z) / CHUNK_SIZE)):
-			_dirty_chunks[Vector3i(cx, cy, cz)] = true
+	var nx := ceili(float(grid_x) / CHUNK_SIZE)
+	var ny := ceili(float(grid_y) / CHUNK_SIZE)
+	var nz := ceili(float(grid_z) / CHUNK_SIZE)
+	var cd := layer / CHUNK_SIZE
+	var na: int
+	var nb: int
+	match edit_axis:
+		0: na = ny; nb = nz     # plane = Y,Z
+		1: na = nx; nb = nz     # plane = X,Z
+		_: na = nx; nb = ny     # plane = X,Y
+	for a in range(na):
+		for b in range(nb):
+			var key: Vector3i
+			match edit_axis:
+				0: key = Vector3i(cd, a, b)
+				1: key = Vector3i(a, cd, b)
+				_: key = Vector3i(a, b, cd)
+			_dirty_chunks[key] = true
 	_mesh_dirty = true
 
 func _mark_chunk_dirty_at(x: int, y: int, z: int) -> void:
@@ -3238,7 +3362,7 @@ func _rebuild_chunk(key: Vector3i) -> void:
 	var x1 := mini(x0 + CHUNK_SIZE, grid_x)
 	var y1 := mini(y0 + CHUNK_SIZE, grid_y)
 	var z1 := mini(z0 + CHUNK_SIZE, grid_z)
-	var new_mesh := BlockMeshBuilder.build_chunk_mesh(cells, grid_x, grid_y, grid_z, x0, y0, z0, x1, y1, z1, CELL_SIZE, ceiling_y)
+	var new_mesh := BlockMeshBuilder.build_chunk_mesh(cells, grid_x, grid_y, grid_z, x0, y0, z0, x1, y1, z1, CELL_SIZE, ceiling_y, edit_axis)
 	var mi: MeshInstance3D
 	if _chunk_meshes.has(key):
 		mi = _chunk_meshes[key]
@@ -3274,15 +3398,18 @@ func _make_ceiling_shader(cutout: bool) -> ShaderMaterial:
 	if cutout:
 		code += ", cull_disabled"
 	code += ";\nuniform float ceiling_clip = -1.0;\n"
+	code += "uniform int clip_axis = 1;\n"
 	code += "varying vec3 world_pos;\n"
 	code += "varying vec3 world_normal;\n"
 	code += "void vertex() {\n\tworld_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;\n\tworld_normal = (MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz;\n}\n"
 	code += "void fragment() {\n"
-	code += "\tif (ceiling_clip >= 0.0 && world_pos.y > ceiling_clip) { discard; }\n"
-	# The cell above the ceiling keeps its downward-facing bottom face, which sits
-	# exactly on the clip plane and isn't caught by the strict-greater test above.
-	# Discard it so it can't z-fight with the baked top cap of the ceiling layer.
-	code += "\tif (ceiling_clip >= 0.0 && world_pos.y > ceiling_clip - 0.001 && world_normal.y < -0.5) { discard; }\n"
+	code += "\tfloat wp = clip_axis == 0 ? world_pos.x : (clip_axis == 1 ? world_pos.y : world_pos.z);\n"
+	code += "\tfloat wn = clip_axis == 0 ? world_normal.x : (clip_axis == 1 ? world_normal.y : world_normal.z);\n"
+	code += "\tif (ceiling_clip >= 0.0 && wp > ceiling_clip) { discard; }\n"
+	# The cell past the ceiling keeps its inward-facing face, which sits exactly on
+	# the clip plane and isn't caught by the strict-greater test above. Discard it
+	# so it can't z-fight with the baked cap of the ceiling layer.
+	code += "\tif (ceiling_clip >= 0.0 && wp > ceiling_clip - 0.001 && wn < -0.5) { discard; }\n"
 	if not _preview_mode and not _flat_color_mode:
 		code += "\tfloat ny = abs(NORMAL.y);\n"
 		code += "\tfloat nx = abs(NORMAL.x);\n"
@@ -3322,26 +3449,35 @@ func _update_chunk_ceiling_val(mi: MeshInstance3D, clip_val: float) -> void:
 			var mat: ShaderMaterial = mi.get_surface_override_material(si)
 			if mat:
 				mat.set_shader_parameter("ceiling_clip", clip_val)
+				mat.set_shader_parameter("clip_axis", edit_axis)
+
+func _uv_sizes() -> Vector2i:
+	match edit_axis:
+		0: return Vector2i(grid_y, grid_z)
+		1: return Vector2i(grid_x, grid_z)
+		_: return Vector2i(grid_x, grid_y)
+
+# draw a grid of lines on the plane perpendicular to edit_axis at cell-depth `depth`
+func _add_plane_grid(im: ImmediateMesh, depth: float) -> void:
+	var uv := _uv_sizes()
+	im.surface_begin(Mesh.PRIMITIVE_LINES)
+	im.surface_set_color(Color(0.3, 0.7, 1.0, 0.35))
+	for i in range(uv.x + 1):
+		im.surface_add_vertex(_uv_world_pos(i, 0, depth))
+		im.surface_add_vertex(_uv_world_pos(i, uv.y, depth))
+	for j in range(uv.y + 1):
+		im.surface_add_vertex(_uv_world_pos(0, j, depth))
+		im.surface_add_vertex(_uv_world_pos(uv.x, j, depth))
+	im.surface_end()
 
 func _rebuild_grid() -> void:
 	var im := ImmediateMesh.new()
 	var wx := grid_x * CELL_SIZE
 	var wy := grid_y * CELL_SIZE
 	var wz := grid_z * CELL_SIZE
-	var fy := floor_y * CELL_SIZE
 
-	# Floor grid at current floor_y
-	im.surface_begin(Mesh.PRIMITIVE_LINES)
-	im.surface_set_color(Color(0.3, 0.7, 1.0, 0.35))
-	for i in range(grid_x + 1):
-		var t := i * CELL_SIZE
-		im.surface_add_vertex(Vector3(t, fy, 0))
-		im.surface_add_vertex(Vector3(t, fy, wz))
-	for i in range(grid_z + 1):
-		var t := i * CELL_SIZE
-		im.surface_add_vertex(Vector3(0, fy, t))
-		im.surface_add_vertex(Vector3(wx, fy, t))
-	im.surface_end()
+	# Floor grid on the edit-axis plane at floor depth
+	_add_plane_grid(im, floor_y)
 
 	# Bounding box edges
 	im.surface_begin(Mesh.PRIMITIVE_LINES)
@@ -3356,17 +3492,15 @@ func _rebuild_grid() -> void:
 	im.surface_end()
 
 	if ceiling_y >= 0:
-		var cy := (ceiling_y + 1) * CELL_SIZE
+		var uv := _uv_sizes()
 		im.surface_begin(Mesh.PRIMITIVE_LINES)
 		im.surface_set_color(Color(1.0, 0.4, 0.2, 0.5))
-		for i in range(grid_x + 1):
-			var t := i * CELL_SIZE
-			im.surface_add_vertex(Vector3(t, cy, 0))
-			im.surface_add_vertex(Vector3(t, cy, wz))
-		for i in range(grid_z + 1):
-			var t := i * CELL_SIZE
-			im.surface_add_vertex(Vector3(0, cy, t))
-			im.surface_add_vertex(Vector3(wx, cy, t))
+		for i in range(uv.x + 1):
+			im.surface_add_vertex(_uv_world_pos(i, 0, ceiling_y + 1))
+			im.surface_add_vertex(_uv_world_pos(i, uv.y, ceiling_y + 1))
+		for j in range(uv.y + 1):
+			im.surface_add_vertex(_uv_world_pos(0, j, ceiling_y + 1))
+			im.surface_add_vertex(_uv_world_pos(uv.x, j, ceiling_y + 1))
 		im.surface_end()
 
 	grid_mesh_instance.mesh = im
