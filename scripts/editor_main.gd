@@ -258,6 +258,7 @@ func _setup_ui() -> void:
 	file_menu.add_item("New", 0, KEY_MASK_CTRL | KEY_N)
 	file_menu.add_item("Open...", 1, KEY_MASK_CTRL | KEY_O)
 	file_menu.add_item("Save", 2, KEY_MASK_CTRL | KEY_S)
+	file_menu.add_item("Save As...", 7, KEY_MASK_CTRL | KEY_MASK_SHIFT | KEY_S)
 	file_menu.add_separator()
 	file_menu.add_item("Import PNG...", 3, KEY_MASK_CTRL | KEY_I)
 	file_menu.add_item("Import Block Texture...", 5)
@@ -991,6 +992,7 @@ func _on_file_menu(id: int) -> void:
 		4: _import_character_sprites()
 		5: _import_block_texture()
 		6: _export_obj()
+		7: _save_as()
 
 func _on_mode_pressed(btn: BaseButton) -> void:
 	var target_mode := EditMode.BLOCK if btn.text == "Block" else EditMode.CHARACTER
@@ -1147,7 +1149,12 @@ func _unhandled_input(event: InputEvent) -> void:
 		if event.ctrl_pressed:
 			match event.keycode:
 				KEY_Z: _undo(); get_viewport().set_input_as_handled(); return
-				KEY_S: _save(); get_viewport().set_input_as_handled(); return
+				KEY_S:
+					if event.shift_pressed:
+						_save_as()
+					else:
+						_save()
+					get_viewport().set_input_as_handled(); return
 				KEY_O: _open(); get_viewport().set_input_as_handled(); return
 				KEY_N: _new(); get_viewport().set_input_as_handled(); return
 				KEY_I: _import_png(); get_viewport().set_input_as_handled(); return
@@ -2247,6 +2254,14 @@ func _save() -> void:
 		save_dialog.popup_centered()
 	else:
 		_save_to_path(current_file_path)
+
+func _save_as() -> void:
+	if not current_file_path.is_empty():
+		save_dialog.current_dir = current_file_path.get_base_dir()
+		save_dialog.current_file = current_file_path.get_file().get_basename() + ".res"
+	else:
+		save_dialog.current_dir = "res://definitions"
+	save_dialog.popup_centered()
 
 func _open() -> void:
 	if _unsaved_changes:
