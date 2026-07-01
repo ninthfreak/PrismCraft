@@ -346,6 +346,7 @@ func _setup_ui() -> void:
 	view_menu.add_check_item("Mirror Z", 4)
 	view_menu.add_separator()
 	view_menu.add_item("Compare Two Models…", 5)
+	view_menu.add_item("Rig / Skeleton (prototype)…", 6)
 	view_menu.id_pressed.connect(_on_view_menu)
 	menu_bar.add_child(view_menu)
 
@@ -791,6 +792,7 @@ func _on_view_menu(id: int) -> void:
 		3: _toggle_mirror_x()
 		4: _toggle_mirror_z()
 		5: _open_compare_view()
+		6: _open_rig_view()
 
 func _open_compare_view() -> void:
 	var cv := CompareView.new()
@@ -799,6 +801,13 @@ func _open_compare_view() -> void:
 	var disp := current_file_path.get_file() if not current_file_path.is_empty() else "(current)"
 	cv.load_cells(1, cells, grid_x, grid_y, grid_z, disp)
 	cv.popup_centered(Vector2i(1400, 820))
+
+func _open_rig_view() -> void:
+	var rv := RigView.new()
+	add_child(rv)
+	# Seed with the current working model so Auto-Fit can run immediately.
+	rv.set_model(cells, grid_x, grid_y, grid_z)
+	rv.popup_centered(Vector2i(1500, 860))
 
 # ─── Ghost layer ───
 
