@@ -201,7 +201,7 @@ func _on_view_input(event: InputEvent) -> void:
 			_update_cameras()
 		elif _pan:
 			var b := _camA.global_transform.basis
-			var delta := (-b.x * event.relative.x + b.y * event.relative.y) * (_distA * 0.0025)
+			var delta: Vector3 = (-b.x * event.relative.x + b.y * event.relative.y) * (_distA * 0.0025)
 			_pivotA += delta
 			_pivotB += delta
 			_update_cameras()
