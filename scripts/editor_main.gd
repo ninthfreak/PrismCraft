@@ -158,8 +158,8 @@ func _process(_delta: float) -> void:
 
 func _generate_presets() -> void:
 	DirAccess.make_dir_recursive_absolute("res://definitions")
-	ResourceSaver.save(VoxelDefinition.create_male(), "res://definitions/male.tres")
-	ResourceSaver.save(VoxelDefinition.create_female(), "res://definitions/female.tres")
+	ResourceSaver.save(VoxelDefinition.create_male(), "res://definitions/male.res", ResourceSaver.FLAG_COMPRESS)
+	ResourceSaver.save(VoxelDefinition.create_female(), "res://definitions/female.res", ResourceSaver.FLAG_COMPRESS)
 
 func _center_camera() -> void:
 	camera.pivot = Vector3(grid_x, grid_y, grid_z) * CELL_SIZE * 0.5
@@ -533,7 +533,8 @@ func _setup_ui() -> void:
 	save_dialog = FileDialog.new()
 	save_dialog.file_mode = FileDialog.FILE_MODE_SAVE_FILE
 	save_dialog.access = FileDialog.ACCESS_RESOURCES
-	save_dialog.add_filter("*.tres ; Voxel Definition")
+	save_dialog.add_filter("*.res ; Voxel Definition (compressed)")
+	save_dialog.add_filter("*.tres ; Voxel Definition (text)")
 	save_dialog.title = "Save Definition"
 	save_dialog.size = Vector2i(700, 500)
 	save_dialog.file_selected.connect(_on_save_file_selected)
@@ -542,7 +543,7 @@ func _setup_ui() -> void:
 	open_dialog = FileDialog.new()
 	open_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
 	open_dialog.access = FileDialog.ACCESS_RESOURCES
-	open_dialog.add_filter("*.tres ; Voxel Definition")
+	open_dialog.add_filter("*.res, *.tres ; Voxel Definition")
 	open_dialog.title = "Open Definition"
 	open_dialog.size = Vector2i(700, 500)
 	open_dialog.file_selected.connect(_on_open_file_selected)
@@ -2278,14 +2279,16 @@ func _save_to_path(path: String) -> void:
 	DirAccess.make_dir_recursive_absolute(path.get_base_dir())
 	var def := VoxelDefinition.new()
 	def.set_from_cells(cells, grid_x, grid_y, grid_z, edit_mode)
-	if ResourceSaver.save(def, path) == OK:
+	# Binary .res honours FLAG_COMPRESS (lossless); the mostly-empty cell grid
+	# shrinks from ~14 MB to ~30 KB. Text .tres ignores the flag but still works.
+	if ResourceSaver.save(def, path, ResourceSaver.FLAG_COMPRESS) == OK:
 		current_file_path = path
 		_unsaved_changes = false
 		_update_file_label()
 
 func _on_save_file_selected(path: String) -> void:
-	if not path.ends_with(".tres"):
-		path += ".tres"
+	if not path.ends_with(".res") and not path.ends_with(".tres"):
+		path += ".res"
 	_save_to_path(path)
 	if not _pending_action.is_empty():
 		_execute_pending_action()
