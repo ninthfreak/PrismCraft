@@ -42,6 +42,10 @@ var _solid: PackedByteArray = PackedByteArray()  # flat solidity mask (hot loops
 var _joint_pos: Array = []   # Array[Vector3]
 var _joint_rot: Array = []   # Array[Vector3] euler degrees
 var _owner: PackedInt32Array = PackedInt32Array()
+var _bb_min: Array = []       # Array[Vector3i] per joint (owned-voxel bbox)
+var _bb_max: Array = []       # Array[Vector3i] per joint
+var _overlap := 3.0           # socket overlap radius (voxels)
+var _color_parts := false     # debug: colour voxels by owning bone
 var _meshes: Array = []      # Array[ArrayMesh] per joint (may hold null)
 var _nodes: Array = []       # Array[Node3D] per joint (preview)
 var _markers: Array = []     # Array[MeshInstance3D] per joint (preview)
@@ -53,6 +57,8 @@ var _cam: Camera3D
 var _root3d: Node3D
 var _mat: ShaderMaterial
 var _joint_pick: OptionButton
+var _overlap_slider: HSlider
+var _overlap_val: Label
 var _spin: Array = []        # Array[SpinBox] x/y/z position
 var _rot_slider: Array = []  # Array[HSlider] x/y/z rotation
 var _rot_val: Array = []     # Array[Label]
@@ -143,6 +149,27 @@ func _build_ui() -> void:
 	var rebuild_btn := Button.new(); rebuild_btn.text = "Rebuild Rig (re-partition)"
 	rebuild_btn.pressed.connect(_rebuild_rig)
 	panel.add_child(rebuild_btn)
+
+	panel.add_child(HSeparator.new())
+
+	panel.add_child(_lbl("Joint overlap / socket (voxels):"))
+	var orow := HBoxContainer.new()
+	panel.add_child(orow)
+	_overlap_slider = HSlider.new()
+	_overlap_slider.min_value = 0; _overlap_slider.max_value = 12; _overlap_slider.step = 0.5
+	_overlap_slider.value = _overlap
+	_overlap_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_overlap_slider.value_changed.connect(_on_overlap_value)   # live label
+	_overlap_slider.drag_ended.connect(_on_overlap_commit)     # rebuild on release
+	orow.add_child(_overlap_slider)
+	_overlap_val = Label.new(); _overlap_val.text = str(_overlap); _overlap_val.custom_minimum_size = Vector2(38, 0)
+	orow.add_child(_overlap_val)
+
+	var color_chk := CheckBox.new()
+	color_chk.text = "Color parts (debug)"
+	color_chk.button_pressed = _color_parts
+	color_chk.toggled.connect(_on_color_parts_toggled)
+	panel.add_child(color_chk)
 
 	panel.add_child(HSeparator.new())
 
@@ -437,10 +464,30 @@ func _two_runs(y: int) -> Vector2:
 func _rebuild_rig() -> void:
 	if not _has_model:
 		return
-	_owner = _compute_owner()
+	_owner = _compute_owner()  # also fills _bb_min / _bb_max
+	_rebuild_meshes()
+
+# Rebuild only the meshes (reusing the cached partition). Used when the socket
+# overlap or part-colour toggle changes — no need to re-partition.
+func _rebuild_meshes() -> void:
+	if _owner.is_empty():
+		return
 	_meshes = _build_owner_meshes(_owner)
 	_build_hierarchy_preview()
 	_apply_pose()
+
+func _on_overlap_value(v: float) -> void:
+	_overlap = v
+	_overlap_val.text = str(v)
+
+func _on_overlap_commit(_value_changed: bool) -> void:
+	if _has_model and not _owner.is_empty():
+		_rebuild_meshes()
+
+func _on_color_parts_toggled(on: bool) -> void:
+	_color_parts = on
+	if _has_model and not _owner.is_empty():
+		_rebuild_meshes()
 
 func _dist_point_seg(p: Vector3, a: Vector3, b: Vector3) -> float:
 	var ab := b - a
@@ -453,6 +500,11 @@ func _dist_point_seg(p: Vector3, a: Vector3, b: Vector3) -> float:
 func _compute_owner() -> PackedInt32Array:
 	var owner := PackedInt32Array()
 	owner.resize(gx * gy * gz)
+	_bb_min = []
+	_bb_max = []
+	for j in range(NJ):
+		_bb_min.append(Vector3i(gx, gy, gz))
+		_bb_max.append(Vector3i(-1, -1, -1))
 	# segments: [parent_joint, a, b] — voxel owned by the segment's parent (pivot)
 	var segs: Array = []
 	for j in range(NJ):
@@ -476,6 +528,10 @@ func _compute_owner() -> PackedInt32Array:
 						best = d
 						best_owner = s[0]
 				owner[idx] = best_owner
+				var bmn: Vector3i = _bb_min[best_owner]
+				var bmx: Vector3i = _bb_max[best_owner]
+				_bb_min[best_owner] = Vector3i(mini(bmn.x, x), mini(bmn.y, y), mini(bmn.z, z))
+				_bb_max[best_owner] = Vector3i(maxi(bmx.x, x), maxi(bmx.y, y), maxi(bmx.z, z))
 	return owner
 
 func _build_owner_meshes(owner: PackedInt32Array) -> Array:
@@ -496,50 +552,82 @@ func _build_owner_meshes(owner: PackedInt32Array) -> Array:
 		[Vector3(0, 0, s), Vector3(0, s, s), Vector3(s, s, s), Vector3(s, 0, s)],
 		[Vector3(s, 0, 0), Vector3(s, s, 0), Vector3(0, s, 0), Vector3(0, 0, 0)],
 	]
-	var sts: Array = []
-	var used: PackedByteArray = PackedByteArray()
-	used.resize(NJ)
-	for i in range(NJ):
+	# Distinct debug colour per bone.
+	var pal: Array = []
+	for j in range(NJ):
+		pal.append(Color.from_hsv(fmod(j * 0.147, 1.0), 0.7, 1.0))
+
+	var r2 := _overlap * _overlap
+	var rr := int(ceil(_overlap))
+	var meshes: Array = []
+	meshes.resize(NJ)
+
+	# Mesh each bone from its own region. A bone's part is its owned voxels PLUS
+	# (socket overlap) a ball of the parent's voxels around the joint, duplicated
+	# in so a rotation keeps the joint covered instead of tearing a gap.
+	for c in range(NJ):
+		var bmn: Vector3i = _bb_min[c]
+		var bmx: Vector3i = _bb_max[c]
+		if bmx.x < 0:
+			meshes[c] = null  # bone owns no voxels
+			continue
+		var pc: int = JOINT_PARENT[c]
+		var cpos: Vector3 = _joint_pos[c]
+		# region covers the owned bbox AND the overlap ball around the joint
+		var cix := int(cpos.x); var ciy := int(cpos.y); var ciz := int(cpos.z)
+		var x0 := maxi(0, mini(bmn.x, cix) - rr); var x1 := mini(gx - 1, maxi(bmx.x, cix) + rr)
+		var y0 := maxi(0, mini(bmn.y, ciy) - rr); var y1 := mini(gy - 1, maxi(bmx.y, ciy) + rr)
+		var z0 := maxi(0, mini(bmn.z, ciz) - rr); var z1 := mini(gz - 1, maxi(bmx.z, ciz) + rr)
 		var st := SurfaceTool.new()
 		st.begin(Mesh.PRIMITIVE_TRIANGLES)
-		sts.append(st)
-
-	for x in range(gx):
-		for y in range(gy):
-			for z in range(gz):
-				var idx := (x * gy + y) * gz + z
-				var o: int = owner[idx]
-				if o < 0:
-					continue
-				var cell: Array = cells[x][y][z]
-				var pivot: Vector3 = _joint_pos[o]
-				var origin := Vector3(x, y, z) * CELL - pivot * CELL
-				for i in range(6):
-					var d: Array = dirs[i]
-					var fv: int = cell[d[1]]
-					var col := CellTypes.decode_color(fv)
-					if CellTypes.is_rgb5551(fv) and col.a < CellTypes.ALPHA_THRESHOLD:
+		var used := false
+		for x in range(x0, x1 + 1):
+			for y in range(y0, y1 + 1):
+				for z in range(z0, z1 + 1):
+					if not _voxel_in_part(x, y, z, c, pc, cpos, r2, owner):
 						continue
-					var nrm: Vector3i = d[0]
-					var nx := x + nrm.x; var ny := y + nrm.y; var nz := z + nrm.z
-					if nx >= 0 and nx < gx and ny >= 0 and ny < gy and nz >= 0 and nz < gz:
-						var nidx := (nx * gy + ny) * gz + nz
-						# cull only against same-part solid neighbours; seams between
-						# different bones stay drawn so each part is a closed shell.
-						if owner[nidx] == o and _solid[nidx] != 0:
-							continue
-					var q: Array = quads[i]
-					var normal: Vector3 = d[2]
-					_add_quad(sts[o], origin + q[0], origin + q[1], origin + q[2], origin + q[3], normal, col)
-					used[o] = 1
-
-	var meshes: Array = []
-	for i in range(NJ):
-		if used[i] == 1:
-			meshes.append(sts[i].commit())
-		else:
-			meshes.append(null)
+					var cell: Array = cells[x][y][z]
+					var origin := Vector3(x, y, z) * CELL - cpos * CELL
+					for i in range(6):
+						var d: Array = dirs[i]
+						var col: Color
+						if _color_parts:
+							col = pal[c]
+						else:
+							var fv: int = cell[d[1]]
+							col = CellTypes.decode_color(fv)
+							if CellTypes.is_rgb5551(fv) and col.a < CellTypes.ALPHA_THRESHOLD:
+								continue
+						var nrm: Vector3i = d[0]
+						var nx := x + nrm.x; var ny := y + nrm.y; var nz := z + nrm.z
+						if nx >= 0 and nx < gx and ny >= 0 and ny < gy and nz >= 0 and nz < gz:
+							# cull faces shared with a solid neighbour in the SAME part;
+							# seams against other bones stay drawn (closed shell).
+							if _voxel_in_part(nx, ny, nz, c, pc, cpos, r2, owner):
+								continue
+						var q: Array = quads[i]
+						var normal: Vector3 = d[2]
+						_add_quad(st, origin + q[0], origin + q[1], origin + q[2], origin + q[3], normal, col)
+						used = true
+		meshes[c] = st.commit() if used else null
 	return meshes
+
+# Is voxel (x,y,z) part of bone c? True if c owns it, or (socket overlap) it is
+# a parent-owned voxel within the overlap radius of c's joint.
+func _voxel_in_part(x: int, y: int, z: int, c: int, pc: int, cpos: Vector3, r2: float, owner: PackedInt32Array) -> bool:
+	var idx := (x * gy + y) * gz + z
+	if _solid[idx] == 0:
+		return false
+	var o: int = owner[idx]
+	if o == c:
+		return true
+	if pc >= 0 and o == pc and r2 > 0.0:
+		var dx := (x + 0.5) - cpos.x
+		var dy := (y + 0.5) - cpos.y
+		var dz := (z + 0.5) - cpos.z
+		if dx * dx + dy * dy + dz * dz <= r2:
+			return true
+	return false
 
 func _add_quad(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Vector3, normal: Vector3, color: Color) -> void:
 	_add_tri(st, a, b, c, normal, color)
