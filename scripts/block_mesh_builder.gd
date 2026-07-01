@@ -17,10 +17,10 @@ static func _add_quad(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Ve
 	_add_tri(st, a, b, c, normal, color)
 	_add_tri(st, a, c, d, normal, color)
 
-static func build_mesh(cells: Array, gx: int, gy: int, gz: int, cell_size: float, ceiling_y: int = -1) -> ArrayMesh:
-	return build_chunk_mesh(cells, gx, gy, gz, 0, 0, 0, gx, gy, gz, cell_size, ceiling_y)
+static func build_mesh(cells: Array, gx: int, gy: int, gz: int, cell_size: float, ceiling_y: int = -1, ceil_axis: int = 1) -> ArrayMesh:
+	return build_chunk_mesh(cells, gx, gy, gz, 0, 0, 0, gx, gy, gz, cell_size, ceiling_y, ceil_axis)
 
-static func build_chunk_mesh(cells: Array, gx: int, gy: int, gz: int, x0: int, y0: int, z0: int, x1: int, y1: int, z1: int, cell_size: float, ceiling_y: int = -1) -> ArrayMesh:
+static func build_chunk_mesh(cells: Array, gx: int, gy: int, gz: int, x0: int, y0: int, z0: int, x1: int, y1: int, z1: int, cell_size: float, ceiling_y: int = -1, ceil_axis: int = 1) -> ArrayMesh:
 	var st_opaque := SurfaceTool.new()
 	st_opaque.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var st_cutout := SurfaceTool.new()
@@ -39,10 +39,10 @@ static func build_chunk_mesh(cells: Array, gx: int, gy: int, gz: int, x0: int, y
 
 				if cell_type == CellTypes.Type.SOLID:
 					if CellTypes.is_cutout_cell(cell):
-						_build_cube(st_cutout, cells, gx, gy, gz, x, y, z, origin, cell_size, cell, true, ceiling_y)
+						_build_cube(st_cutout, cells, gx, gy, gz, x, y, z, origin, cell_size, cell, true, ceiling_y, ceil_axis)
 						has_cutout = true
 					else:
-						_build_cube(st_opaque, cells, gx, gy, gz, x, y, z, origin, cell_size, cell, false, ceiling_y)
+						_build_cube(st_opaque, cells, gx, gy, gz, x, y, z, origin, cell_size, cell, false, ceiling_y, ceil_axis)
 				elif cell_type == CellTypes.Type.PRISM:
 					var ori: int = cell[1]
 					var pax: int = ori / 4
@@ -75,7 +75,7 @@ static func build_chunk_mesh(cells: Array, gx: int, gy: int, gz: int, x0: int, y
 
 	return mesh
 
-static func _build_cube(st: SurfaceTool, cells: Array, gx: int, gy: int, gz: int, cx: int, cy: int, cz: int, o: Vector3, s: float, cell: Array, is_cutout: bool, ceiling_y: int = -1) -> void:
+static func _build_cube(st: SurfaceTool, cells: Array, gx: int, gy: int, gz: int, cx: int, cy: int, cz: int, o: Vector3, s: float, cell: Array, is_cutout: bool, ceiling_y: int = -1, ceil_axis: int = 1) -> void:
 	var dirs := [
 		[0, 1, 0, CellTypes.FACE_TOP, Vector3.UP],
 		[0, -1, 0, CellTypes.FACE_BOTTOM, Vector3.DOWN],
@@ -99,10 +99,12 @@ static func _build_cube(st: SurfaceTool, cells: Array, gx: int, gy: int, gz: int
 		var color := CellTypes.decode_color(face_color_val)
 		if CellTypes.is_rgb5551(face_color_val) and color.a < CellTypes.ALPHA_THRESHOLD:
 			continue
-		# The top face at the ceiling layer is always exposed: everything above
-		# the ceiling is clipped away by the shader, so the neighbor above can't
-		# occlude it. Without this, a voxel under the ceiling reveals a hole.
-		var force_face: bool = d[3] == CellTypes.FACE_TOP and ceiling_y >= 0 and cy == ceiling_y
+		# The +ceil_axis face at the ceiling layer is always exposed: everything
+		# past the ceiling is clipped away by the shader, so the neighbor on that
+		# side can't occlude it. Without this cap the revealed voxel shows a hole.
+		var cell_depth: int = cx if ceil_axis == 0 else (cy if ceil_axis == 1 else cz)
+		var is_cap_face: bool = d[ceil_axis] == 1
+		var force_face: bool = is_cap_face and ceiling_y >= 0 and cell_depth == ceiling_y
 		if not force_face:
 			var nx: int = cx + d[0]
 			var ny: int = cy + d[1]
