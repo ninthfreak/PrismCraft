@@ -284,6 +284,8 @@ func _setup_ui() -> void:
 	view_menu.add_separator()
 	view_menu.add_check_item("Mirror X", 3)
 	view_menu.add_check_item("Mirror Z", 4)
+	view_menu.add_separator()
+	view_menu.add_item("Compare Two Models…", 5)
 	view_menu.id_pressed.connect(_on_view_menu)
 	menu_bar.add_child(view_menu)
 
@@ -651,6 +653,15 @@ func _on_view_menu(id: int) -> void:
 		2: _toggle_axis_overlay()
 		3: _toggle_mirror_x()
 		4: _toggle_mirror_z()
+		5: _open_compare_view()
+
+func _open_compare_view() -> void:
+	var cv := CompareView.new()
+	add_child(cv)
+	# Seed the left view with the current working model for convenience.
+	var disp := current_file_path.get_file() if not current_file_path.is_empty() else "(current)"
+	cv.load_cells(1, cells, grid_x, grid_y, grid_z, disp)
+	cv.popup_centered(Vector2i(1400, 820))
 
 func _toggle_flat_color_mode() -> void:
 	_flat_color_mode = not _flat_color_mode
