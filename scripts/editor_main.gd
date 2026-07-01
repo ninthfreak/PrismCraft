@@ -124,6 +124,7 @@ var open_dialog: FileDialog
 var import_dialog: FileDialog
 var import_block_dialog: FileDialog
 var export_dialog: FileDialog
+var _export_slab_mode := false
 var import_front_dialog: FileDialog
 var import_side_dialog: FileDialog
 var confirm_dialog: ConfirmationDialog
@@ -280,6 +281,7 @@ func _setup_ui() -> void:
 	file_menu.add_item("Import Character Sprites...", 4)
 	file_menu.add_separator()
 	file_menu.add_item("Export Model (.glb / .obj)...", 6)
+	file_menu.add_item("Export Slab as Part (.glb)...", 9)
 	file_menu.id_pressed.connect(_on_file_menu)
 
 	menu_bar.add_child(file_menu)
@@ -1197,6 +1199,7 @@ func _on_file_menu(id: int) -> void:
 		5: _import_block_texture()
 		6: _export_obj()
 		7: _save_as()
+		9: _export_slab_part()
 
 func _on_mode_pressed(btn: BaseButton) -> void:
 	var target_mode := EditMode.BLOCK if btn.text == "Block" else EditMode.CHARACTER
@@ -3112,7 +3115,28 @@ func _export_obj() -> void:
 	export_dialog.current_dir = "res://definitions"
 	export_dialog.popup_centered()
 
+func _export_slab_part() -> void:
+	_export_slab_mode = true
+	export_dialog.current_dir = "res://definitions"
+	export_dialog.popup_centered()
+
 func _on_export_obj_selected(path: String) -> void:
+	var slab := _export_slab_mode
+	_export_slab_mode = false
+	if slab:
+		if path.get_extension() == "":
+			path += ".glb"
+		var d_min := floor_y
+		var d_max := ceiling_y if ceiling_y >= 0 else _axis_size(edit_axis) - 1
+		var bmin := Vector3i.ZERO
+		var bmax := Vector3i(grid_x - 1, grid_y - 1, grid_z - 1)
+		match edit_axis:
+			0: bmin.x = d_min; bmax.x = d_max
+			1: bmin.y = d_min; bmax.y = d_max
+			_: bmin.z = d_min; bmax.z = d_max
+		var tris := MeshExporter.export_glb_region(path, cells, grid_x, grid_y, grid_z, CELL_SIZE, bmin, bmax)
+		dims_label.text = "Exported part: %d triangles" % tris if tris > 0 else "Export failed (empty slab?)"
+		return
 	if path.get_extension().to_lower() == "obj":
 		var face_count := MeshExporter.export_obj(path, cells, grid_x, grid_y, grid_z, CELL_SIZE)
 		dims_label.text = "Exported %d faces (OBJ)" % face_count if face_count > 0 else "Export failed"

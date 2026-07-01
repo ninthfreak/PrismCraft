@@ -1,12 +1,18 @@
 class_name MeshExporter
 
-# Greedy-mesh the whole model into a flat list of faces: [color_id, normal, quad_verts].
-static func _collect_faces(cells: Array, gx: int, gy: int, gz: int, s: float, ox: float, oz: float) -> Array:
+# Greedy-mesh the model (or a box region of it) into a flat list of faces:
+# [color_id, normal, quad_verts]. bmax = (-1,-1,-1) means the whole grid.
+static func _collect_faces(cells: Array, gx: int, gy: int, gz: int, s: float, ox: float, oz: float, bmin := Vector3i.ZERO, bmax := Vector3i(-1, -1, -1)) -> Array:
+	if bmax.x < 0:
+		bmax = Vector3i(gx - 1, gy - 1, gz - 1)
 	var faces: Array = []
 	for dir in range(6):
-		_greedy_mesh_dir(cells, gx, gy, gz, s, ox, oz, dir, faces)
-	_emit_prisms(cells, gx, gy, gz, s, ox, oz, faces)
+		_greedy_mesh_dir(cells, gx, gy, gz, s, ox, oz, dir, faces, bmin, bmax)
+	_emit_prisms(cells, gx, gy, gz, s, ox, oz, faces, bmin, bmax)
 	return faces
+
+static func _in_box(x: int, y: int, z: int, bmin: Vector3i, bmax: Vector3i) -> bool:
+	return x >= bmin.x and x <= bmax.x and y >= bmin.y and y <= bmax.y and z >= bmin.z and z <= bmax.z
 
 static func export_obj(path: String, cells: Array, gx: int, gy: int, gz: int, cell_size: float) -> int:
 	var s := cell_size
@@ -98,9 +104,15 @@ static func export_obj(path: String, cells: Array, gx: int, gy: int, gz: int, ce
 # material — designed for one draw call at runtime. Returns triangle count.
 static func export_glb(path: String, cells: Array, gx: int, gy: int, gz: int, cell_size: float) -> int:
 	var s := cell_size
-	var ox := gx * s / 2.0
-	var oz := gz * s / 2.0
-	var faces := _collect_faces(cells, gx, gy, gz, s, ox, oz)
+	return _write_glb(path, _collect_faces(cells, gx, gy, gz, s, gx * s / 2.0, gz * s / 2.0))
+
+# Export only the voxels inside [bmin, bmax] as a .glb, keeping full-model world
+# coordinates so exported parts reassemble in place. Used for segmented rigs.
+static func export_glb_region(path: String, cells: Array, gx: int, gy: int, gz: int, cell_size: float, bmin: Vector3i, bmax: Vector3i) -> int:
+	var s := cell_size
+	return _write_glb(path, _collect_faces(cells, gx, gy, gz, s, gx * s / 2.0, gz * s / 2.0, bmin, bmax))
+
+static func _write_glb(path: String, faces: Array) -> int:
 	if faces.is_empty():
 		return 0
 
@@ -222,7 +234,7 @@ static func _u32(v: int) -> PackedByteArray:
 	b.encode_u32(0, v)
 	return b
 
-static func _greedy_mesh_dir(cells: Array, gx: int, gy: int, gz: int, s: float, ox: float, oz: float, dir: int, faces: Array) -> void:
+static func _greedy_mesh_dir(cells: Array, gx: int, gy: int, gz: int, s: float, ox: float, oz: float, dir: int, faces: Array, bmin: Vector3i, bmax: Vector3i) -> void:
 	var slice_count: int
 	var u_size: int
 	var v_size: int
@@ -249,7 +261,7 @@ static func _greedy_mesh_dir(cells: Array, gx: int, gy: int, gz: int, s: float, 
 					_:    cx = u; cy = v; cz = slice
 
 				var src_cell: Array = cells[cx][cy][cz]
-				if src_cell[0] != CellTypes.Type.SOLID:
+				if src_cell[0] != CellTypes.Type.SOLID or not _in_box(cx, cy, cz, bmin, bmax):
 					grid[u][v] = -1
 					continue
 
@@ -268,7 +280,7 @@ static func _greedy_mesh_dir(cells: Array, gx: int, gy: int, gz: int, s: float, 
 					4: nx = cx; ny = cy; nz = cz + 1
 					_: nx = cx; ny = cy; nz = cz - 1
 
-				if nx < 0 or nx >= gx or ny < 0 or ny >= gy or nz < 0 or nz >= gz:
+				if nx < 0 or nx >= gx or ny < 0 or ny >= gy or nz < 0 or nz >= gz or not _in_box(nx, ny, nz, bmin, bmax):
 					grid[u][v] = face_color
 				else:
 					var ncell: Array = cells[nx][ny][nz]
@@ -388,13 +400,15 @@ static func _rgb565_near(a: int, b: int) -> bool:
 	var br := (b >> 11) & 0x1F; var bg := (b >> 5) & 0x3F; var bb := b & 0x1F
 	return absi(ar - br) <= 1 and absi(ag - bg) <= 2 and absi(ab - bb) <= 1
 
-static func _emit_prisms(cells: Array, gx: int, gy: int, gz: int, s: float, ox: float, oz: float, faces: Array) -> void:
+static func _emit_prisms(cells: Array, gx: int, gy: int, gz: int, s: float, ox: float, oz: float, faces: Array, bmin: Vector3i, bmax: Vector3i) -> void:
 	var visited := {}
 	for x in range(gx):
 		for y in range(gy):
 			for z in range(gz):
 				var cell: Array = cells[x][y][z]
 				if cell[0] != CellTypes.Type.PRISM:
+					continue
+				if not _in_box(x, y, z, bmin, bmax):
 					continue
 				var key := x + y * gx + z * gx * gy
 				if visited.has(key):
