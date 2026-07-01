@@ -1,7 +1,7 @@
 extends Node3D
 
 enum EditMode { BLOCK, CHARACTER }
-enum ToolType { PENCIL, BOX, ERASER, BOX_ERASE, EXTRUDE, LINE, RECT, OVAL, SMOOTH_EDGE, PAINT, BUCKET, EYEDROP }
+enum ToolType { PENCIL, BOX, ERASER, BOX_ERASE, EXTRUDE, LINE, RECT, OVAL, SMOOTH_EDGE, PAINT, BUCKET, EYEDROP, SHIFT }
 
 const BLOCK_RES := 32
 const CHAR_RES := 64
@@ -92,6 +92,8 @@ var _ghost_mode := 1   # 0 = model only, 1 = model + ghost, 2 = ghost only
 var ghost_set_btn: Button
 var ghost_mode_btn: Button
 var ghost_clear_btn: Button
+
+var shift_panel: PanelContainer   # Shift Voxels arrow control (shown when Shift tool active)
 
 var coord_label: Label
 var dims_label: Label
@@ -342,6 +344,7 @@ func _setup_ui() -> void:
 	var tool_row2 := _add_button_row(vbox, ["Eraser", "Box Erase", "Eyedrop"], tool_group)
 	var _tool_row_fill := _add_button_row(vbox, ["Box Fill"], tool_group)
 	var _tool_row3 := _add_button_row(vbox, ["Extrude", "Smooth"], tool_group)
+	var _tool_row_shift := _add_button_row(vbox, ["Shift"], tool_group)
 	var tool_row4 := _add_button_row(vbox, ["Line", "Rect", "Oval"], tool_group)
 	_rect_btn = tool_row4[1]
 	_oval_btn = tool_row4[2]
@@ -587,6 +590,39 @@ func _setup_ui() -> void:
 	gv.add_child(ghost_clear_btn)
 	ui_layer.add_child(ghost_panel)
 
+	# Shift Voxels control (shown only when the Shift tool is active)
+	shift_panel = PanelContainer.new()
+	shift_panel.position = Vector2(1920 * 0.5 - 110, 1080 - 190)
+	shift_panel.visible = false
+	var sv := VBoxContainer.new()
+	sv.add_theme_constant_override("separation", 4)
+	shift_panel.add_child(sv)
+	var stitle := Label.new()
+	stitle.text = "Shift Voxels (floor–ceiling slab)"
+	sv.add_child(stitle)
+	for row in [["X  ", Vector3i(-1, 0, 0), "◀  -X", "+X  ▶", Vector3i(1, 0, 0)],
+				["Y  ", Vector3i(0, -1, 0), "▼  -Y", "+Y  ▲", Vector3i(0, 1, 0)],
+				["Z  ", Vector3i(0, 0, -1), "◀  -Z", "+Z  ▶", Vector3i(0, 0, 1)]]:
+		var hb := HBoxContainer.new()
+		hb.add_theme_constant_override("separation", 4)
+		var lbl := Label.new()
+		lbl.text = row[0]
+		hb.add_child(lbl)
+		var neg := Button.new()
+		neg.text = row[2]
+		neg.custom_minimum_size = Vector2(72, 0)
+		var neg_delta: Vector3i = row[1]
+		neg.pressed.connect(func(): _shift_voxels(neg_delta))
+		hb.add_child(neg)
+		var pos := Button.new()
+		pos.text = row[3]
+		pos.custom_minimum_size = Vector2(72, 0)
+		var pos_delta: Vector3i = row[4]
+		pos.pressed.connect(func(): _shift_voxels(pos_delta))
+		hb.add_child(pos)
+		sv.add_child(hb)
+	ui_layer.add_child(shift_panel)
+
 	# File dialogs
 	save_dialog = FileDialog.new()
 	save_dialog.file_mode = FileDialog.FILE_MODE_SAVE_FILE
@@ -781,6 +817,40 @@ func _clear_ghost() -> void:
 	ghost_mode_btn.disabled = true
 	ghost_clear_btn.disabled = true
 	ghost_mode_btn.text = "View: Model only"
+
+# ─── Shift Voxels ───
+
+func _shift_voxels(delta: Vector3i) -> void:
+	# Move every voxel in the floor..ceiling slab (along edit_axis) by one cell.
+	# Content pushed past the slab is dropped; vacated cells become empty.
+	var d_min := floor_y
+	var d_max := ceiling_y if ceiling_y >= 0 else _axis_size(edit_axis) - 1
+	_push_undo()
+	# scan only the slab's depth range along edit_axis
+	var xr := range(grid_x)
+	var yr := range(grid_y)
+	var zr := range(grid_z)
+	match edit_axis:
+		0: xr = range(d_min, d_max + 1)
+		1: yr = range(d_min, d_max + 1)
+		_: zr = range(d_min, d_max + 1)
+	var saved: Array = []
+	for x in xr:
+		for y in yr:
+			for z in zr:
+				if cells[x][y][z][0] != CellTypes.Type.EMPTY:
+					saved.append([Vector3i(x, y, z), cells[x][y][z]])
+					cells[x][y][z] = CellTypes.empty_cell()
+	for entry in saved:
+		var np: Vector3i = entry[0] + delta
+		if not _in_bounds(np):
+			continue
+		var nd := _cell_depth(np)
+		if nd < d_min or nd > d_max:
+			continue
+		cells[np.x][np.y][np.z] = entry[1]
+	_mark_dirty()
+	_rebuild_mesh()
 
 func _toggle_flat_color_mode() -> void:
 	_flat_color_mode = not _flat_color_mode
@@ -1160,9 +1230,12 @@ func _on_tool_pressed(btn: BaseButton) -> void:
 		"Rect": current_tool = ToolType.RECT
 		"Oval": current_tool = ToolType.OVAL
 		"Smooth": current_tool = ToolType.SMOOTH_EDGE
+		"Shift": current_tool = ToolType.SHIFT
 	_cancel_box()
 	_cancel_extrude()
 	_cancel_smooth()
+	if shift_panel:
+		shift_panel.visible = current_tool == ToolType.SHIFT
 
 func _on_type_pressed(btn: BaseButton) -> void:
 	if btn.text == "Solid":
