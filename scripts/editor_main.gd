@@ -5,6 +5,11 @@ enum ToolType { PENCIL, BOX, ERASER, BOX_ERASE, EXTRUDE, LINE, RECT, OVAL, SMOOT
 
 const BLOCK_RES := 32
 const CHAR_RES := 64
+# Character models are now as wide as they are tall (room for a T-pose).
+# Depth stays 64. Legacy 64-wide models are re-centered into this on load.
+const CHAR_GX := 128
+const CHAR_GY := 128
+const CHAR_GZ := 64
 var CELL_SIZE := 1.0 / BLOCK_RES
 const PANEL_WIDTH := 180
 
@@ -197,6 +202,44 @@ func _init_cells() -> void:
 			cells[x][y].resize(grid_z)
 			for z in range(grid_z):
 				cells[x][y][z] = CellTypes.empty_cell()
+
+# Re-embed the current cells into a larger grid, centered on X and Z and
+# bottom-aligned on Y (feet stay on the floor). Updates grid_x/y/z and cells.
+func _embed_cells_centered(tgx: int, tgy: int, tgz: int) -> void:
+	if tgx == grid_x and tgy == grid_y and tgz == grid_z:
+		return
+	var ox := (tgx - grid_x) / 2
+	var oz := (tgz - grid_z) / 2
+	var src := cells
+	var sgx := grid_x
+	var sgy := grid_y
+	var sgz := grid_z
+	var dst: Array = []
+	dst.resize(tgx)
+	for x in range(tgx):
+		dst[x] = []
+		dst[x].resize(tgy)
+		for y in range(tgy):
+			dst[x][y] = []
+			dst[x][y].resize(tgz)
+			for z in range(tgz):
+				dst[x][y][z] = CellTypes.empty_cell()
+	for x in range(sgx):
+		var tx := x + ox
+		if tx < 0 or tx >= tgx:
+			continue
+		for y in range(sgy):
+			if y >= tgy:
+				break
+			for z in range(sgz):
+				var tz := z + oz
+				if tz < 0 or tz >= tgz:
+					continue
+				dst[tx][y][tz] = src[x][y][z]
+	grid_x = tgx
+	grid_y = tgy
+	grid_z = tgz
+	cells = dst
 
 # ─── Scene Setup ───
 
@@ -1348,7 +1391,7 @@ func _do_set_edit_mode(mode: int) -> void:
 		grid_x = 32; grid_y = 32; grid_z = 32
 		CELL_SIZE = 1.0 / BLOCK_RES
 	else:
-		grid_x = 64; grid_y = 128; grid_z = 64
+		grid_x = CHAR_GX; grid_y = CHAR_GY; grid_z = CHAR_GZ
 		CELL_SIZE = 1.0 / CHAR_RES
 	current_file_path = ""
 	_unsaved_changes = false
@@ -3296,14 +3339,20 @@ func _on_wizard_generate() -> void:
 	_front_image = null
 	_side_image = null
 
-	if front.get_width() != grid_x or front.get_height() != grid_y:
-		front.resize(grid_x, grid_y, Image.INTERPOLATE_NEAREST)
-	if side.get_width() != grid_z or side.get_height() != grid_y:
+	# The grid follows the sprite's own dimensions, so both the wide T-pose
+	# format and the original narrow format import correctly (their pixel sizes
+	# distinguish them). Depth comes from the side sprite's width.
+	edit_mode = EditMode.CHARACTER
+	CELL_SIZE = 1.0 / CHAR_RES
+	grid_x = clampi(front.get_width(), 1, 256)
+	grid_y = clampi(front.get_height(), 1, 256)
+	grid_z = clampi(side.get_width(), 1, 256)
+	if side.get_height() != grid_y:
 		side.resize(grid_z, grid_y, Image.INTERPOLATE_NEAREST)
 
 	var flip_side := _wizard_flip_side.button_pressed
 
-	_push_undo()
+	_undo_stack.clear()   # fresh model (grid may change); import isn't undoable
 	_init_cells()
 
 	var front_has_alpha := CellTypes.image_has_alpha(front)
@@ -3346,8 +3395,19 @@ func _on_wizard_generate() -> void:
 					break
 
 	_ground_cells()
+	# Center narrower (original-format) imports into the standard character grid.
+	if grid_x < CHAR_GX or grid_y < CHAR_GY or grid_z < CHAR_GZ:
+		_embed_cells_centered(maxi(grid_x, CHAR_GX), maxi(grid_y, CHAR_GY), maxi(grid_z, CHAR_GZ))
+	var mbtns := mode_group.get_buttons()
+	mbtns[0].button_pressed = false
+	mbtns[1].button_pressed = true
+	floor_slider.max_value = _axis_size(edit_axis) - 1
+	ceiling_slider.max_value = _axis_size(edit_axis) - 1
+	_clear_chunks()
 	_mark_dirty()
 	_rebuild_mesh()
+	_rebuild_grid()
+	_center_camera()
 
 func _ground_cells() -> void:
 	var min_y := grid_y
@@ -3383,6 +3443,10 @@ func _load_from_path(path: String) -> void:
 	grid_z = def.grid_z
 	CELL_SIZE = 1.0 / CHAR_RES if edit_mode == EditMode.CHARACTER else 1.0 / BLOCK_RES
 	cells = def.to_cells()
+	# Legacy (narrower) character models are re-centered into the standard grid.
+	if edit_mode == EditMode.CHARACTER and (grid_x < CHAR_GX or grid_y < CHAR_GY or grid_z < CHAR_GZ):
+		_embed_cells_centered(maxi(grid_x, CHAR_GX), maxi(grid_y, CHAR_GY), maxi(grid_z, CHAR_GZ))
+	_clear_chunks()
 	current_file_path = path
 	_unsaved_changes = false
 	_undo_stack.clear()
