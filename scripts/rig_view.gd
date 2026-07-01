@@ -45,7 +45,20 @@ var _owner: PackedInt32Array = PackedInt32Array()
 var _bb_min: Array = []       # Array[Vector3i] per joint (owned-voxel bbox)
 var _bb_max: Array = []       # Array[Vector3i] per joint
 var _overlap := 3.0           # socket overlap radius (voxels)
-var _color_parts := false     # debug: colour voxels by owning bone
+var _color_parts := false     # debug: colour parts by owning bone
+var _isolate := false         # debug: light up only the selected bone
+
+# Colourblind-safe qualitative palette (Okabe–Ito).
+const OKABE_ITO := [
+	Color(0.90, 0.62, 0.00),  # orange
+	Color(0.34, 0.71, 0.91),  # sky blue
+	Color(0.00, 0.62, 0.45),  # bluish green
+	Color(0.94, 0.89, 0.26),  # yellow
+	Color(0.00, 0.45, 0.70),  # blue
+	Color(0.84, 0.37, 0.00),  # vermillion
+	Color(0.80, 0.47, 0.65),  # reddish purple
+	Color(0.55, 0.55, 0.55),  # gray
+]
 var _meshes: Array = []      # Array[ArrayMesh] per joint (may hold null)
 var _nodes: Array = []       # Array[Node3D] per joint (preview)
 var _markers: Array = []     # Array[MeshInstance3D] per joint (preview)
@@ -56,6 +69,9 @@ var _has_model := false
 var _cam: Camera3D
 var _root3d: Node3D
 var _mat: ShaderMaterial
+var _part_shader: Shader
+var _part_mats: Array = []            # Array[ShaderMaterial] per bone (debug tint)
+var _mesh_instances: Array = []       # Array[MeshInstance3D] per bone (preview)
 var _joint_pick: OptionButton
 var _overlap_slider: HSlider
 var _overlap_val: Label
@@ -104,6 +120,22 @@ func _build_material() -> void:
 		"}\n"
 	_mat = ShaderMaterial.new()
 	_mat.shader = sh
+
+	# Flat per-bone tint (debug), same face shading so form stays readable.
+	var psh := Shader.new()
+	psh.code = "shader_type spatial;\n" + \
+		"render_mode unshaded, cull_disabled;\n" + \
+		"uniform vec4 part_color : source_color = vec4(1.0);\n" + \
+		"void fragment() {\n" + \
+		"\tfloat ny = abs(NORMAL.y); float nx = abs(NORMAL.x); float nz = abs(NORMAL.z);\n" + \
+		"\tfloat shade = 1.0;\n" + \
+		"\tif (ny > 0.9) { shade = NORMAL.y > 0.0 ? 1.0 : 0.5; }\n" + \
+		"\telse if (nx > nz) { shade = 0.8; }\n" + \
+		"\telse { shade = 0.7; }\n" + \
+		"\tALBEDO = part_color.rgb * shade;\n" + \
+		"\tALPHA = 1.0;\n" + \
+		"}\n"
+	_part_shader = psh
 
 # ─── UI ───
 
@@ -170,6 +202,12 @@ func _build_ui() -> void:
 	color_chk.button_pressed = _color_parts
 	color_chk.toggled.connect(_on_color_parts_toggled)
 	panel.add_child(color_chk)
+
+	var isolate_chk := CheckBox.new()
+	isolate_chk.text = "Isolate selected part"
+	isolate_chk.button_pressed = _isolate
+	isolate_chk.toggled.connect(_on_isolate_toggled)
+	panel.add_child(isolate_chk)
 
 	panel.add_child(HSeparator.new())
 
@@ -486,8 +524,39 @@ func _on_overlap_commit(_value_changed: bool) -> void:
 
 func _on_color_parts_toggled(on: bool) -> void:
 	_color_parts = on
-	if _has_model and not _owner.is_empty():
-		_rebuild_meshes()
+	_apply_debug_colors()
+
+func _on_isolate_toggled(on: bool) -> void:
+	_isolate = on
+	_apply_debug_colors()
+
+# Debug tinting via per-bone material overrides — instant, no mesh rebuild.
+# "Isolate" lights the selected bone white and greys the rest (colourblind-safe).
+func _apply_debug_colors() -> void:
+	if _mesh_instances.is_empty():
+		return
+	if _part_mats.size() != NJ:
+		_part_mats = []
+		for j in range(NJ):
+			var m := ShaderMaterial.new()
+			m.shader = _part_shader
+			_part_mats.append(m)
+	var sel := _joint_pick.selected
+	for j in range(_mesh_instances.size()):
+		var mi: MeshInstance3D = _mesh_instances[j]
+		if mi == null:
+			continue
+		if not _color_parts:
+			mi.material_override = null
+			continue
+		var col: Color
+		if _isolate:
+			col = Color(1, 1, 1) if j == sel else Color(0.26, 0.26, 0.30)
+		else:
+			col = OKABE_ITO[j % OKABE_ITO.size()]
+		var mat: ShaderMaterial = _part_mats[j]
+		mat.set_shader_parameter("part_color", col)
+		mi.material_override = mat
 
 func _dist_point_seg(p: Vector3, a: Vector3, b: Vector3) -> float:
 	var ab := b - a
@@ -552,11 +621,6 @@ func _build_owner_meshes(owner: PackedInt32Array) -> Array:
 		[Vector3(0, 0, s), Vector3(0, s, s), Vector3(s, s, s), Vector3(s, 0, s)],
 		[Vector3(s, 0, 0), Vector3(s, s, 0), Vector3(0, s, 0), Vector3(0, 0, 0)],
 	]
-	# Distinct debug colour per bone.
-	var pal: Array = []
-	for j in range(NJ):
-		pal.append(Color.from_hsv(fmod(j * 0.147, 1.0), 0.7, 1.0))
-
 	var r2 := _overlap * _overlap
 	var rr := int(ceil(_overlap))
 	var meshes: Array = []
@@ -590,14 +654,10 @@ func _build_owner_meshes(owner: PackedInt32Array) -> Array:
 					var origin := Vector3(x, y, z) * CELL - cpos * CELL
 					for i in range(6):
 						var d: Array = dirs[i]
-						var col: Color
-						if _color_parts:
-							col = pal[c]
-						else:
-							var fv: int = cell[d[1]]
-							col = CellTypes.decode_color(fv)
-							if CellTypes.is_rgb5551(fv) and col.a < CellTypes.ALPHA_THRESHOLD:
-								continue
+						var fv: int = cell[d[1]]
+						var col := CellTypes.decode_color(fv)
+						if CellTypes.is_rgb5551(fv) and col.a < CellTypes.ALPHA_THRESHOLD:
+							continue
 						var nrm: Vector3i = d[0]
 						var nx := x + nrm.x; var ny := y + nrm.y; var nz := z + nrm.z
 						if nx >= 0 and nx < gx and ny >= 0 and ny < gy and nz >= 0 and nz < gz:
@@ -650,8 +710,10 @@ func _build_hierarchy_preview() -> void:
 		c.queue_free()
 	_nodes = []
 	_markers = []
+	_mesh_instances = []
 	_nodes.resize(NJ)
 	_markers.resize(NJ)
+	_mesh_instances.resize(NJ)
 	# parents always precede children in the template, so a single pass works.
 	for j in range(NJ):
 		var node := Node3D.new()
@@ -674,6 +736,7 @@ func _build_hierarchy_preview() -> void:
 			for si in range((_meshes[j] as ArrayMesh).get_surface_count()):
 				mi.set_surface_override_material(si, _mat)
 			node.add_child(mi)
+			_mesh_instances[j] = mi
 
 		# joint marker
 		var mk := MeshInstance3D.new()
@@ -687,6 +750,7 @@ func _build_hierarchy_preview() -> void:
 		node.add_child(mk)
 		_markers[j] = mk
 	_highlight(_joint_pick.selected)
+	_apply_debug_colors()
 
 func _highlight(sel: int) -> void:
 	for j in range(_markers.size()):
@@ -719,6 +783,7 @@ func _on_joint_selected(idx: int) -> void:
 	_rot_slider[1].set_value_no_signal(r.y); _rot_val[1].text = str(int(r.y))
 	_rot_slider[2].set_value_no_signal(r.z); _rot_val[2].text = str(int(r.z))
 	_highlight(idx)
+	_apply_debug_colors()
 
 func _on_pos_changed(axis: int, v: float) -> void:
 	var idx := _joint_pick.selected
