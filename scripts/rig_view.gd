@@ -44,7 +44,7 @@ var _joint_rot: Array = []   # Array[Vector3] euler degrees
 var _owner: PackedInt32Array = PackedInt32Array()
 var _bb_min: Array = []       # Array[Vector3i] per joint (owned-voxel bbox)
 var _bb_max: Array = []       # Array[Vector3i] per joint
-var _overlap := 3.0           # socket overlap radius (voxels)
+var _overlap := 0.0           # socket overlap radius (voxels); 0 = off (cleanest)
 var _color_parts := false     # debug: colour parts by owning bone
 var _isolate := false         # debug: light up only the selected bone
 
