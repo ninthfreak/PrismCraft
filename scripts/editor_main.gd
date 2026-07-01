@@ -83,6 +83,16 @@ var box_preview_instance: MeshInstance3D
 
 var ui_layer: CanvasLayer
 var panel: PanelContainer
+
+# Ghost layer: a frozen semi-transparent snapshot of the model, overlaid for reference.
+var _ghost_instance: MeshInstance3D
+var _ghost_mat: ShaderMaterial
+var _has_ghost := false
+var _ghost_mode := 1   # 0 = model only, 1 = model + ghost, 2 = ghost only
+var ghost_set_btn: Button
+var ghost_mode_btn: Button
+var ghost_clear_btn: Button
+
 var coord_label: Label
 var dims_label: Label
 var file_label: Label
@@ -551,6 +561,32 @@ func _setup_ui() -> void:
 	view_cube.view_changed.connect(_on_view_cube_changed)
 	ui_layer.add_child(view_cube)
 
+	# Ghost layer control (lower right)
+	var ghost_panel := PanelContainer.new()
+	ghost_panel.position = Vector2(1920 - 210, 1080 - 138)
+	ghost_panel.custom_minimum_size = Vector2(196, 0)
+	var gv := VBoxContainer.new()
+	gv.add_theme_constant_override("separation", 3)
+	ghost_panel.add_child(gv)
+	var gtitle := Label.new()
+	gtitle.text = "Ghost Layer"
+	gv.add_child(gtitle)
+	ghost_set_btn = Button.new()
+	ghost_set_btn.text = "Set Current as Ghost"
+	ghost_set_btn.pressed.connect(_set_ghost)
+	gv.add_child(ghost_set_btn)
+	ghost_mode_btn = Button.new()
+	ghost_mode_btn.text = "View: Model only"
+	ghost_mode_btn.disabled = true
+	ghost_mode_btn.pressed.connect(_cycle_ghost_mode)
+	gv.add_child(ghost_mode_btn)
+	ghost_clear_btn = Button.new()
+	ghost_clear_btn.text = "Clear Ghost"
+	ghost_clear_btn.disabled = true
+	ghost_clear_btn.pressed.connect(_clear_ghost)
+	gv.add_child(ghost_clear_btn)
+	ui_layer.add_child(ghost_panel)
+
 	# File dialogs
 	save_dialog = FileDialog.new()
 	save_dialog.file_mode = FileDialog.FILE_MODE_SAVE_FILE
@@ -681,6 +717,69 @@ func _open_compare_view() -> void:
 	var disp := current_file_path.get_file() if not current_file_path.is_empty() else "(current)"
 	cv.load_cells(1, cells, grid_x, grid_y, grid_z, disp)
 	cv.popup_centered(Vector2i(1400, 820))
+
+# ─── Ghost layer ───
+
+func _make_ghost_material() -> ShaderMaterial:
+	var sh := Shader.new()
+	sh.code = "shader_type spatial;\n" + \
+		"render_mode unshaded, cull_disabled;\n" + \
+		"uniform float ghost_alpha = 0.35;\n" + \
+		"void fragment() {\n" + \
+		"\tfloat ny = abs(NORMAL.y); float nx = abs(NORMAL.x); float nz = abs(NORMAL.z);\n" + \
+		"\tfloat shade = 1.0;\n" + \
+		"\tif (ny > 0.9) { shade = NORMAL.y > 0.0 ? 1.0 : 0.5; }\n" + \
+		"\telse if (nx > nz) { shade = 0.8; }\n" + \
+		"\telse { shade = 0.7; }\n" + \
+		"\tALBEDO = COLOR.rgb * shade;\n" + \
+		"\tALPHA = ghost_alpha;\n" + \
+		"}\n"
+	var m := ShaderMaterial.new()
+	m.shader = sh
+	return m
+
+func _set_ghost() -> void:
+	if not _ghost_mat:
+		_ghost_mat = _make_ghost_material()
+	var mesh := BlockMeshBuilder.build_mesh(cells, grid_x, grid_y, grid_z, CELL_SIZE)
+	if not _ghost_instance:
+		_ghost_instance = MeshInstance3D.new()
+		add_child(_ghost_instance)
+	_ghost_instance.mesh = mesh
+	if mesh:
+		for si in range(mesh.get_surface_count()):
+			_ghost_instance.set_surface_override_material(si, _ghost_mat)
+	_has_ghost = true
+	_ghost_mode = 1
+	ghost_mode_btn.disabled = false
+	ghost_clear_btn.disabled = false
+	_apply_ghost_mode()
+
+func _cycle_ghost_mode() -> void:
+	if not _has_ghost:
+		return
+	_ghost_mode = (_ghost_mode + 1) % 3
+	_apply_ghost_mode()
+
+func _apply_ghost_mode() -> void:
+	var show_ghost := _has_ghost and _ghost_mode != 0
+	var show_model := not (_has_ghost and _ghost_mode == 2)
+	_chunk_container.visible = show_model
+	if _ghost_instance:
+		_ghost_instance.visible = show_ghost
+	var names := ["Model only", "Model + Ghost", "Ghost only"]
+	ghost_mode_btn.text = "View: " + names[_ghost_mode]
+
+func _clear_ghost() -> void:
+	_has_ghost = false
+	_ghost_mode = 1
+	if _ghost_instance:
+		_ghost_instance.queue_free()
+		_ghost_instance = null
+	_chunk_container.visible = true
+	ghost_mode_btn.disabled = true
+	ghost_clear_btn.disabled = true
+	ghost_mode_btn.text = "View: Model only"
 
 func _toggle_flat_color_mode() -> void:
 	_flat_color_mode = not _flat_color_mode
@@ -1164,6 +1263,8 @@ func _set_edit_mode(mode: int) -> void:
 	_do_set_edit_mode(mode)
 
 func _do_set_edit_mode(mode: int) -> void:
+	if _has_ghost:
+		_clear_ghost()   # grid size changes; a stale ghost would misalign
 	edit_mode = mode
 	_undo_stack.clear()
 	if edit_mode == EditMode.BLOCK:
