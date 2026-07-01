@@ -512,7 +512,8 @@ func _build_owner_meshes(owner: PackedInt32Array) -> Array:
 				if o < 0:
 					continue
 				var cell: Array = cells[x][y][z]
-				var origin := Vector3(x, y, z) * CELL - _joint_pos[o] * CELL
+				var pivot: Vector3 = _joint_pos[o]
+				var origin := Vector3(x, y, z) * CELL - pivot * CELL
 				for i in range(6):
 					var d: Array = dirs[i]
 					var fv: int = cell[d[1]]
