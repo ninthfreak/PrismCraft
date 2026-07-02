@@ -64,14 +64,28 @@ Hold **Shift** with Line to lock to an axis, with Rectangle to force a square, o
 - **Prism cells** with 12 orientations (3 axes x 4 corners) for diagonal geometry
 - **3D view cube** in the top-right corner for quick camera orientation -- click a face to snap to that view, or drag to orbit
 - **Import PNG** to place a flat image as voxels (RGB565, or RGB5551 cutout when the PNG has transparency)
-- **Import Block Texture** with strict 1:1 texel-to-voxel mapping, auto-detected by exact dimensions:
+- **Import Block Texture** with strict 1:1 texel-to-voxel mapping, auto-detected by exact dimensions. Every shape slices its atlas 1:1 onto its faces; where a shape has orientation options (facing / inverted / ridge axis / wall side / quadrant) they are chosen in the import preview, so one atlas serves all rotations. Any other size is rejected with a warning listing the legal sizes. See [`docs/block_formats.md`](docs/block_formats.md) for full atlas layouts.
+  - *Cubes:*
   - **32x32** (uniform) -- same texture on all 6 faces
   - **64x32** (capped) -- left half for 4 sides, right half for top and bottom
   - **96x64** (6-face net) -- 3x2 grid: top/front/right on row 1, bottom/back/left on row 2
-  - **124x32** (full octagon, F=32) -- variable-width strip (14,9,14,9,14,9,14,9) + 32x32 cap; 1 texel = 1 voxel face
+  - *Octagons:*
+  - **124x32** (full octagon, F=32) -- variable-width strip (14,9,14,9,14,9,14,9) + 32x32 cap
   - **60x32** (half octagon, F=16) -- variable-width strip (6,5,6,5,6,5,6,5) + 16x16 cap; centered post/pillar
-  - **Predefined prism shapes** (block mode, exact sizes): **96x32** diamond column, **144x32** chamfered cube column, **160x32** cross/plus column, **128x64** ramp/wedge, **128x48** gable/ridge, **112x32** diagonal wall, **224x32** chamfered opening, **64x34** panel, **64x48** slab_quarter, **64x64** slab_half, **128x32** stairs_2, **80x64** stairs_4, **120x32** pipe_quarter (hollow octagonal pipe -- four rotations close a ring). Each slices its atlas 1:1 onto the shape's faces; orientation (facing / inverted / ridge axis / wall side / quadrant) is chosen in the import preview, so one atlas serves all rotations.
-  - Any other size is rejected with a warning listing the legal sizes
+  - *Predefined shapes (block mode):*
+  - **96x32** (diamond) -- diamond column, four 45 degree faces
+  - **144x32** (chamfered) -- cube with four vertical edges chamfered
+  - **160x32** (cross) -- plus/girder column
+  - **128x64** (ramp) -- 45 degree wedge, facing + inverted
+  - **128x48** (gable) -- twin slopes at a centered ridge, ridge along X or Z
+  - **112x32** (diagonal wall) -- corner-to-corner wall, NE-SW or NW-SE
+  - **224x32** (opening) -- cube with one top edge chamfered (arch/coping)
+  - **64x34** (panel) -- flat 32x32x1, floor/ceiling/wall
+  - **64x48** (slab_quarter) -- flat 32x32x8, floor/ceiling/wall
+  - **64x64** (slab_half) -- flat 32x32x16, floor/ceiling/wall
+  - **128x32** (stairs_2) -- solid stair, two 16-voxel steps
+  - **80x64** (stairs_4) -- solid stair, four 8-voxel steps
+  - **120x32** (pipe_quarter) -- hollow octagonal pipe; four rotations close a ring
 - **Import Character Sprites** to generate a rough 3D model from a front and side PNG using silhouette intersection
 - **Export Model** (File menu) writes an optimized mesh as glTF binary (`.glb`, recommended) or Wavefront `.obj`, using greedy face merging with materials per unique color
 - **Rig Paint tool** and **Rig / Skeleton** window (View menu) for painting per-voxel bone ownership and overlap regions, then bend-testing a rigid segmented skeleton
