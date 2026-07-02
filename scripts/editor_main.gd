@@ -24,6 +24,10 @@ var current_type: int = CellTypes.Type.SOLID
 var current_orientation: int = 0
 var current_color: int = CellTypes.encode_rgb565(CellTypes.FAVORITES[0])
 var current_file_path := ""
+# Naming-convention base name suggested by the last imported block texture
+# (filename minus the trailing dimension token), used as the Save/Export default.
+var _suggested_name := ""
+var _block_tex_basename := ""
 var floor_y: int = 0      # clamp lower bound, measured along edit_axis
 var ceiling_y: int = -1   # clamp upper bound along edit_axis (-1 = off)
 var edit_axis: int = 1    # 0 = X, 1 = Y, 2 = Z. The floor/ceiling clamp and
@@ -1655,6 +1659,7 @@ func _do_set_edit_mode(mode: int) -> void:
 		grid_x = CHAR_GX; grid_y = CHAR_GY; grid_z = CHAR_GZ
 		CELL_SIZE = 1.0 / CHAR_RES
 	current_file_path = ""
+	_suggested_name = ""
 	_unsaved_changes = false
 	place_cell = Vector3i(-1, -1, -1)
 	target_cell = Vector3i(-1, -1, -1)
@@ -2855,6 +2860,8 @@ func _draw_shape_preview(shape_cells: Array) -> void:
 func _save() -> void:
 	if current_file_path.is_empty():
 		save_dialog.current_dir = "res://definitions"
+		if not _suggested_name.is_empty():
+			save_dialog.current_file = _suggested_name + ".res"
 		save_dialog.popup_centered()
 	else:
 		_save_to_path(current_file_path)
@@ -2865,6 +2872,8 @@ func _save_as() -> void:
 		save_dialog.current_file = current_file_path.get_file().get_basename() + ".res"
 	else:
 		save_dialog.current_dir = "res://definitions"
+		if not _suggested_name.is_empty():
+			save_dialog.current_file = _suggested_name + ".res"
 	save_dialog.popup_centered()
 
 func _open() -> void:
@@ -2953,6 +2962,18 @@ func _import_block_texture() -> void:
 		return
 	_do_import_block_texture()
 
+# Strip a texture path down to the naming-convention base (block ID form):
+# drop the extension, then a trailing dimension token like "_64x32" / "_124x32".
+# e.g. "res://tex/wall_brick_new_64x32.png" -> "wall_brick_new".
+func _naming_basename(path: String) -> String:
+	var base := path.get_file().get_basename()
+	var re := RegEx.new()
+	re.compile("_\\d+x\\d+$")
+	var m := re.search(base)
+	if m:
+		base = base.substr(0, m.get_start())
+	return base
+
 func _do_import_block_texture() -> void:
 	if edit_mode != EditMode.BLOCK:
 		_do_set_edit_mode(EditMode.BLOCK)
@@ -2964,6 +2985,7 @@ func _on_block_texture_selected(path: String) -> void:
 	var image := Image.new()
 	if image.load(path) != OK:
 		return
+	_block_tex_basename = _naming_basename(path)
 
 	var w := image.get_width()
 	var h := image.get_height()
@@ -3151,6 +3173,12 @@ func _rebuild_block_tex_preview(octagon: bool) -> void:
 		_block_tex_previews[names[i]] = tex_rect
 
 func _on_block_tex_apply() -> void:
+	# An imported block texture is a fresh document; suggest its naming-convention
+	# name for Save/Export and drop any previously-open file path.
+	if not _block_tex_basename.is_empty():
+		_suggested_name = _block_tex_basename
+		current_file_path = ""
+
 	if _block_tex_shape != "":
 		_apply_shape_block()
 		return
@@ -3495,12 +3523,25 @@ func _apply_face_texture(color_map: Array, face_idx: int, erase_pos: Callable, c
 
 func _export_obj() -> void:
 	export_dialog.current_dir = "res://definitions"
+	var base := _export_default_base()
+	if not base.is_empty():
+		export_dialog.current_file = base + ".glb"
 	export_dialog.popup_centered()
 
 func _export_slab_part() -> void:
 	_export_slab_mode = true
 	export_dialog.current_dir = "res://definitions"
+	var base := _export_default_base()
+	if not base.is_empty():
+		export_dialog.current_file = base + "_part.glb"
 	export_dialog.popup_centered()
+
+# Default base name for exports: a saved/open file name takes precedence,
+# else the naming-convention name suggested by the last block-texture import.
+func _export_default_base() -> String:
+	if not current_file_path.is_empty():
+		return current_file_path.get_file().get_basename()
+	return _suggested_name
 
 func _on_export_obj_selected(path: String) -> void:
 	var slab := _export_slab_mode
@@ -3787,6 +3828,7 @@ func _load_from_path(path: String) -> void:
 		_embed_cells_centered(maxi(grid_x, CHAR_GX), maxi(grid_y, CHAR_GY), maxi(grid_z, CHAR_GZ))
 	_clear_chunks()
 	current_file_path = path
+	_suggested_name = ""
 	_unsaved_changes = false
 	_undo_stack.clear()
 	_cancel_box()
