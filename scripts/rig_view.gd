@@ -428,18 +428,19 @@ func _auto_fit() -> void:
 	_joint_pos[2]  = Vector3(torso_cx, shoulder_y, cz)               # chest
 	_joint_pos[3]  = Vector3(torso_cx, neck_y, cz)                    # neck (head pivot)
 	_joint_pos[4]  = Vector3(head_cx, head_cy, head_cz)              # head (endpoint)
-	_joint_pos[5]  = Vector3(torso_lo, shoulder_y, cz)               # L_shoulder
-	_joint_pos[6]  = Vector3((torso_lo + arm_lo) * 0.5, shoulder_y, cz)  # L_elbow
-	_joint_pos[7]  = Vector3(arm_lo, shoulder_y, cz)                 # L_wrist (endpoint)
-	_joint_pos[8]  = Vector3(torso_hi, shoulder_y, cz)               # R_shoulder
-	_joint_pos[9]  = Vector3((torso_hi + arm_hi) * 0.5, shoulder_y, cz)  # R_elbow
-	_joint_pos[10] = Vector3(arm_hi, shoulder_y, cz)                 # R_wrist (endpoint)
-	_joint_pos[11] = Vector3(lleg_x, hips_y, cz)                     # L_hip
-	_joint_pos[12] = Vector3(lleg_x, knee_y, cz)                     # L_knee
-	_joint_pos[13] = Vector3(lleg_x, ankle_y, cz)                    # L_ankle (endpoint)
-	_joint_pos[14] = Vector3(rleg_x, hips_y, cz)                     # R_hip
-	_joint_pos[15] = Vector3(rleg_x, knee_y, cz)                     # R_knee
-	_joint_pos[16] = Vector3(rleg_x, ankle_y, cz)                    # R_ankle (endpoint)
+	# Anatomical L/R: higher-x side is the character's LEFT, lower-x is RIGHT.
+	_joint_pos[5]  = Vector3(torso_hi, shoulder_y, cz)               # L_shoulder
+	_joint_pos[6]  = Vector3((torso_hi + arm_hi) * 0.5, shoulder_y, cz)  # L_elbow
+	_joint_pos[7]  = Vector3(arm_hi, shoulder_y, cz)                 # L_wrist (endpoint)
+	_joint_pos[8]  = Vector3(torso_lo, shoulder_y, cz)               # R_shoulder
+	_joint_pos[9]  = Vector3((torso_lo + arm_lo) * 0.5, shoulder_y, cz)  # R_elbow
+	_joint_pos[10] = Vector3(arm_lo, shoulder_y, cz)                 # R_wrist (endpoint)
+	_joint_pos[11] = Vector3(rleg_x, hips_y, cz)                     # L_hip
+	_joint_pos[12] = Vector3(rleg_x, knee_y, cz)                     # L_knee
+	_joint_pos[13] = Vector3(rleg_x, ankle_y, cz)                    # L_ankle (endpoint)
+	_joint_pos[14] = Vector3(lleg_x, hips_y, cz)                     # R_hip
+	_joint_pos[15] = Vector3(lleg_x, knee_y, cz)                     # R_knee
+	_joint_pos[16] = Vector3(lleg_x, ankle_y, cz)                    # R_ankle (endpoint)
 
 	for i in range(NJ):
 		_joint_rot[i] = Vector3.ZERO

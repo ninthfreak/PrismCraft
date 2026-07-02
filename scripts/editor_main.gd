@@ -1,7 +1,7 @@
 extends Node3D
 
 enum EditMode { BLOCK, CHARACTER }
-enum ToolType { PENCIL, BOX, ERASER, BOX_ERASE, EXTRUDE, LINE, RECT, OVAL, SMOOTH_EDGE, PAINT, BUCKET, EYEDROP, SHIFT }
+enum ToolType { PENCIL, BOX, ERASER, BOX_ERASE, EXTRUDE, LINE, RECT, OVAL, SMOOTH_EDGE, PAINT, BUCKET, EYEDROP, SHIFT, RIG_PAINT }
 
 const BLOCK_RES := 32
 const CHAR_RES := 64
@@ -99,6 +99,15 @@ var ghost_mode_btn: Button
 var ghost_clear_btn: Button
 
 var shift_panel: PanelContainer   # Shift Voxels arrow control (shown when Shift tool active)
+
+# ─── Rig Paint tool ───
+var _rig: RigData = null
+var _rig_active_bone := 0
+var _rig_brush := 0               # 0 = Limb (owner), 1 = Not-limb, 2 = Overlap
+var _rig_overlay: MeshInstance3D = null
+var _rig_overlay_mat: ShaderMaterial = null
+var rig_panel: PanelContainer     # shown when Rig Paint tool active
+var _rig_bone_pick: OptionButton
 
 var coord_label: Label
 var dims_label: Label
@@ -391,6 +400,7 @@ func _setup_ui() -> void:
 	var _tool_row_fill := _add_button_row(vbox, ["Box Fill"], tool_group)
 	var _tool_row3 := _add_button_row(vbox, ["Extrude", "Smooth"], tool_group)
 	var _tool_row_shift := _add_button_row(vbox, ["Shift"], tool_group)
+	var _tool_row_rig := _add_button_row(vbox, ["Rig Paint"], tool_group)
 	var tool_row4 := _add_button_row(vbox, ["Line", "Rect", "Oval"], tool_group)
 	_rect_btn = tool_row4[1]
 	_oval_btn = tool_row4[2]
@@ -669,6 +679,51 @@ func _setup_ui() -> void:
 		sv.add_child(hb)
 	ui_layer.add_child(shift_panel)
 
+	# Rig Paint control (shown only when the Rig Paint tool is active)
+	rig_panel = PanelContainer.new()
+	rig_panel.position = Vector2(200, 60)
+	rig_panel.visible = false
+	var rv := VBoxContainer.new()
+	rv.add_theme_constant_override("separation", 4)
+	rig_panel.add_child(rv)
+	var rtitle := Label.new()
+	rtitle.text = "Rig Paint — active bone"
+	rv.add_child(rtitle)
+	_rig_bone_pick = OptionButton.new()
+	for n in RigData.JOINT_NAMES:
+		_rig_bone_pick.add_item(n)
+	_rig_bone_pick.item_selected.connect(_on_rig_bone_selected)
+	rv.add_child(_rig_bone_pick)
+	var rfit := Button.new()
+	rfit.text = "Auto-Fit Skeleton (re-seed)"
+	rfit.pressed.connect(_on_rig_autofit)
+	rv.add_child(rfit)
+	rv.add_child(Label.new())  # spacer
+	var brush_lbl := Label.new(); brush_lbl.text = "Brush:"
+	rv.add_child(brush_lbl)
+	var brush_group := ButtonGroup.new()
+	var brow := HBoxContainer.new()
+	brow.add_theme_constant_override("separation", 4)
+	for entry in [["Limb", 0], ["Not limb", 1], ["Overlap", 2]]:
+		var b := Button.new()
+		b.toggle_mode = true
+		b.button_group = brush_group
+		b.text = entry[0]
+		var bval: int = entry[1]
+		b.pressed.connect(func(): _rig_brush = bval)
+		if bval == 0:
+			b.button_pressed = true
+		brow.add_child(b)
+	rv.add_child(brow)
+	var rhint := Label.new()
+	rhint.text = "Slice with floor/ceiling clamp + edit axis,\nthen click voxels. Active bone = solid,\nothers dim, overlap = orange."
+	rv.add_child(rhint)
+	var ropen := Button.new()
+	ropen.text = "Open Rig Window (pose / export)"
+	ropen.pressed.connect(_open_rig_view)
+	rv.add_child(ropen)
+	ui_layer.add_child(rig_panel)
+
 	# File dialogs
 	save_dialog = FileDialog.new()
 	save_dialog.file_mode = FileDialog.FILE_MODE_SAVE_FILE
@@ -808,6 +863,138 @@ func _open_rig_view() -> void:
 	# Seed with the current working model so Auto-Fit can run immediately.
 	rv.set_model(cells, grid_x, grid_y, grid_z)
 	rv.popup_centered(Vector2i(1500, 860))
+
+# ─── Rig Paint tool ───
+
+func _enter_rig_paint() -> void:
+	var n := grid_x * grid_y * grid_z
+	if _rig == null or _rig.gx != grid_x or _rig.gy != grid_y or _rig.gz != grid_z:
+		_rig = RigData.new()
+		_rig.set_grid(cells, grid_x, grid_y, grid_z)
+		_rig.auto_fit()
+	else:
+		_rig.set_grid(cells, grid_x, grid_y, grid_z)
+		if not _rig.fitted or _rig.owner.size() != n:
+			_rig.auto_fit()
+	rig_panel.visible = true
+	_rig_bone_pick.select(_rig_active_bone)
+	if _rig_overlay == null:
+		_rig_overlay = MeshInstance3D.new()
+		_chunk_container.get_parent().add_child(_rig_overlay)
+		_rig_overlay_mat = _make_ceiling_shader(false)
+	_rig_overlay.visible = true
+	_chunk_container.visible = false
+	_refresh_rig_overlay()
+
+func _exit_rig_paint() -> void:
+	if rig_panel:
+		rig_panel.visible = false
+	if _rig_overlay:
+		_rig_overlay.visible = false
+	if _chunk_container:
+		_chunk_container.visible = true
+
+func _on_rig_bone_selected(idx: int) -> void:
+	_rig_active_bone = idx
+	_refresh_rig_overlay()
+
+func _on_rig_autofit() -> void:
+	if _rig == null:
+		return
+	_rig.set_grid(cells, grid_x, grid_y, grid_z)
+	_rig.auto_fit()
+	_refresh_rig_overlay()
+
+func _rig_paint_cell(cell: Vector3i) -> void:
+	if _rig == null or not _in_bounds(cell):
+		return
+	if not _rig.is_solid(cell.x, cell.y, cell.z):
+		return
+	match _rig_brush:
+		0: _rig.paint_owner(cell.x, cell.y, cell.z, _rig_active_bone)
+		1: _rig.reassign_excluding(cell.x, cell.y, cell.z, _rig_active_bone)
+		2: _rig.paint_overlap(cell.x, cell.y, cell.z, _rig_active_bone)
+	_refresh_rig_overlay()
+
+func _refresh_rig_overlay() -> void:
+	if _rig_overlay == null or _rig == null:
+		return
+	_rig_overlay.mesh = _build_rig_overlay_mesh()
+	if _rig_overlay.mesh and _rig_overlay.mesh.get_surface_count() > 0:
+		_rig_overlay.set_surface_override_material(0, _rig_overlay_mat)
+	var clip_val: float = -1.0
+	if ceiling_y >= 0:
+		clip_val = (ceiling_y + 1) * CELL_SIZE
+	if _rig_overlay_mat:
+		_rig_overlay_mat.set_shader_parameter("ceiling_clip", clip_val)
+		_rig_overlay_mat.set_shader_parameter("clip_axis", edit_axis)
+
+# Overlay mesh coloured by paint state relative to the active bone. Uses the same
+# clamp cap-face rule as the normal mesh so floor/ceiling slicing reveals interior.
+func _build_rig_overlay_mesh() -> ArrayMesh:
+	var active := _rig_active_bone
+	var dirs := [
+		[Vector3i(0, 1, 0), Vector3(0, 1, 0)],
+		[Vector3i(0, -1, 0), Vector3(0, -1, 0)],
+		[Vector3i(1, 0, 0), Vector3(1, 0, 0)],
+		[Vector3i(-1, 0, 0), Vector3(-1, 0, 0)],
+		[Vector3i(0, 0, 1), Vector3(0, 0, 1)],
+		[Vector3i(0, 0, -1), Vector3(0, 0, -1)],
+	]
+	var s := CELL_SIZE
+	var quads := [
+		[Vector3(0, s, 0), Vector3(s, s, 0), Vector3(s, s, s), Vector3(0, s, s)],
+		[Vector3(0, 0, s), Vector3(s, 0, s), Vector3(s, 0, 0), Vector3(0, 0, 0)],
+		[Vector3(s, 0, 0), Vector3(s, s, 0), Vector3(s, s, s), Vector3(s, 0, s)],
+		[Vector3(0, 0, s), Vector3(0, s, s), Vector3(0, s, 0), Vector3(0, 0, 0)],
+		[Vector3(0, 0, s), Vector3(0, s, s), Vector3(s, s, s), Vector3(s, 0, s)],
+		[Vector3(s, 0, 0), Vector3(s, s, 0), Vector3(0, s, 0), Vector3(0, 0, 0)],
+	]
+	var c_dim := Color(0.30, 0.30, 0.33)
+	var c_act := Color(0.98, 0.86, 0.30)
+	var c_ov := Color(0.95, 0.52, 0.12)
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var solid := _rig.solid
+	var owner := _rig.owner
+	var ovl := _rig.overlap
+	for x in range(grid_x):
+		for y in range(grid_y):
+			var base := (x * grid_y + y) * grid_z
+			for z in range(grid_z):
+				var i := base + z
+				if solid[i] == 0:
+					continue
+				var col := c_dim
+				if ovl[i] == active:
+					col = c_ov
+				elif owner[i] == active:
+					col = c_act
+				var cell_depth: int = x if edit_axis == 0 else (y if edit_axis == 1 else z)
+				var origin := Vector3(x, y, z) * s
+				for fi in range(6):
+					var dv: Vector3i = dirs[fi][0]
+					var is_cap: bool = dv[edit_axis] == 1
+					var force_face: bool = is_cap and ceiling_y >= 0 and cell_depth == ceiling_y
+					if not force_face and _rig.is_solid(x + dv.x, y + dv.y, z + dv.z):
+						continue
+					var q: Array = quads[fi]
+					var nrm: Vector3 = dirs[fi][1]
+					_rig_add_quad(st, origin + q[0], origin + q[1], origin + q[2], origin + q[3], nrm, col)
+	return st.commit()
+
+func _rig_add_quad(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Vector3, normal: Vector3, color: Color) -> void:
+	_rig_add_tri(st, a, b, c, normal, color)
+	_rig_add_tri(st, a, c, d, normal, color)
+
+func _rig_add_tri(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, normal: Vector3, color: Color) -> void:
+	st.set_normal(normal)
+	st.set_color(color)
+	var cp := (b - a).cross(c - a)
+	if cp.dot(normal) < 0:
+		st.add_vertex(a); st.add_vertex(b); st.add_vertex(c)
+	else:
+		st.add_vertex(a); st.add_vertex(c); st.add_vertex(b)
 
 # ─── Ghost layer ───
 
@@ -1286,11 +1473,16 @@ func _on_tool_pressed(btn: BaseButton) -> void:
 		"Oval": current_tool = ToolType.OVAL
 		"Smooth": current_tool = ToolType.SMOOTH_EDGE
 		"Shift": current_tool = ToolType.SHIFT
+		"Rig Paint": current_tool = ToolType.RIG_PAINT
 	_cancel_box()
 	_cancel_extrude()
 	_cancel_smooth()
 	if shift_panel:
 		shift_panel.visible = current_tool == ToolType.SHIFT
+	if current_tool == ToolType.RIG_PAINT:
+		_enter_rig_paint()
+	else:
+		_exit_rig_paint()
 
 func _on_type_pressed(btn: BaseButton) -> void:
 	if btn.text == "Solid":
@@ -1826,6 +2018,8 @@ func _on_left_click() -> void:
 		ToolType.EYEDROP:
 			if _in_bounds(target_cell) and cells[target_cell.x][target_cell.y][target_cell.z][0] != CellTypes.Type.EMPTY:
 				_eyedrop_color(target_cell)
+		ToolType.RIG_PAINT:
+			_rig_paint_cell(target_cell)
 		ToolType.BOX_ERASE:
 			if not box_active:
 				if _in_bounds(target_cell):
@@ -3710,6 +3904,9 @@ func _update_ceiling_uniforms() -> void:
 		clip_val = (ceiling_y + 1) * CELL_SIZE
 	for mi: MeshInstance3D in _chunk_meshes.values():
 		_update_chunk_ceiling_val(mi, clip_val)
+	# The rig overlay's cap faces depend on ceiling_y + edit_axis, so rebuild it.
+	if current_tool == ToolType.RIG_PAINT and _rig_overlay and _rig_overlay.visible:
+		_refresh_rig_overlay()
 
 func _update_chunk_ceiling(mi: MeshInstance3D) -> void:
 	var clip_val: float = -1.0
