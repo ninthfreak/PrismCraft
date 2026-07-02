@@ -23,6 +23,9 @@ const ROT_FACE := {2: 2, 3: 3, 4: 7, 5: 6, 6: 4, 7: 5}
 # Vertical flip (y -> N-1-y): top<->bottom, prism corners mirror.
 const FLIP_ORIENT := [0, 1, 2, 3, 5, 4, 7, 6, 11, 10, 9, 8]
 const FLIP_FACE := {2: 3, 3: 2, 4: 4, 5: 5, 6: 6, 7: 7}
+# X-rotation 90: grid dest(x, z, gy-1-y). Faces: +Y->-Z, +Z->+Y, X unchanged.
+const ROTX_ORIENT := [8, 9, 10, 11, 7, 4, 5, 6, 3, 2, 1, 0]
+const ROTX_FACE := {2: 7, 3: 6, 4: 4, 5: 5, 6: 2, 7: 3}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Public entry. opt = {"facing": int 0..3, "inverted": bool} (shape-dependent).
@@ -36,6 +39,12 @@ static func build(shape: String, img: Image, use_alpha: bool, gx: int, gy: int, 
 		"chamfered": cells = _build_chamfered_box(img, CHAMFER_COLUMN, use_alpha, gx, gy, gz)
 		"cross": cells = _build_cross(img, use_alpha, gx, gy, gz)
 		"opening": cells = _build_opening(img, use_alpha, gx, gy, gz)
+		"panel": cells = _build_slab(img, 1, use_alpha, gx, gy, gz)
+		"slab_quarter": cells = _build_slab(img, 8, use_alpha, gx, gy, gz)
+		"slab_half": cells = _build_slab(img, 16, use_alpha, gx, gy, gz)
+		"stairs_2": cells = _build_stairs(img, 2, use_alpha, gx, gy, gz)
+		"stairs_4": cells = _build_stairs(img, 4, use_alpha, gx, gy, gz)
+		"pipe_quarter": cells = _build_pipe_quarter(img, use_alpha, gx, gy, gz)
 		_: return _new_cells(gx, gy, gz)
 
 	var facing: int = opt.get("facing", 0)
@@ -43,6 +52,12 @@ static func build(shape: String, img: Image, use_alpha: bool, gx: int, gy: int, 
 		cells = rotate_y(cells, gx, gy, gz)
 	if opt.get("inverted", false):
 		cells = flip_vertical(cells, gx, gy, gz)
+	# Extra explicit transform ops (rx / ry / flip), applied in order.
+	for op in opt.get("ops", []):
+		match op:
+			"rx": cells = rotate_x(cells, gx, gy, gz)
+			"ry": cells = rotate_y(cells, gx, gy, gz)
+			"flip": cells = flip_vertical(cells, gx, gy, gz)
 	return cells
 
 # ─── grid helpers ────────────────────────────────────────────────────────────
@@ -108,6 +123,26 @@ static func rotate_y(cells: Array, gx: int, gy: int, gz: int) -> Array:
 					for f in range(CellTypes.FACE_TOP, CellTypes.FACE_BACK + 1):
 						nc[ROT_FACE[f]] = c[f]
 				out[nx][y][nz] = nc
+	return out
+
+# 90 about X. Requires gy == gz.
+static func rotate_x(cells: Array, gx: int, gy: int, gz: int) -> Array:
+	var out := _new_cells(gx, gy, gz)
+	for x in range(gx):
+		for y in range(gy):
+			for z in range(gz):
+				var c: Array = cells[x][y][z]
+				if c[0] == CellTypes.Type.EMPTY:
+					continue
+				var ny := z
+				var nz := gy - 1 - y
+				var nc := [c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]]
+				if c[0] == CellTypes.Type.PRISM:
+					nc[1] = ROTX_ORIENT[c[1]]
+				else:
+					for f in range(CellTypes.FACE_TOP, CellTypes.FACE_BACK + 1):
+						nc[ROTX_FACE[f]] = c[f]
+				out[x][ny][nz] = nc
 	return out
 
 static func flip_vertical(cells: Array, gx: int, gy: int, gz: int) -> Array:
@@ -424,6 +459,162 @@ static func _build_opening(img: Image, use_alpha: bool, gx: int, gy: int, gz: in
 		for y in range(F - d, F):
 			if cells[x][y][0][0] == CellTypes.Type.SOLID:
 				cells[x][y][0][CellTypes.FACE_BACK] = _encode(back, gx - 1 - x, F - 1 - y, use_alpha)
+	if use_alpha:
+		_erase_transparent(cells, gx, gy, gz)
+	return cells
+
+# ─── PANEL / SLAB (thin flat cube, thickness t, flush to bottom) ─────────────
+# Atlas: row1 top|bottom (32x32); then N|S then E|W, each 32 x t.
+static func _build_slab(img: Image, t: int, use_alpha: bool, gx: int, gy: int, gz: int) -> Array:
+	var cells := _new_cells(gx, gy, gz)
+	var F := gx
+	var top := img.get_region(Rect2i(0, 0, F, F))
+	var bottom := img.get_region(Rect2i(F, 0, F, F))
+	var n_img := img.get_region(Rect2i(0, F, F, t))       # +Z
+	var s_img := img.get_region(Rect2i(F, F, F, t))       # -Z
+	var e_img := img.get_region(Rect2i(0, F + t, F, t))   # +X
+	var w_img := img.get_region(Rect2i(F, F + t, F, t))   # -X
+	var fill := _fill_color(top, use_alpha)
+	for x in range(F):
+		for y in range(t):
+			for z in range(F):
+				cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.SOLID, 0, fill)
+	for x in range(F):
+		for z in range(F):
+			cells[x][t - 1][z][CellTypes.FACE_TOP] = _encode(top, x, F - 1 - z, use_alpha)
+			cells[x][0][z][CellTypes.FACE_BOTTOM] = _encode(bottom, x, F - 1 - z, use_alpha)
+	for y in range(t):
+		for z in range(F):
+			cells[F - 1][y][z][CellTypes.FACE_RIGHT] = _encode(e_img, z, t - 1 - y, use_alpha)
+			cells[0][y][z][CellTypes.FACE_LEFT] = _encode(w_img, z, t - 1 - y, use_alpha)
+	for y in range(t):
+		for x in range(F):
+			cells[x][y][F - 1][CellTypes.FACE_FRONT] = _encode(n_img, x, t - 1 - y, use_alpha)
+			cells[x][y][0][CellTypes.FACE_BACK] = _encode(s_img, x, t - 1 - y, use_alpha)
+	if use_alpha:
+		_erase_transparent(cells, gx, gy, gz)
+	return cells
+
+# ─── STAIRS (n equal steps climbing +X, extruded along Z) ────────────────────
+static func _build_stairs(img: Image, nsteps: int, use_alpha: bool, gx: int, gy: int, gz: int) -> Array:
+	var cells := _new_cells(gx, gy, gz)
+	var F := gx
+	var ss := F / nsteps
+	var tread: Image
+	var riser: Image
+	var back: Image
+	var bottom: Image
+	var side: Image
+	if nsteps == 2:
+		tread = img.get_region(Rect2i(0, 0, ss, F))
+		riser = img.get_region(Rect2i(ss, 0, ss, F))
+		back = img.get_region(Rect2i(ss * 2, 0, F, F))
+		bottom = img.get_region(Rect2i(ss * 2 + F, 0, F, F))
+		side = img.get_region(Rect2i(ss * 2 + F * 2, 0, F, F))
+	else:
+		tread = img.get_region(Rect2i(0, 0, ss, F))
+		riser = img.get_region(Rect2i(ss, 0, ss, F))
+		back = img.get_region(Rect2i(ss * 2, 0, F, F))
+		bottom = img.get_region(Rect2i(ss * 2 + F, 0, F, F))
+		side = img.get_region(Rect2i(0, F, F, F))
+	var fill := _fill_color(bottom, use_alpha)
+	for x in range(F):
+		var i := x / ss
+		var top_h := (i + 1) * ss
+		for y in range(top_h):
+			for z in range(gz):
+				cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.SOLID, 0, fill)
+	# paint faces
+	for x in range(F):
+		for y in range(gy):
+			for z in range(gz):
+				if cells[x][y][z][0] != CellTypes.Type.SOLID:
+					continue
+				# top face where nothing above -> tread
+				if y + 1 >= gy or cells[x][y + 1][z][0] == CellTypes.Type.EMPTY:
+					cells[x][y][z][CellTypes.FACE_TOP] = _encode(tread, x % ss, F - 1 - y, use_alpha)
+				# -X face where nothing to the left -> riser
+				if x == 0 or cells[x - 1][y][z][0] == CellTypes.Type.EMPTY:
+					cells[x][y][z][CellTypes.FACE_LEFT] = _encode(riser, x % ss, F - 1 - y, use_alpha)
+				# +X wall at back
+				if x == F - 1:
+					cells[x][y][z][CellTypes.FACE_RIGHT] = _encode(back, F - 1 - z, F - 1 - y, use_alpha)
+				# bottom
+				if y == 0:
+					cells[x][y][z][CellTypes.FACE_BOTTOM] = _encode(bottom, x, F - 1 - z, use_alpha)
+				# side profile (both Z ends)
+				if z == 0:
+					cells[x][y][z][CellTypes.FACE_BACK] = _encode(side, x, F - 1 - y, use_alpha)
+				if z == gz - 1:
+					cells[x][y][z][CellTypes.FACE_FRONT] = _encode(side, x, F - 1 - y, use_alpha)
+	if use_alpha:
+		_erase_transparent(cells, gx, gy, gz)
+	return cells
+
+# ─── octagon helpers (shared by pipe) ────────────────────────────────────────
+static func _oct_inside(lx: int, lz: int, F: int, c: int) -> bool:
+	if lx + lz < c: return false
+	if (F - 1 - lx) + lz < c: return false
+	if (F - 1 - lx) + (F - 1 - lz) < c: return false
+	if lx + (F - 1 - lz) < c: return false
+	return true
+
+static func _oct_corner_edge(lx: int, lz: int, F: int, c: int) -> int:
+	if lx + lz == c - 1: return 0
+	if (F - 1 - lx) + lz == c - 1: return 1
+	if (F - 1 - lx) + (F - 1 - lz) == c - 1: return 2
+	if lx + (F - 1 - lz) == c - 1: return 3
+	return -1
+
+# ─── PIPE QUARTER (one 32x32 quadrant of a 64x64 hollow octagon ring) ────────
+# Outer octagon F=64 c=19; bore octagon inset 2, c=19. Extruded along Y.
+# Four Y-rotations of this block close the ring.
+static func _build_pipe_quarter(img: Image, use_alpha: bool, gx: int, gy: int, gz: int) -> Array:
+	var cells := _new_cells(gx, gy, gz)
+	var RF := 64
+	var C := 19
+	var inset := 2
+	var Fin := RF - 2 * inset
+	# end-ring cell for fill/caps: cols 86..117
+	var end_ring := img.get_region(Rect2i(86, 0, 32, 32))
+	var fill := _fill_color(end_ring, use_alpha)
+	# Build the full ring cross-section (type + orient), then take the SW quadrant.
+	var out_map := {0: 2, 1: 3, 2: 0, 3: 1}   # outer: solid points inward
+	for lx in range(RF):
+		for lz in range(RF):
+			var outer := _oct_inside(lx, lz, RF, C)
+			if not outer:
+				continue
+			var ix := lx - inset
+			var iz := lz - inset
+			var in_bore := ix >= 0 and ix < Fin and iz >= 0 and iz < Fin and _oct_inside(ix, iz, Fin, C)
+			if in_bore:
+				continue
+			# only the SW quadrant maps to this block
+			if lx >= gx or lz >= gz:
+				continue
+			var cell_type := CellTypes.Type.SOLID
+			var orient := 0
+			var oe := _oct_corner_edge(lx, lz, RF, C)
+			if oe >= 0:
+				cell_type = CellTypes.Type.PRISM
+				orient = out_map[oe]
+			else:
+				var ie := -1
+				if ix >= 0 and iz >= 0:
+					ie = _oct_corner_edge(ix, iz, Fin, C)
+				if ie >= 0:
+					cell_type = CellTypes.Type.PRISM
+					orient = ie   # bore: solid points outward -> corner itself
+			for y in range(gy):
+				cells[lx][y][lz] = CellTypes.make_cell(cell_type, orient, fill)
+	# caps from end-ring cell (approximate; ring texels used, corners ignored)
+	for lx in range(gx):
+		for lz in range(gz):
+			if cells[lx][0][lz][0] == CellTypes.Type.SOLID:
+				cells[lx][0][lz][CellTypes.FACE_BOTTOM] = _encode(end_ring, lx, 31 - lz, use_alpha)
+			if cells[lx][gy - 1][lz][0] == CellTypes.Type.SOLID:
+				cells[lx][gy - 1][lz][CellTypes.FACE_TOP] = _encode(end_ring, lx, lz, use_alpha)
 	if use_alpha:
 		_erase_transparent(cells, gx, gy, gz)
 	return cells

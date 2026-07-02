@@ -83,6 +83,12 @@ static func validate_block_texture(w: int, h: int, grid_x: int, grid_y: int) -> 
 		if w == 144 and h == 32: return "chamfered"
 		if w == 160 and h == 32: return "cross"
 		if w == 224 and h == 32: return "opening"
+		if w == 120 and h == 32: return "pipe_quarter"
+		if w == 128 and h == 32: return "stairs_2"
+		if w == 80 and h == 64: return "stairs_4"
+		if w == 64 and h == 34: return "panel"
+		if w == 64 and h == 48: return "slab_quarter"
+		if w == 64 and h == 64: return "slab_half"
 	return ""
 
 const RGB5551_FLAG := 0x10000
