@@ -579,35 +579,34 @@ static func _build_pipe_quarter(img: Image, use_alpha: bool, gx: int, gy: int, g
 	var end_ring := img.get_region(Rect2i(86, 0, 32, 32))
 	var fill := _fill_color(end_ring, use_alpha)
 	# Build the full ring cross-section (type + orient), then take the SW quadrant.
+	# The two diagonal-wall surfaces are BOTH prism planes: the outer chamfer edge
+	# sits just OUTSIDE the outer octagon body (like the octagon builder's corner
+	# cells), and the inner chamfer edge is the bore surface.
 	var out_map := {0: 2, 1: 3, 2: 0, 3: 1}   # outer: solid points inward
-	for lx in range(RF):
-		for lz in range(RF):
-			var outer := _oct_inside(lx, lz, RF, C)
-			if not outer:
-				continue
+	for lx in range(gx):        # SW quadrant only
+		for lz in range(gz):
 			var ix := lx - inset
 			var iz := lz - inset
-			var in_bore := ix >= 0 and ix < Fin and iz >= 0 and iz < Fin and _oct_inside(ix, iz, Fin, C)
-			if in_bore:
-				continue
-			# only the SW quadrant maps to this block
-			if lx >= gx or lz >= gz:
-				continue
-			var cell_type := CellTypes.Type.SOLID
+			var cell_type := CellTypes.Type.EMPTY
 			var orient := 0
 			var oe := _oct_corner_edge(lx, lz, RF, C)
 			if oe >= 0:
+				# outer diagonal surface (outside the octagon body)
 				cell_type = CellTypes.Type.PRISM
 				orient = out_map[oe]
-			else:
-				var ie := -1
-				if ix >= 0 and iz >= 0:
-					ie = _oct_corner_edge(ix, iz, Fin, C)
-				if ie >= 0:
-					cell_type = CellTypes.Type.PRISM
-					orient = ie   # bore: solid points outward -> corner itself
-			for y in range(gy):
-				cells[lx][y][lz] = CellTypes.make_cell(cell_type, orient, fill)
+			elif _oct_inside(lx, lz, RF, C):
+				var in_bore := ix >= 0 and ix < Fin and iz >= 0 and iz < Fin and _oct_inside(ix, iz, Fin, C)
+				if not in_bore:
+					cell_type = CellTypes.Type.SOLID
+					var ie := -1
+					if ix >= 0 and iz >= 0:
+						ie = _oct_corner_edge(ix, iz, Fin, C)
+					if ie >= 0:
+						cell_type = CellTypes.Type.PRISM
+						orient = ie   # bore: solid points outward -> corner itself
+			if cell_type != CellTypes.Type.EMPTY:
+				for y in range(gy):
+					cells[lx][y][lz] = CellTypes.make_cell(cell_type, orient, fill)
 	# caps from end-ring cell (approximate; ring texels used, corners ignored)
 	for lx in range(gx):
 		for lz in range(gz):
