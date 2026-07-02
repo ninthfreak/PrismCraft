@@ -66,6 +66,7 @@ Hold **Shift** with Line to lock to an axis, with Rectangle to force a square, o
   - **96x64** (6-face net) -- 3x2 grid: top/front/right on row 1, bottom/back/left on row 2
   - **124x32** (full octagon, F=32) -- variable-width strip (14,9,14,9,14,9,14,9) + 32x32 cap; 1 texel = 1 voxel face
   - **60x32** (half octagon, F=16) -- variable-width strip (6,5,6,5,6,5,6,5) + 16x16 cap; centered post/pillar
+  - **Predefined prism shapes** (block mode, exact sizes): **96x32** diamond column, **144x32** chamfered cube column, **160x32** cross/plus column, **128x64** ramp/wedge, **128x48** gable/ridge, **112x32** diagonal wall, **224x32** chamfered opening. Each slices its atlas 1:1 onto the shape's faces; orientation (facing / inverted / ridge axis / diagonal) is chosen in the import preview, so one atlas serves all rotations.
   - Any other size is rejected with a warning listing the legal sizes
 - **Import Character Sprites** to generate a rough 3D model from a front and side PNG using silhouette intersection
 - **Export OBJ** generates an optimized mesh using greedy face merging, with materials per unique color
@@ -93,7 +94,8 @@ Working definitions are saved as Godot `.tres` resources using the `VoxelDefinit
 
 - `scripts/editor_main.gd` -- main editor logic, UI, input handling, and tools
 - `scripts/cell_types.gd` -- cell type enum, RGB565 color encoding, favorite colors, and orientation names
-- `scripts/block_mesh_builder.gd` -- generates meshes from cell arrays with face culling
+- `scripts/block_mesh_builder.gd` -- generates meshes from cell arrays with face culling (cutout cells never occlude neighbors)
+- `scripts/shape_builder.gd` -- builds predefined prism shapes (ramp, gable, diagonal wall, diamond, chamfered cube, cross, opening) from exact-size 1:1 atlases, with canonical build + Y-rotation/vertical-flip orientation transforms
 - `scripts/mesh_exporter.gd` -- exports optimized OBJ with greedy meshing and MTL materials per color
 - `scripts/voxel_definition.gd` -- resource class for saving/loading definitions
 - `scripts/orbit_camera.gd` -- orbit camera with right-click drag, pan, and zoom

@@ -151,6 +151,25 @@ var _block_tex_faces: Dictionary
 var _block_tex_has_alpha: bool
 var _block_tex_is_octagon: bool
 var _block_tex_octagon_footprint: int = 0
+var _block_tex_shape: String = ""
+var _block_tex_shape_img: Image
+var _block_tex_orient_option: OptionButton
+var _block_tex_orient_row: HBoxContainer
+# Per-shape orientation menu entries -> {facing, inverted}
+const _SHAPE_ORIENTS := {
+	"ramp": [
+		["Slope up +X", 0, false], ["Slope up +Z", 1, false],
+		["Slope up -X", 2, false], ["Slope up -Z", 3, false],
+		["Inverted +X", 0, true], ["Inverted +Z", 1, true],
+		["Inverted -X", 2, true], ["Inverted -Z", 3, true],
+	],
+	"gable": [["Ridge along Z", 0, false], ["Ridge along X", 1, false]],
+	"diagwall": [["Diagonal NE-SW", 0, false], ["Diagonal NW-SE", 1, false]],
+	"opening": [
+		["Chamfer front +Z", 0, false], ["Chamfer +X", 1, false],
+		["Chamfer back -Z", 2, false], ["Chamfer -X", 3, false],
+	],
+}
 var _block_tex_format_label: Label
 var _block_tex_previews: Dictionary
 var _block_tex_preview_grid: GridContainer
@@ -2926,6 +2945,10 @@ func _on_block_texture_selected(path: String) -> void:
 		_show_texture_size_error(w, h)
 		return
 
+	if layout in ["ramp", "gable", "diagwall", "diamond", "chamfered", "cross", "opening"]:
+		_setup_shape_import(image, layout)
+		return
+
 	var faces := {}
 	var format_name := ""
 	var is_octagon := false
@@ -2979,6 +3002,7 @@ func _on_block_texture_selected(path: String) -> void:
 		faces["top"] = image
 		faces["bottom"] = image
 
+	_block_tex_shape = ""
 	_block_tex_faces = faces
 	_block_tex_has_alpha = CellTypes.image_has_alpha(image)
 	_block_tex_is_octagon = is_octagon
@@ -3003,6 +3027,10 @@ func _show_texture_size_error(w: int, h: int) -> void:
 	msg += "  %d×%d  — 6-face net cube\n" % [grid_x * 3, grid_y * 2]
 	msg += "  %d×%d — Full octagon (F=%d)\n" % [full_w, grid_y, grid_x]
 	msg += "  %d×%d  — Half octagon (F=%d)\n" % [half_w, grid_y, grid_x / 2]
+	if grid_x == 32 and grid_y == 32:
+		msg += "\nPredefined shapes (block mode):\n"
+		msg += "  96×32 diamond · 144×32 chamfered · 160×32 cross\n"
+		msg += "  128×64 ramp · 128×48 gable · 112×32 diagonal wall · 224×32 opening\n"
 	var dlg := AcceptDialog.new()
 	dlg.title = "Unsupported Texture Size"
 	dlg.dialog_text = msg
@@ -3026,6 +3054,16 @@ func _setup_block_tex_wizard() -> void:
 	_block_tex_format_label.add_theme_font_size_override("font_size", 13)
 	vbox.add_child(_block_tex_format_label)
 
+	var orient_row := HBoxContainer.new()
+	var orient_lbl := Label.new()
+	orient_lbl.text = "Orientation:"
+	orient_row.add_child(orient_lbl)
+	_block_tex_orient_option = OptionButton.new()
+	orient_row.add_child(_block_tex_orient_option)
+	orient_row.visible = false
+	vbox.add_child(orient_row)
+	_block_tex_orient_row = orient_row
+
 	vbox.add_child(HSeparator.new())
 
 	_block_tex_previews = {}
@@ -3039,7 +3077,7 @@ func _setup_block_tex_wizard() -> void:
 
 	vbox.add_child(HSeparator.new())
 	_block_tex_hint_label = Label.new()
-	_block_tex_hint_label.text = "Supported: 32x32, 64x32, 96x64, 124x32 (full oct), 60x32 (half oct)"
+	_block_tex_hint_label.text = "Cubes: 32, 64 (capped), 96 net · Octagon 124/60 · Shapes (block mode): 96 diamond, 144 chamfered, 160 cross, 128×64 ramp, 128×48 gable, 112 diagwall, 224 opening"
 	_block_tex_hint_label.add_theme_font_size_override("font_size", 11)
 	_block_tex_hint_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.7))
 	_block_tex_hint_label.autowrap_mode = TextServer.AUTOWRAP_WORD
@@ -3083,6 +3121,10 @@ func _rebuild_block_tex_preview(octagon: bool) -> void:
 		_block_tex_previews[names[i]] = tex_rect
 
 func _on_block_tex_apply() -> void:
+	if _block_tex_shape != "":
+		_apply_shape_block()
+		return
+
 	if _block_tex_faces.is_empty():
 		return
 
@@ -3185,6 +3227,56 @@ func _on_block_tex_apply() -> void:
 	if use_alpha:
 		_erase_fully_transparent_cells()
 
+	_mark_dirty()
+	_rebuild_mesh()
+
+func _setup_shape_import(image: Image, shape: String) -> void:
+	_block_tex_shape = shape
+	_block_tex_shape_img = image
+	_block_tex_is_octagon = false
+	_block_tex_faces = {}
+	_block_tex_has_alpha = CellTypes.image_has_alpha(image)
+	var color_mode := "RGB5551" if _block_tex_has_alpha else "RGB565"
+	var pretty := shape.capitalize()
+	_block_tex_format_label.text = "Detected: %s (%d×%d)  |  Color: %s" % [pretty, image.get_width(), image.get_height(), color_mode]
+
+	# Populate / show the orientation dropdown for shapes that need it.
+	_block_tex_orient_option.clear()
+	if _SHAPE_ORIENTS.has(shape):
+		for entry in _SHAPE_ORIENTS[shape]:
+			_block_tex_orient_option.add_item(entry[0])
+		_block_tex_orient_row.visible = true
+	else:
+		_block_tex_orient_row.visible = false
+
+	# Single atlas preview (shapes don't use the 6-face grid).
+	_rebuild_block_tex_preview(false)
+	for key in _block_tex_previews:
+		_block_tex_previews[key].texture = null
+	if _block_tex_previews.has("front"):
+		_block_tex_previews["front"].texture = ImageTexture.create_from_image(image)
+
+	block_tex_wizard.popup_centered()
+
+func _current_shape_orient_opt() -> Dictionary:
+	if not _SHAPE_ORIENTS.has(_block_tex_shape):
+		return {}
+	var idx: int = _block_tex_orient_option.selected
+	if idx < 0:
+		idx = 0
+	var entry: Array = _SHAPE_ORIENTS[_block_tex_shape][idx]
+	return {"facing": entry[1], "inverted": entry[2]}
+
+func _apply_shape_block() -> void:
+	var shape := _block_tex_shape
+	if shape == "" or _block_tex_shape_img == null:
+		_block_tex_shape = ""
+		return
+	var opt := _current_shape_orient_opt()
+	_block_tex_shape = ""
+	_push_undo()
+	_init_cells()
+	cells = ShapeBuilder.build(shape, _block_tex_shape_img, _block_tex_has_alpha, grid_x, grid_y, grid_z, opt)
 	_mark_dirty()
 	_rebuild_mesh()
 

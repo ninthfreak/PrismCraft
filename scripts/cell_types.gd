@@ -74,6 +74,15 @@ static func validate_block_texture(w: int, h: int, grid_x: int, grid_y: int) -> 
 		var half_fp := grid_x / 2
 		if w == octagon_atlas_width(half_fp):
 			return "octagon_half"
+	# Predefined prism shapes — fixed 32-based atlas sizes, block mode only.
+	if grid_x == 32 and grid_y == 32:
+		if w == 128 and h == 64: return "ramp"
+		if w == 128 and h == 48: return "gable"
+		if w == 112 and h == 32: return "diagwall"
+		if w == 96 and h == 32: return "diamond"
+		if w == 144 and h == 32: return "chamfered"
+		if w == 160 and h == 32: return "cross"
+		if w == 224 and h == 32: return "opening"
 	return ""
 
 const RGB5551_FLAG := 0x10000
