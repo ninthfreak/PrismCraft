@@ -48,6 +48,12 @@ var _overlap := 0.0           # socket overlap radius (voxels); 0 = off (cleanes
 var _color_parts := false     # debug: colour parts by owning bone
 var _isolate := false         # debug: light up only the selected bone
 
+# Painted mode: per-voxel owner + overlap supplied by the editor's Rig Paint
+# tool. When active, partitioning is authoritative from the painted arrays —
+# joints only move pivots, and the radius-ball overlap is disabled.
+var _painted := false
+var _overlap_map: PackedInt32Array = PackedInt32Array()
+
 # Colourblind-safe qualitative palette (Okabe–Ito).
 const OKABE_ITO := [
 	Color(0.90, 0.62, 0.00),  # orange
@@ -75,6 +81,8 @@ var _mesh_instances: Array = []       # Array[MeshInstance3D] per bone (preview)
 var _joint_pick: OptionButton
 var _overlap_slider: HSlider
 var _overlap_val: Label
+var _overlap_lbl: Label
+var _overlap_row: HBoxContainer
 var _spin: Array = []        # Array[SpinBox] x/y/z position
 var _rot_slider: Array = []  # Array[HSlider] x/y/z rotation
 var _rot_val: Array = []     # Array[Label]
@@ -184,9 +192,11 @@ func _build_ui() -> void:
 
 	panel.add_child(HSeparator.new())
 
-	panel.add_child(_lbl("Joint overlap / socket (voxels):"))
+	_overlap_lbl = _lbl("Joint overlap / socket (voxels):")
+	panel.add_child(_overlap_lbl)
 	var orow := HBoxContainer.new()
 	panel.add_child(orow)
+	_overlap_row = orow
 	_overlap_slider = HSlider.new()
 	_overlap_slider.min_value = 0; _overlap_slider.max_value = 12; _overlap_slider.step = 0.5
 	_overlap_slider.value = _overlap
@@ -324,6 +334,54 @@ func set_model(new_cells: Array, ngx: int, ngy: int, ngz: int) -> void:
 		sb.max_value = maxi(gx, maxi(gy, gz))
 	_update_camera()
 
+# Adopt the editor's painted per-voxel assignment (Rig Paint tool). Call after
+# set_model. Ownership becomes authoritative: joints only move pivots, and the
+# radius-ball overlap slider is disabled in favour of the painted overlap map.
+func set_painted(owner_in: PackedInt32Array, overlap_in: PackedInt32Array, joints: Array) -> void:
+	if not _has_model or owner_in.size() != gx * gy * gz:
+		return
+	_owner = owner_in.duplicate()
+	_overlap_map = overlap_in.duplicate()
+	for j in range(NJ):
+		_joint_pos[j] = joints[j]
+		_joint_rot[j] = Vector3.ZERO
+	_painted = true
+	if _overlap_row:
+		_overlap_row.visible = false
+	if _overlap_lbl:
+		_overlap_lbl.text = "Overlap: painted in editor (Rig Paint)"
+	_compute_bboxes_painted()
+	_rebuild_meshes()
+	_on_joint_selected(_joint_pick.selected)
+	_status.text = "Using painted bones + overlap from the editor. Rotate a joint to bend-test."
+
+# Per-bone bounding boxes over owned AND overlap-tagged voxels.
+func _compute_bboxes_painted() -> void:
+	_bb_min = []
+	_bb_max = []
+	for j in range(NJ):
+		_bb_min.append(Vector3i(gx, gy, gz))
+		_bb_max.append(Vector3i(-1, -1, -1))
+	for x in range(gx):
+		for y in range(gy):
+			var base := (x * gy + y) * gz
+			for z in range(gz):
+				var i := base + z
+				if _solid[i] == 0:
+					continue
+				var o: int = _owner[i]
+				if o >= 0:
+					_grow_bbox(o, x, y, z)
+				var ov: int = _overlap_map[i]
+				if ov >= 0 and ov != o:
+					_grow_bbox(ov, x, y, z)
+
+func _grow_bbox(j: int, x: int, y: int, z: int) -> void:
+	var bmn: Vector3i = _bb_min[j]
+	var bmx: Vector3i = _bb_max[j]
+	_bb_min[j] = Vector3i(mini(bmn.x, x), mini(bmn.y, y), mini(bmn.z, z))
+	_bb_max[j] = Vector3i(maxi(bmx.x, x), maxi(bmx.y, y), maxi(bmx.z, z))
+
 func _rebuild_solid_mask() -> void:
 	_solid = PackedByteArray()
 	_solid.resize(gx * gy * gz)
@@ -344,6 +402,14 @@ func _auto_fit() -> void:
 	if not _has_model:
 		_status.text = "Load a model first."
 		return
+	if _painted:
+		# explicit escape hatch: discard the painted assignment and re-seed
+		_painted = false
+		_overlap_map = PackedInt32Array()
+		if _overlap_row:
+			_overlap_row.visible = true
+		if _overlap_lbl:
+			_overlap_lbl.text = "Joint overlap / socket (voxels):"
 	# per-row occupancy stats + z centroid, in one pass
 	var width := PackedInt32Array(); width.resize(gy)
 	var xmn := PackedInt32Array(); xmn.resize(gy)
@@ -503,6 +569,13 @@ func _two_runs(y: int) -> Vector2:
 func _rebuild_rig() -> void:
 	if not _has_model:
 		return
+	if _painted:
+		# painted assignment is authoritative — re-bake meshes around the
+		# (possibly nudged) pivots without re-partitioning.
+		_compute_bboxes_painted()
+		_rebuild_meshes()
+		_status.text = "Re-baked from painted assignment (pivots updated)."
+		return
 	_owner = _compute_owner()  # also fills _bb_min / _bb_max
 	_rebuild_meshes()
 
@@ -624,6 +697,10 @@ func _build_owner_meshes(owner: PackedInt32Array) -> Array:
 	]
 	var r2 := _overlap * _overlap
 	var rr := int(ceil(_overlap))
+	if _painted:
+		# painted bboxes already include overlap voxels; no radius expansion
+		r2 = 0.0
+		rr = 0
 	var meshes: Array = []
 	meshes.resize(NJ)
 
@@ -682,6 +759,10 @@ func _voxel_in_part(x: int, y: int, z: int, c: int, pc: int, cpos: Vector3, r2: 
 	var o: int = owner[idx]
 	if o == c:
 		return true
+	if _painted:
+		# painted overlap: the voxel is duplicated into exactly the bone the
+		# user tagged, regardless of parent/child relations.
+		return _overlap_map[idx] == c
 	if pc >= 0 and o == pc and r2 > 0.0:
 		var dx := (x + 0.5) - cpos.x
 		var dy := (y + 0.5) - cpos.y
