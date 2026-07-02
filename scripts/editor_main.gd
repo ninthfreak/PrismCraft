@@ -1439,15 +1439,13 @@ func _bucket_fill(start: Vector3i) -> void:
 func _eyedrop_color(target: Vector3i) -> void:
 	var cell: Array = cells[target.x][target.y][target.z]
 	var picked_color: int
-	if cell[0] == CellTypes.Type.PRISM:
+	var face_normal := _hit_normal
+	if face_normal == Vector3i.ZERO:
 		picked_color = cell[2]
+	elif cell[0] == CellTypes.Type.PRISM:
+		picked_color = cell[CellTypes.prism_paint_slot(cell[1], face_normal)]
 	else:
-		var face_normal := _hit_normal
-		if face_normal == Vector3i.ZERO:
-			picked_color = cell[2]
-		else:
-			var fi := CellTypes.face_index_from_normal(face_normal)
-			picked_color = cell[fi]
+		picked_color = cell[CellTypes.face_index_from_normal(face_normal)]
 	current_color = picked_color
 	_color_picker_btn.color = CellTypes.decode_color(picked_color)
 
@@ -2060,7 +2058,8 @@ func _on_left_click() -> void:
 				var face_normal := _hit_normal
 				if face_normal == Vector3i.ZERO:
 					return
-				var fi := CellTypes.face_index_from_normal(face_normal)
+				var _pcell: Array = cells[target_cell.x][target_cell.y][target_cell.z]
+				var fi := CellTypes.prism_paint_slot(_pcell[1], face_normal) if _pcell[0] == CellTypes.Type.PRISM else CellTypes.face_index_from_normal(face_normal)
 				_push_undo()
 				cells[target_cell.x][target_cell.y][target_cell.z][fi] = current_color
 				if _mirror_x:
@@ -3490,7 +3489,11 @@ func _apply_octagon_diag_color(color_map: Array, gy: int, chamfer: int, corner_t
 		var pos: Vector2i = prism_positions[idx]
 		for y in range(gy):
 			var ci: int = color_map[idx][gy - 1 - y]
-			cells[pos.x][y][pos.y][2] = ci
+			# Prisms now render per-face; set every face slot so the whole diagonal
+			# cell reads the diagonal color uniformly (matching the previous look).
+			var pc: Array = cells[pos.x][y][pos.y]
+			for fi in range(CellTypes.FACE_TOP, CellTypes.FACE_BACK + 1):
+				pc[fi] = ci
 
 func _erase_fully_transparent_cells() -> void:
 	for x in range(grid_x):

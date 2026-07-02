@@ -62,11 +62,11 @@ static func build_chunk_mesh(cells: Array, gx: int, gy: int, gz: int, x0: int, y
 						var nc: Array = cells[fnx][fny][fnz]
 						if nc[0] == CellTypes.Type.PRISM and nc[1] == ori:
 							far_cap = false
-					if CellTypes.is_rgb5551(cell[2]):
-						_build_prism(st_cutout, origin, cell_size, ori, CellTypes.decode_color(cell[2]), near_cap, far_cap)
+					if CellTypes.is_cutout_cell(cell):
+						_build_prism(st_cutout, origin, cell_size, ori, cell, near_cap, far_cap)
 						has_cutout = true
 					else:
-						_build_prism(st_opaque, origin, cell_size, ori, CellTypes.decode_color(cell[2]), near_cap, far_cap)
+						_build_prism(st_opaque, origin, cell_size, ori, cell, near_cap, far_cap)
 
 	var mesh := st_opaque.commit()
 
@@ -125,7 +125,18 @@ static func _build_cube(st: SurfaceTool, cells: Array, gx: int, gy: int, gz: int
 		var normal: Vector3 = d[4]
 		_add_quad(st, o + q[0], o + q[1], o + q[2], o + q[3], normal, color)
 
-static func _build_prism(st: SurfaceTool, o: Vector3, s: float, orientation: int, color: Color, near_cap: bool = true, far_cap: bool = true) -> void:
+# Look up a prism face's color from the cell slot its normal maps to. Returns
+# false (skip the face) when that slot is a cutout hole (alpha < threshold).
+static func _prism_face_color(cell: Array, normal: Vector3, out: Array) -> bool:
+	var slot := CellTypes.slot_for_normal(normal)
+	var cv: int = cell[slot]
+	var col := CellTypes.decode_color(cv)
+	if CellTypes.is_rgb5551(cv) and col.a < CellTypes.ALPHA_THRESHOLD:
+		return false
+	out[0] = col
+	return true
+
+static func _build_prism(st: SurfaceTool, o: Vector3, s: float, orientation: int, cell: Array, near_cap: bool = true, far_cap: bool = true) -> void:
 	var axis: int = orientation / 4
 	var corner: int = orientation % 4
 
@@ -161,11 +172,13 @@ static func _build_prism(st: SurfaceTool, o: Vector3, s: float, orientation: int
 		1: axis_dir = Vector3.RIGHT
 		_: axis_dir = Vector3.BACK
 
-	if near_cap:
-		_add_tri(st, p_near[0], p_near[1], p_near[2], -axis_dir, color)
+	var col := [Color.WHITE]
 
-	if far_cap:
-		_add_tri(st, p_far[0], p_far[1], p_far[2], axis_dir, color)
+	if near_cap and _prism_face_color(cell, -axis_dir, col):
+		_add_tri(st, p_near[0], p_near[1], p_near[2], -axis_dir, col[0])
+
+	if far_cap and _prism_face_color(cell, axis_dir, col):
+		_add_tri(st, p_far[0], p_far[1], p_far[2], axis_dir, col[0])
 
 	for i in range(3):
 		var j := (i + 1) % 3
@@ -181,4 +194,5 @@ static func _build_prism(st: SurfaceTool, o: Vector3, s: float, orientation: int
 		if side_normal.dot(third - a) > 0:
 			side_normal = -side_normal
 
-		_add_quad(st, a, b, c, d, side_normal, color)
+		if _prism_face_color(cell, side_normal, col):
+			_add_quad(st, a, b, c, d, side_normal, col[0])

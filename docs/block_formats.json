@@ -16,7 +16,7 @@
     "face_slot_indices": { "type": 0, "orientation": 1, "c_top": 2, "c_bottom": 3, "c_right": 4, "c_left": 5, "c_front": 6, "c_back": 7 },
     "types": { "EMPTY": 0, "SOLID": 1, "PRISM": 2 },
     "prism": {
-      "note": "PRISM cells are right-isosceles (45-degree) and MONOCHROME: only c_top (slot 2) is read for color; the other face slots are ignored at render.",
+      "note": "PRISM cells are right-isosceles (45-degree). A prism has 5 faces (2 caps, 2 legs, 1 hypotenuse); each maps to a distinct cell face slot via slot_for_normal (Y>X>Z precedence, collision-free for all 12 orientations), so a prism can carry a separate color per side. Uniform prisms (all slots equal, as the shape importers produce) render as one color.",
       "orientation_formula": "axis * 4 + corner",
       "axis": { "0": "Y", "1": "X", "2": "Z" },
       "corner": { "0": "SW", "1": "SE", "2": "NE", "3": "NW", "note": "corner names the position of the prism's solid right-angle in the cross-section plane" }

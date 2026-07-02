@@ -387,7 +387,11 @@ static func _paint_box_diag(cells: Array, img: Image, col: int, c: int, corner: 
 	for idx in range(positions.size()):
 		var p: Vector2i = positions[idx]
 		for y in range(gy):
-			cells[p.x][y][p.y][2] = _encode(img, col + idx, gy - 1 - y, use_alpha)
+			var ci := _encode(img, col + idx, gy - 1 - y, use_alpha)
+			# Uniform across face slots: prisms render per-face now.
+			var pc: Array = cells[p.x][y][p.y]
+			for fi in range(CellTypes.FACE_TOP, CellTypes.FACE_BACK + 1):
+				pc[fi] = ci
 	return col + c
 
 # ─── CROSS 160x32 ────────────────────────────────────────────────────────────
