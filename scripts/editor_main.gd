@@ -42,6 +42,7 @@ var _mirror_x := false
 var _mirror_z := false
 var _center_draw := 0  # 0=off, 1=voxel center, 2=joint center
 var _show_axis_overlay := false
+var _voxel_grid_lines := true   # cell outlines drawn on the model surfaces
 var axis_overlay_x: MeshInstance3D
 var axis_overlay_z: MeshInstance3D
 var mirror_cursor_instance: MeshInstance3D
@@ -356,6 +357,8 @@ func _setup_ui() -> void:
 	view_menu.add_separator()
 	view_menu.add_item("Compare Two Models…", 5)
 	view_menu.add_item("Rig / Skeleton (prototype)…", 6)
+	view_menu.add_check_item("Voxel Grid on Model", 7)
+	view_menu.set_item_checked(view_menu.get_item_index(7), _voxel_grid_lines)
 	view_menu.id_pressed.connect(_on_view_menu)
 	menu_bar.add_child(view_menu)
 
@@ -848,6 +851,7 @@ func _on_view_menu(id: int) -> void:
 		4: _toggle_mirror_z()
 		5: _open_compare_view()
 		6: _open_rig_view()
+		7: _toggle_voxel_grid_lines()
 
 func _open_compare_view() -> void:
 	var cv := CompareView.new()
@@ -931,6 +935,8 @@ func _refresh_rig_overlay() -> void:
 	if _rig_overlay_mat:
 		_rig_overlay_mat.set_shader_parameter("ceiling_clip", clip_val)
 		_rig_overlay_mat.set_shader_parameter("clip_axis", edit_axis)
+		_rig_overlay_mat.set_shader_parameter("cell_size", CELL_SIZE)
+		_rig_overlay_mat.set_shader_parameter("grid_lines", 0.35 if _voxel_grid_lines else 0.0)
 
 # Overlay mesh coloured by paint state relative to the active bone. Uses the same
 # clamp cap-face rule as the normal mesh so floor/ceiling slicing reveals interior.
@@ -1133,6 +1139,11 @@ func _update_preview_light() -> void:
 func _toggle_axis_overlay() -> void:
 	_show_axis_overlay = not _show_axis_overlay
 	view_menu.set_item_checked(view_menu.get_item_index(2), _show_axis_overlay)
+
+func _toggle_voxel_grid_lines() -> void:
+	_voxel_grid_lines = not _voxel_grid_lines
+	view_menu.set_item_checked(view_menu.get_item_index(7), _voxel_grid_lines)
+	_update_ceiling_uniforms()
 	_update_axis_overlay_visibility()
 
 func _toggle_mirror_x() -> void:
@@ -3871,6 +3882,8 @@ func _make_ceiling_shader(cutout: bool) -> ShaderMaterial:
 		code += ", cull_disabled"
 	code += ";\nuniform float ceiling_clip = -1.0;\n"
 	code += "uniform int clip_axis = 1;\n"
+	code += "uniform float cell_size = 0.015625;\n"
+	code += "uniform float grid_lines = 0.35;\n"
 	code += "varying vec3 world_pos;\n"
 	code += "varying vec3 world_normal;\n"
 	code += "void vertex() {\n\tworld_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;\n\tworld_normal = (MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz;\n}\n"
@@ -3883,16 +3896,30 @@ func _make_ceiling_shader(cutout: bool) -> ShaderMaterial:
 	# so it can't z-fight with the baked cap of the ceiling layer.
 	code += "\tif (ceiling_clip >= 0.0 && wp > ceiling_clip - 0.001 && wn < -0.5) { discard; }\n"
 	if not _preview_mode and not _flat_color_mode:
-		code += "\tfloat ny = abs(NORMAL.y);\n"
-		code += "\tfloat nx = abs(NORMAL.x);\n"
-		code += "\tfloat nz = abs(NORMAL.z);\n"
-		code += "\tfloat shade = 1.0;\n"
-		code += "\tif (ny > 0.9) { shade = NORMAL.y > 0.0 ? 1.0 : 0.5; }\n"
-		code += "\telse if (nx > nz) { shade = 0.8; }\n"
-		code += "\telse { shade = 0.7; }\n"
+		# Stable per-face shading from the WORLD normal (does not change while
+		# orbiting) with six distinct values so every face direction reads apart.
+		code += "\tvec3 wnrm = normalize(world_normal);\n"
+		code += "\tfloat shade;\n"
+		code += "\tif (abs(wnrm.y) > 0.9) { shade = wnrm.y > 0.0 ? 1.0 : 0.5; }\n"
+		code += "\telse if (abs(wnrm.x) > abs(wnrm.z)) { shade = wnrm.x > 0.0 ? 0.86 : 0.76; }\n"
+		code += "\telse { shade = wnrm.z > 0.0 ? 0.70 : 0.62; }\n"
 		code += "\tALBEDO = COLOR.rgb * shade;\n"
 	else:
 		code += "\tALBEDO = COLOR.rgb;\n"
+	# Voxel grid: darken fragments near cell boundaries on the two axes tangent
+	# to the face. Anti-aliased in screen space so lines stay thin at any zoom.
+	code += "\tif (grid_lines > 0.0) {\n"
+	code += "\t\tvec3 an = abs(normalize(world_normal));\n"
+	code += "\t\tvec3 cp = world_pos / cell_size;\n"
+	code += "\t\tvec3 gd = abs(fract(cp + 0.5) - 0.5);\n"
+	code += "\t\tfloat d = 0.5;\n"
+	code += "\t\tif (an.x < 0.7) { d = min(d, gd.x); }\n"
+	code += "\t\tif (an.y < 0.7) { d = min(d, gd.y); }\n"
+	code += "\t\tif (an.z < 0.7) { d = min(d, gd.z); }\n"
+	code += "\t\tfloat aa = fwidth(d) + 1e-5;\n"
+	code += "\t\tfloat line = 1.0 - smoothstep(0.05, 0.05 + aa, d);\n"
+	code += "\t\tALBEDO *= 1.0 - grid_lines * line;\n"
+	code += "\t}\n"
 	if cutout:
 		code += "\tALPHA = COLOR.a;\n\tALPHA_SCISSOR_THRESHOLD = %.1f;\n" % CellTypes.ALPHA_THRESHOLD
 	code += "}\n"
@@ -3925,6 +3952,8 @@ func _update_chunk_ceiling_val(mi: MeshInstance3D, clip_val: float) -> void:
 			if mat:
 				mat.set_shader_parameter("ceiling_clip", clip_val)
 				mat.set_shader_parameter("clip_axis", edit_axis)
+				mat.set_shader_parameter("cell_size", CELL_SIZE)
+				mat.set_shader_parameter("grid_lines", 0.35 if _voxel_grid_lines else 0.0)
 
 func _uv_sizes() -> Vector2i:
 	match edit_axis:
