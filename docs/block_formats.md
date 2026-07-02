@@ -1,0 +1,141 @@
+# PrismCraft — Block Format Manifest
+
+Complete reference for the voxel **cell encoding** and every **block-texture atlas** the editor imports. This is the human-readable companion to [`block_formats.json`](block_formats.json) (machine-readable). The source of truth in code is `scripts/cell_types.gd` (validation + color encoders) and `scripts/shape_builder.gd` (shape geometry).
+
+---
+
+## 1. Grid
+
+| Mode | Grid (X×Y×Z) | Voxel size | World size |
+|------|--------------|-----------|------------|
+| Block | 32 × 32 × 32 | 1/32 unit | 1 × 1 × 1 |
+| Character | 64 × 128 × 64 | 1/64 unit | 1 × 2 × 1 |
+
+Block textures target **block mode**. The cube and octagon formats are grid-relative (they scale with `grid_x`); the predefined shapes are fixed 32-based sizes and import in block mode only.
+
+---
+
+## 2. Cell encoding
+
+Each voxel cell is an 8-element array:
+
+```
+[ type, orientation, c_top, c_bottom, c_right, c_left, c_front, c_back ]
+    0        1          2       3         4        5        6        7
+```
+
+- **type** — `EMPTY (0)`, `SOLID (1)`, `PRISM (2)`.
+- **orientation** — for prisms only: `axis*4 + corner`.
+  - axis: `0 = Y`, `1 = X`, `2 = Z` (the extrusion axis).
+  - corner: `0 = SW`, `1 = SE`, `2 = NE`, `3 = NW` (position of the prism's solid right-angle in the cross-section plane).
+- **c_top … c_back** — per-face color ints, one per face:
+
+  | slot | index | axis |
+  |------|-------|------|
+  | c_top | 2 | +Y |
+  | c_bottom | 3 | −Y |
+  | c_right | 4 | +X |
+  | c_left | 5 | −X |
+  | c_front | 6 | +Z |
+  | c_back | 7 | −Z |
+
+> **Prisms are monochrome.** Only `c_top` (slot 2) is read for a prism's color; the other slots are ignored at render. Cubes carry a distinct color per exposed face.
+
+---
+
+## 3. Color packing
+
+| Format | Used for | Bit layout | Colors |
+|--------|----------|-----------|--------|
+| **RGB565** | opaque cells | `RRRRR GGGGGG BBBBB` | 65 536 |
+| **RGB5551** | cutout cells (1-bit alpha) | `RRRRR GGGGG BBBBB A` | 32 768 |
+
+- **Routing:** if **any** source pixel has alpha `< 255`, the whole texture is treated as transparent and every cell packs to **RGB5551** (`alpha_bit = source_alpha >= 128 ? 1 : 0`). Otherwise all cells pack to **RGB565**. Fully-opaque RGBA exports stay on 565.
+- **Flag bit:** stored RGB5551 ints carry `0x10000` so the decoder can tell the two formats apart.
+- **Threshold:** import cutoff `128` corresponds to shader cutoff `0.5` (`ALPHA_THRESHOLD`).
+- **Render:** cutout faces alpha-test (`discard` when alpha `< 0.5`), draw double-sided, and **never occlude neighboring faces** — holes show the geometry behind, and adjacent cutout faces both render (canopy layering).
+
+---
+
+## 4. Import rule (strict 1:1)
+
+One texel → exactly one voxel face, **nearest-neighbor, never scaled, filtered, padded, cropped, or interpreted.** A texture whose `(width, height)` does not **exactly** match a registry entry below is **rejected with a warning naming the nearest legal sizes; nothing is imported.** There is no resampling path.
+
+---
+
+## 5. Format registry
+
+Dimensions are the atlas `width × height` in pixels. Block mode, `F = 32`.
+
+### Cube formats (grid-relative)
+
+| Format | Size | Atlas layout |
+|--------|------|--------------|
+| **uniform** | 32×32 | one cell on all 6 faces |
+| **capped** | 64×32 | left 32 = 4 sides · right 32 = shared top+bottom cap |
+| **net** | 96×64 | 3×2 grid — row 1 top\|front\|right, row 2 bottom\|back\|left |
+
+### Octagon formats (grid-relative)
+
+| Format | Size | Geometry | Atlas layout |
+|--------|------|----------|--------------|
+| **octagon** (full) | 124×32 | footprint 32, chamfer 9 (axis 14 / diag 9), corners are prisms | strip `14,9,14,9,14,9,14,9` CCW from +X, then 32×32 cap |
+| **octagon_half** | 60×32 | footprint 16 centered (8-voxel empty margins), chamfer 5 (axis 6 / diag 5) | strip `6,5,6,5,6,5,6,5`, then 16×16 cap |
+
+### Predefined shapes (block mode only, fixed sizes)
+
+| Format | Size | Geometry | Orientation options |
+|--------|------|----------|---------------------|
+| **diamond** | 96×32 | diamond column, chamfer 16 (4 diagonal faces, no axis faces) | — (4-fold symmetric) |
+| **chamfered** | 144×32 | cube with 4 vertical edges chamfered (c=4, axis 24 / chamfer 4) | — |
+| **cross** | 160×32 | plus column, central 16×16 + four 16-wide × 8-deep arms (pure cubes) | — |
+| **ramp** | 128×64 | 45° wedge, one prism per step | slope up +X/+Z/−X/−Z, each also inverted (8) |
+| **gable** | 128×48 | two 45° slopes at a centered ridge, half-height (ridge y=16) | ridge along Z or X (2) |
+| **diagwall** | 112×32 | diagonal wall band, thickness 8, prisms on both long faces | diagonal NE-SW or NW-SE (2) |
+| **opening** | 224×32 | cube with one top edge chamfered 45° (depth 8) | chamfer on +Z/+X/−Z/−X top edge (4) |
+| **panel** | 64×34 | flat cube 32×32×1 | on floor/ceiling/±X wall/±Z wall (6) |
+| **slab_quarter** | 64×48 | flat cube 32×32×8 | on floor/ceiling/±X wall/±Z wall (6) |
+| **slab_half** | 64×64 | flat cube 32×32×16 | on floor/ceiling/±X wall/±Z wall (6) |
+| **stairs_2** | 128×32 | solid staircase, 2 steps of 16 | climb +X/+Z/−X/−Z (4) |
+| **stairs_4** | 80×64 | solid staircase, 4 steps of 8 | climb +X/+Z/−X/−Z (4) |
+| **pipe_quarter** | 120×32 | quadrant of a 64×64 hollow octagon ring; four rotations close a ring | quadrant 0/90/180/270° (4) |
+
+Orientation is chosen in the import preview — **one atlas serves every rotation** (no separate textures). Rotations are applied to the built cell grid via rotate-Y / rotate-X / vertical-flip transforms that remap position, prism orientation, and per-face colors together.
+
+#### Shape atlas details
+
+- **diamond** — cols 0–63: 4 diagonal faces ×16 (CCW from the +X-facing NE face); cols 64–95: 32×32 cap.
+- **chamfered** — cols 0–111: strip `24,4,24,4,24,4,24,4`; cols 112–143: cap.
+- **cross** — cols 0–127: strip `16,8,8,16,8,8,16,8,8,16,8,8`; cols 128–159: cap.
+- **ramp** — row 1 (y0–31): `slope | back | bottom | unused`; row 2 (y32–63): `side-L | side-R | unused`.
+- **gable** — row 1 (y0–15): `slope-A | slope-B | end-A | end-B` (each 32×16); row 2 (y16–47): `bottom` (32×32).
+- **diagwall** — `wall-A(32) | wall-B(32) | end-A(8) | end-B(8) | top+bottom ribbon block(32)`.
+- **opening** — seven 32-wide cells: `front | chamfer | top | back | bottom | side-L | side-R`.
+- **panel / slab_quarter / slab_half** — row 1: `top | bottom` (32×32 each); following rows: `N|S` then `E|W`, each 32 × thickness (1 / 8 / 16).
+- **stairs_2** — `tread(16) | riser(16) | back(32) | bottom(32) | side(32)`.
+- **stairs_4** — row 1: `tread(8) | riser(8) | back(32) | bottom(32)`; row 2: `side(32) | unused(48)`.
+- **pipe_quarter** — `outer-arc(45) | inner-arc(41) | end-ring(32) | cut(2)`.
+
+---
+
+## 6. Known texturing simplifications
+
+Geometry is complete and 1:1 for all shapes. A few shapes do not yet map **every** face 1:1 (prisms are monochrome by engine design, and some hidden/curved faces use a dominant-color fill):
+
+- **cross** — caps are textured 1:1; the 12 side faces use the atlas's dominant color.
+- **opening** — front/chamfer/top/back/bottom are 1:1; the two pentagonal side faces use fill.
+- **pipe_quarter** — fill and caps derive from the end-ring cell; per-texel arc mapping onto the curved inner/outer walls is approximate.
+- **prisms everywhere** — a prism's slope/diagonal takes one color per cell (from the slope/diagonal atlas), not a per-texel gradient.
+
+---
+
+## 7. Naming (convention v2.7)
+
+Texture files and block IDs follow:
+
+```
+<role>_<material>[_<variant>][_<shape>]_<WxH>.png     (files)
+<role>.<material>[.<variant>][.<shape>]               (block IDs)
+```
+
+The `shape` token matches a registry format above (e.g. `octagon`, `capped`, `stairs_2`, `pipe_quarter`); omitted = 32×32 uniform cube. Roles: `terrain`, `wall`, `floor`, `path`, `roof`, `structural`, `form`, `flora`. See the naming convention document for the full role/variant vocabulary.
