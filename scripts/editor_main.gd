@@ -862,6 +862,9 @@ func _open_rig_view() -> void:
 	add_child(rv)
 	# Seed with the current working model so Auto-Fit can run immediately.
 	rv.set_model(cells, grid_x, grid_y, grid_z)
+	# Hand over the painted bone assignment + overlap (Rig Paint tool), if any.
+	if _rig != null and _rig.fitted and _rig.gx == grid_x and _rig.gy == grid_y and _rig.gz == grid_z:
+		rv.set_painted(_rig.owner, _rig.overlap, _rig.joint_pos)
 	rv.popup_centered(Vector2i(1500, 860))
 
 # ─── Rig Paint tool ───
