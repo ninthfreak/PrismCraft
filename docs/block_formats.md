@@ -39,7 +39,7 @@ Each voxel cell is an 8-element array:
   | c_front | 6 | +Z |
   | c_back | 7 | −Z |
 
-> **Prisms are monochrome.** Only `c_top` (slot 2) is read for a prism's color; the other slots are ignored at render. Cubes carry a distinct color per exposed face.
+> **Prisms carry a color per face.** A prism has 5 faces — 2 caps, 2 axis-aligned legs, and 1 diagonal hypotenuse — and each maps to a **distinct** cell slot (`slot_for_normal`, using the same Y→X→Z precedence as `face_index_from_normal`; the hypotenuse resolves to a free slot, collision-free across all 12 orientations). So a prism can have a different color on each side, editable with the Paint/Eyedropper tools. Uniform prisms (all slots equal) — including everything the shape importers currently produce — render as one color, exactly as before.
 
 ---
 
@@ -125,7 +125,7 @@ Geometry is complete and 1:1 for all shapes. A few shapes do not yet map **every
 - **cross** — caps are textured 1:1; the 12 side faces use the atlas's dominant color.
 - **opening** — front/chamfer/top/back/bottom are 1:1; the two pentagonal side faces use fill.
 - **pipe_quarter** — fill and caps derive from the end-ring cell; per-texel arc mapping onto the curved inner/outer walls is approximate.
-- **prisms everywhere** — a prism's slope/diagonal takes one color per cell (from the slope/diagonal atlas), not a per-texel gradient.
+- **shape-imported prisms** — the shape importers author one color per prism cell (uniform), so a slope/diagonal takes one color per cell, not a per-texel gradient. The engine and the Paint/Eyedropper tools support a separate color per prism face for hand-editing.
 
 ---
 

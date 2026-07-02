@@ -169,6 +169,71 @@ static func make_cell(cell_type: int, orientation: int, color: int) -> Array:
 static func empty_cell() -> Array:
 	return [Type.EMPTY, 0, 0, 0, 0, 0, 0, 0]
 
+# ─── Prism per-face color mapping ───
+# A prism has up to 5 faces (2 caps + 2 legs + 1 hypotenuse). Each maps to a
+# distinct cell face slot so prisms can carry a separate color per side. The
+# hypotenuse (a diagonal normal) resolves via the same Y>X>Z precedence as
+# face_index_from_normal, which is collision-free with the legs/caps for all 12
+# orientations. Uniform-color prisms (all slots equal) render exactly as before.
+
+# Slot for a face normal (float, possibly diagonal). Components under 0.4 ignored.
+static func slot_for_normal(n: Vector3) -> int:
+	var ix := 1 if n.x > 0.4 else (-1 if n.x < -0.4 else 0)
+	var iy := 1 if n.y > 0.4 else (-1 if n.y < -0.4 else 0)
+	var iz := 1 if n.z > 0.4 else (-1 if n.z < -0.4 else 0)
+	return face_index_from_normal(Vector3i(ix, iy, iz))
+
+# The slot the hypotenuse (diagonal) face of a prism orientation uses.
+static func prism_hyp_slot(orientation: int) -> int:
+	var axis := orientation / 4
+	var corner := orientation % 4
+	var cu := [0, 1, 1, 0][corner]
+	var cv := [0, 0, 1, 1][corner]
+	var hu := 1 - 2 * cu
+	var hv := 1 - 2 * cv
+	var uax: Vector3
+	var vax: Vector3
+	match axis:
+		0: uax = Vector3(1, 0, 0); vax = Vector3(0, 0, 1)
+		1: uax = Vector3(0, 1, 0); vax = Vector3(0, 0, 1)
+		_: uax = Vector3(1, 0, 0); vax = Vector3(0, 1, 0)
+	return slot_for_normal(uax * hu + vax * hv)
+
+# Which slot a click on cube-face `n` should paint for a prism: cap and leg
+# clicks hit their own slot; a click on either "open" side (where the diagonal
+# is exposed) paints the hypotenuse slot.
+static func prism_paint_slot(orientation: int, n: Vector3i) -> int:
+	var axis := orientation / 4
+	var corner := orientation % 4
+	var axis_n := [Vector3i(0, 1, 0), Vector3i(1, 0, 0), Vector3i(0, 0, 1)][axis]
+	if n.x * axis_n.x + n.y * axis_n.y + n.z * axis_n.z != 0:
+		return face_index_from_normal(n)  # cap
+	var cu := [0, 1, 1, 0][corner]
+	var cv := [0, 0, 1, 1][corner]
+	var uax: Vector3i
+	var vax: Vector3i
+	match axis:
+		0: uax = Vector3i(1, 0, 0); vax = Vector3i(0, 0, 1)
+		1: uax = Vector3i(0, 1, 0); vax = Vector3i(0, 0, 1)
+		_: uax = Vector3i(1, 0, 0); vax = Vector3i(0, 1, 0)
+	var du := n.x * uax.x + n.y * uax.y + n.z * uax.z
+	var dv := n.x * vax.x + n.y * vax.y + n.z * vax.z
+	var is_leg := false
+	if du != 0:
+		is_leg = (1 if du > 0 else 0) == cu
+	elif dv != 0:
+		is_leg = (1 if dv > 0 else 0) == cv
+	if is_leg:
+		return face_index_from_normal(n)  # leg
+	return prism_hyp_slot(orientation)
+
+# True if two cells carry identical face colors (used to merge prism runs).
+static func same_face_colors(a: Array, b: Array) -> bool:
+	for fi in range(FACE_TOP, FACE_BACK + 1):
+		if a[fi] != b[fi]:
+			return false
+	return true
+
 static func face_index_from_normal(normal: Vector3i) -> int:
 	if normal.y > 0: return FACE_TOP
 	if normal.y < 0: return FACE_BOTTOM

@@ -416,9 +416,10 @@ static func _emit_prisms(cells: Array, gx: int, gy: int, gz: int, s: float, ox: 
 				if visited.has(key):
 					continue
 				var orientation: int = cell[1]
-				var color: int = cell[2]
 				var axis: int = orientation / 4
 
+				# Prisms merge along the axis only when they share orientation AND
+				# all face colors, so per-face coloring survives export.
 				var run := 1
 				while true:
 					var nx: int = x; var ny: int = y; var nz: int = z
@@ -429,7 +430,7 @@ static func _emit_prisms(cells: Array, gx: int, gy: int, gz: int, s: float, ox: 
 					if nx >= gx or ny >= gy or nz >= gz:
 						break
 					var nc: Array = cells[nx][ny][nz]
-					if nc[0] != CellTypes.Type.PRISM or nc[1] != orientation or not _rgb565_near(nc[2], color):
+					if nc[0] != CellTypes.Type.PRISM or nc[1] != orientation or not CellTypes.same_face_colors(nc, cell):
 						break
 					run += 1
 
@@ -463,9 +464,17 @@ static func _emit_prisms(cells: Array, gx: int, gy: int, gz: int, s: float, ox: 
 						far_capped = false
 
 				var o := Vector3(x * s - ox, y * s, z * s - oz)
-				_emit_merged_prism(o, s, orientation, color, run, near_capped, far_capped, faces)
+				_emit_merged_prism(o, s, orientation, cell, run, near_capped, far_capped, faces)
 
-static func _emit_merged_prism(o: Vector3, s: float, orientation: int, color: int, run: int, near_cap: bool, far_cap: bool, faces: Array) -> void:
+# Face color id for a prism face normal, or -1 to skip (cutout hole).
+static func _prism_face_id(cell: Array, normal: Vector3) -> int:
+	var slot := CellTypes.slot_for_normal(normal)
+	var cv: int = cell[slot]
+	if CellTypes.is_rgb5551(cv) and CellTypes.decode_color(cv).a < CellTypes.ALPHA_THRESHOLD:
+		return -1
+	return cv
+
+static func _emit_merged_prism(o: Vector3, s: float, orientation: int, cell: Array, run: int, near_cap: bool, far_cap: bool, faces: Array) -> void:
 	var axis: int = orientation / 4
 	var corner: int = orientation % 4
 
@@ -503,9 +512,13 @@ static func _emit_merged_prism(o: Vector3, s: float, orientation: int, color: in
 		_: axis_dir = Vector3.BACK
 
 	if near_cap:
-		faces.append([color, -axis_dir, [p_near[0], p_near[1], p_near[2]]])
+		var nid := _prism_face_id(cell, -axis_dir)
+		if nid >= 0:
+			faces.append([nid, -axis_dir, [p_near[0], p_near[1], p_near[2]]])
 	if far_cap:
-		faces.append([color, axis_dir, [p_far[2], p_far[1], p_far[0]]])
+		var fid := _prism_face_id(cell, axis_dir)
+		if fid >= 0:
+			faces.append([fid, axis_dir, [p_far[2], p_far[1], p_far[0]]])
 
 	for i in range(3):
 		var j := (i + 1) % 3
@@ -521,4 +534,6 @@ static func _emit_merged_prism(o: Vector3, s: float, orientation: int, color: in
 		if side_normal.dot(third - a) > 0:
 			side_normal = -side_normal
 
-		faces.append([color, side_normal, [a, b, c, d]])
+		var sid := _prism_face_id(cell, side_normal)
+		if sid >= 0:
+			faces.append([sid, side_normal, [a, b, c, d]])
