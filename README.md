@@ -64,7 +64,7 @@ Hold **Shift** with Line to lock to an axis, with Rectangle to force a square, o
 - **Prism cells** with 12 orientations (3 axes x 4 corners) for diagonal geometry
 - **3D view cube** in the top-right corner for quick camera orientation -- click a face to snap to that view, or drag to orbit
 - **Import PNG** to place a flat image as voxels (RGB565, or RGB5551 cutout when the PNG has transparency)
-- **Import Block Texture** with strict 1:1 texel-to-voxel mapping, auto-detected by exact dimensions. Every shape slices its atlas 1:1 onto its faces; where a shape has orientation options (facing / inverted / ridge axis / wall side / quadrant) they are chosen in the import preview, so one atlas serves all rotations. Any other size is rejected with a warning listing the legal sizes. See [`docs/block_formats.md`](docs/block_formats.md) for full atlas layouts.
+- **Import Block Texture** with strict 1:1 texel-to-voxel mapping, auto-detected by exact dimensions. Every shape slices its atlas 1:1 onto its faces; where a shape has orientation options (facing / inverted / ridge axis / wall side / quadrant) they are chosen in the import preview, so one atlas serves all rotations. Any other size is rejected with a warning listing the legal sizes. The default Save/Export name is derived from the texture's filename per the naming convention (dimensions stripped, e.g. `wall_brick_new_64x32.png` -> `wall_brick_new`). See [`docs/block_formats.md`](docs/block_formats.md) for full atlas layouts.
   - *Cubes:*
   - **32x32** (uniform) -- same texture on all 6 faces
   - **64x32** (capped) -- left half for 4 sides, right half for top and bottom
