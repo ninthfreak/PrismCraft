@@ -62,7 +62,7 @@ Hold **Shift** with Line to lock to an axis, with Rectangle to force a square, o
 - **Import PNG** to place a flat image as voxels with direct RGB565 color encoding
 - **Import Block Texture** with strict 1:1 texel-to-voxel mapping, auto-detected by exact dimensions:
   - **32x32** (uniform) -- same texture on all 6 faces
-  - **64x32** (column/log) -- left half for 4 sides, right half for top and bottom
+  - **64x32** (capped) -- left half for 4 sides, right half for top and bottom
   - **96x64** (6-face net) -- 3x2 grid: top/front/right on row 1, bottom/back/left on row 2
   - **124x32** (full octagon, F=32) -- variable-width strip (14,9,14,9,14,9,14,9) + 32x32 cap; 1 texel = 1 voxel face
   - **60x32** (half octagon, F=16) -- variable-width strip (6,5,6,5,6,5,6,5) + 16x16 cap; centered post/pillar

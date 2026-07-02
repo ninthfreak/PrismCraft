@@ -284,8 +284,10 @@ static func _greedy_mesh_dir(cells: Array, gx: int, gy: int, gz: int, s: float, 
 					grid[u][v] = face_color
 				else:
 					var ncell: Array = cells[nx][ny][nz]
-					if ncell[0] != CellTypes.Type.SOLID:
-						# empty or prism neighbor never fully occludes this face
+					if ncell[0] != CellTypes.Type.SOLID or CellTypes.is_cutout_cell(ncell):
+						# empty, prism, or cutout neighbor never fully occludes this
+						# face — a cutout block has see-through holes, so faces behind
+						# and beside it must survive.
 						grid[u][v] = face_color
 					else:
 						# A face between two solid cells is hidden when the neighbor's

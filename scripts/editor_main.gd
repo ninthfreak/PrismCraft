@@ -2960,8 +2960,8 @@ func _on_block_texture_selected(path: String) -> void:
 		for key in regions:
 			var r: Rect2i = regions[key]
 			faces[key] = image.get_region(r)
-	elif layout == "column":
-		format_name = "Column / Log (%d×%d)" % [w, h]
+	elif layout == "capped":
+		format_name = "Capped (%d×%d)" % [w, h]
 		var sides_img := image.get_region(Rect2i(0, 0, tile_w, tile_h))
 		var cap_img := image.get_region(Rect2i(tile_w, 0, tile_w, tile_h))
 		faces["front"] = sides_img
@@ -2999,7 +2999,7 @@ func _show_texture_size_error(w: int, h: int) -> void:
 	var half_w := CellTypes.octagon_atlas_width(grid_x / 2)
 	var msg := "Unsupported texture size: %d×%d\n\nLegal sizes:\n" % [w, h]
 	msg += "  %d×%d  — Uniform cube\n" % [grid_x, grid_y]
-	msg += "  %d×%d  — Column cube\n" % [grid_x * 2, grid_y]
+	msg += "  %d×%d  — Capped cube (four sides | top+bottom cap)\n" % [grid_x * 2, grid_y]
 	msg += "  %d×%d  — 6-face net cube\n" % [grid_x * 3, grid_y * 2]
 	msg += "  %d×%d — Full octagon (F=%d)\n" % [full_w, grid_y, grid_x]
 	msg += "  %d×%d  — Half octagon (F=%d)\n" % [half_w, grid_y, grid_x / 2]

@@ -64,7 +64,7 @@ static func validate_block_texture(w: int, h: int, grid_x: int, grid_y: int) -> 
 	if w == grid_x and h == grid_y:
 		return "uniform"
 	if w == grid_x * 2 and h == grid_y:
-		return "column"
+		return "capped"
 	if w == grid_x * 3 and h == grid_y * 2:
 		return "net"
 	if h == grid_y:

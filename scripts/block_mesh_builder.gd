@@ -111,12 +111,13 @@ static func _build_cube(st: SurfaceTool, cells: Array, gx: int, gy: int, gz: int
 			var nz: int = cz + d[2]
 			if nx >= 0 and nx < gx and ny >= 0 and ny < gy and nz >= 0 and nz < gz:
 				var ncell: Array = cells[nx][ny][nz]
-				# A face between two solid cells is hidden when the neighbor's
-				# facing side is opaque. RGB5551 alpha is 1-bit, so every visible
-				# face is fully opaque; only genuine alpha-0 holes stay see-through.
-				# This also culls the interior faces of opaque cutout cells, which
-				# otherwise bloat the mesh and z-fight at the ceiling clip plane.
-				if ncell[0] == CellTypes.Type.SOLID:
+				# A face between two opaque solid cells is hidden when the
+				# neighbor's facing side is opaque. A cutout (5551) neighbor is
+				# NOT solid geometry — it must never occlude this face, or you see
+				# straight through its holes to the void behind. This also keeps
+				# adjacent cutout↔cutout faces from culling each other, so a canopy
+				# shows its internal layers.
+				if ncell[0] == CellTypes.Type.SOLID and not CellTypes.is_cutout_cell(ncell):
 					var opp_fv: int = ncell[dirs[i ^ 1][3]]
 					if CellTypes.decode_color(opp_fv).a >= CellTypes.ALPHA_THRESHOLD:
 						continue
