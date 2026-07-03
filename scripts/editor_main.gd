@@ -1175,6 +1175,11 @@ func _toggle_preview_mode() -> void:
 		if not _preview_light:
 			_preview_light = DirectionalLight3D.new()
 			_preview_light.shadow_enabled = true
+			# Soft key light. With the 0.6 ambient fill, a lit face reaches
+			# ~0.6 + 0.5 = 1.1 and a turned-away face sits at 0.6 — a gentle
+			# ~1.8:1 ratio that shades form without the blown-out hotspot the
+			# old 1.0 energy / 0.4 ambient combo produced. Tune via the sliders.
+			_preview_light.light_energy = 0.5
 			add_child(_preview_light)
 		_preview_light.visible = true
 		_update_preview_light()
