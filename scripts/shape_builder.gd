@@ -454,8 +454,10 @@ static func _build_opening(img: Image, use_alpha: bool, gx: int, gy: int, gz: in
 				cells[x][y][0][CellTypes.FACE_BACK] = _encode(back, gx - 1 - x, F - 1 - y, use_alpha)
 	for x in range(gx):
 		for z in range(F):
+			# The flat top spans only z=0..F-d-1 (the front edge is chamfered
+			# away); the `top` region is F x (F-d), so map z into that height.
 			if cells[x][gy - 1][z][0] == CellTypes.Type.SOLID:
-				cells[x][gy - 1][z][CellTypes.FACE_TOP] = _encode(top, x, F - 1 - z, use_alpha)
+				cells[x][gy - 1][z][CellTypes.FACE_TOP] = _encode(top, x, F - d - 1 - z, use_alpha)
 			if cells[x][0][z][0] == CellTypes.Type.SOLID:
 				cells[x][0][z][CellTypes.FACE_BOTTOM] = _encode(bottom, x, F - 1 - z, use_alpha)
 	# remaining upper-back rows for back face (y >= F-d)
