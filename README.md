@@ -121,7 +121,7 @@ Build and export an entire texture library to `.glb` in one headless pass -- no 
 godot --headless --script res://scripts/batch_export.gd -- <textures_dir> [exports_dir]
 ```
 
-For every `.png` whose dimensions match a legal format, it builds the block (using the same `BlockImporter` code path as manual import, so the two can't drift) and exports a `.glb` named from the file per the naming convention v3.1 (`wood_stairs_4_80x64.png` -> `wood.stairs_4.glb`; `steel_corrugated_cube_32x32.png` -> `steel.corrugated.cube.glb`). Unsupported sizes are logged and skipped; re-running overwrites same-ID files. Prints a summary of built/exported/skipped/failed grouped by shape. `exports_dir` defaults to `<textures_dir>/exports`.
+For every `.png` whose dimensions match a legal format, it builds the block (using the same `BlockImporter` code path as manual import, so the two can't drift) and exports a `.glb` named from the file per the naming convention v3.4 (`steel-corrugated_cube_32x32.png` -> `steel-corrugated.cube.glb`; `oak_octagon-half_60x32.png` -> `oak.octagon-half.glb`). Unsupported sizes are logged and skipped; re-running overwrites same-ID files. Prints a summary of built/exported/skipped/failed grouped by shape. `exports_dir` defaults to `<textures_dir>/exports`.
 
 ## Architecture
 

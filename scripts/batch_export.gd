@@ -15,24 +15,11 @@ const GY := 32
 const GZ := 32
 const CELL := 1.0 / 32.0
 
-# Naming convention v3.1: <material>[_<variant>]_<shape>_<WxH>.png -> block ID
-# <material>[.<variant>].<shape>. No roles. Shape is mandatory (uniform = cube).
-# Material and variant fields may contain underscores (stone_brick, flecked_coal,
-# painted_red), so we peel the shape suffix and match the material prefix against
-# known vocab rather than splitting on every underscore.
-#
-# Shape tokens, multi-word first so they peel before their prefixes.
-const SHAPE_TOKENS := [
-	"octagon_half", "slab_quarter", "slab_half", "pipe_quarter", "stairs_2", "stairs_4",
-	"octagon", "capped", "cube", "net", "diamond", "chamfered", "cross", "ramp", "gable",
-	"diagwall", "opening", "panel",
-]
-# Known materials, multi-word first for greedy longest-prefix matching.
-const MATERIALS := [
-	"stone_brick", "asphalt", "brick", "cement", "cobble", "concrete", "dirt", "grass",
-	"gravel", "ice", "leaves", "mud", "oak", "birch", "sand", "slate", "snow", "steel",
-	"stone", "water", "wood",
-]
+# Naming convention v3.4: <material-variant>_<shape>_<WxH>.png -> block ID
+# <material-variant>.<shape>. No roles; shape is mandatory (uniform = cube).
+# Fields use HYPHENS internally (stone-block, steel-corrugated, octagon-half),
+# so the only underscores are field separators — parsing needs no vocab list:
+# strip _WxH, then replace the remaining underscores with dots.
 
 func _initialize() -> void:
 	var uargs := OS.get_cmdline_user_args()
@@ -91,13 +78,12 @@ func _run(in_dir: String, out_dir: String) -> void:
 
 	_summary(in_dir, out_dir, pngs.size(), built, exported, skipped, failed, by_shape)
 
-# Filename -> {id, shape}. Strips the extension and trailing _WxH, peels the
-# mandatory shape suffix, matches the material prefix against known vocab, and
-# treats whatever remains as the variant. Field underscores are preserved.
-#   brick_cube_32x32.png             -> brick.cube
-#   steel_corrugated_cube_32x32.png  -> steel.corrugated.cube
-#   stone_brick_cube_32x32.png       -> stone_brick.cube
-#   wood_stairs_4_80x64.png          -> wood.stairs_4
+# Filename -> {id, shape}. Strips the extension and trailing _WxH, then turns the
+# field-separator underscores into dots (fields keep their internal hyphens).
+#   brick_cube_32x32.png              -> brick.cube
+#   steel-corrugated_cube_32x32.png   -> steel-corrugated.cube
+#   stone-block_diagwall_112x32.png   -> stone-block.diagwall
+#   oak_octagon-half_60x32.png        -> oak.octagon-half
 func _parse_name(filename: String) -> Dictionary:
 	var base := filename.get_basename()
 	var re := RegEx.new()
@@ -105,29 +91,9 @@ func _parse_name(filename: String) -> Dictionary:
 	var m := re.search(base)
 	if m:
 		base = base.substr(0, m.get_start())
-	var shape := ""
-	for tok in SHAPE_TOKENS:
-		if base == tok or base.ends_with("_" + tok):
-			shape = tok
-			base = "" if base == tok else base.substr(0, base.length() - tok.length() - 1)
-			break
-	var material := ""
-	var variant := ""
-	for mat in MATERIALS:
-		if base == mat or base.begins_with(mat + "_"):
-			material = mat
-			var rest := base.substr(mat.length())
-			variant = rest.substr(1) if rest.begins_with("_") else rest
-			break
-	if material == "":
-		var us := base.find("_")
-		material = base if us < 0 else base.substr(0, us)
-		variant = "" if us < 0 else base.substr(us + 1)
-	var id := material
-	if variant != "":
-		id += "." + variant
-	if shape != "":
-		id += "." + shape
+	var id := base.replace("_", ".")
+	var parts := id.split(".")
+	var shape := parts[parts.size() - 1] if parts.size() > 0 else ""
 	return {"id": id, "shape": shape}
 
 func _summary(in_dir: String, out_dir: String, total: int, built: int, exported: int, skipped: Array, failed: Array, by_shape: Dictionary) -> void:
