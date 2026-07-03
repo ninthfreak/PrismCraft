@@ -995,7 +995,7 @@ func _refresh_rig_overlay() -> void:
 		_rig_overlay_mat.set_shader_parameter("ceiling_clip", clip_val)
 		_rig_overlay_mat.set_shader_parameter("clip_axis", edit_axis)
 		_rig_overlay_mat.set_shader_parameter("cell_size", CELL_SIZE)
-		_rig_overlay_mat.set_shader_parameter("grid_lines", 0.35 if _voxel_grid_lines else 0.0)
+		_rig_overlay_mat.set_shader_parameter("grid_lines", _grid_line_strength())
 
 # Overlay mesh coloured by paint state relative to the active bone. Uses the same
 # clamp cap-face rule as the normal mesh so floor/ceiling slicing reveals interior.
@@ -1204,6 +1204,13 @@ func _toggle_voxel_grid_lines() -> void:
 	view_menu.set_item_checked(view_menu.get_item_index(7), _voxel_grid_lines)
 	_update_ceiling_uniforms()
 	_update_axis_overlay_visibility()
+
+# The voxel grid is a modeling aid; suppress it in Flat Colors and Preview
+# Lighting, which are meant to show the model as it will actually render.
+func _grid_line_strength() -> float:
+	if _voxel_grid_lines and not _flat_color_mode and not _preview_mode:
+		return 0.35
+	return 0.0
 
 func _toggle_mirror_x() -> void:
 	_mirror_x = not _mirror_x
@@ -3773,9 +3780,15 @@ func _make_ceiling_shader(cutout: bool) -> ShaderMaterial:
 	code += "\t\tvec3 cp = world_pos / cell_size;\n"
 	code += "\t\tvec3 gd = abs(fract(cp + 0.5) - 0.5);\n"
 	code += "\t\tfloat d = 0.5;\n"
-	code += "\t\tif (an.x < 0.7) { d = min(d, gd.x); }\n"
-	code += "\t\tif (an.y < 0.7) { d = min(d, gd.y); }\n"
-	code += "\t\tif (an.z < 0.7) { d = min(d, gd.z); }\n"
+	# Include every axis whose cell-boundary planes actually cut across this
+	# face — i.e. all but the face's own normal axis. Cube/leg/cap faces are
+	# axis-aligned (one component 1.0 excluded, the other two 0.0 included). A
+	# prism's diagonal face has a 45-degree normal (two components ~0.707), so
+	# both of those must count too, or the diagonal shows stripes in only one
+	# direction instead of a proper per-cell grid.
+	code += "\t\tif (an.x < 0.9) { d = min(d, gd.x); }\n"
+	code += "\t\tif (an.y < 0.9) { d = min(d, gd.y); }\n"
+	code += "\t\tif (an.z < 0.9) { d = min(d, gd.z); }\n"
 	code += "\t\tfloat aa = fwidth(d) + 1e-5;\n"
 	code += "\t\tfloat line = 1.0 - smoothstep(0.05, 0.05 + aa, d);\n"
 	code += "\t\tALBEDO *= 1.0 - grid_lines * line;\n"
@@ -3813,7 +3826,7 @@ func _update_chunk_ceiling_val(mi: MeshInstance3D, clip_val: float) -> void:
 				mat.set_shader_parameter("ceiling_clip", clip_val)
 				mat.set_shader_parameter("clip_axis", edit_axis)
 				mat.set_shader_parameter("cell_size", CELL_SIZE)
-				mat.set_shader_parameter("grid_lines", 0.35 if _voxel_grid_lines else 0.0)
+				mat.set_shader_parameter("grid_lines", _grid_line_strength())
 
 func _uv_sizes() -> Vector2i:
 	match edit_axis:
