@@ -104,6 +104,24 @@ static func _fill_color(img: Image, use_alpha: bool) -> int:
 	return best
 
 # ─── transforms ──────────────────────────────────────────────────────────────
+# Remap one cell's orientation + face-slot colors under a transform. Face slots
+# are normal-based (CellTypes.slot_for_normal), so the solid tables move caps and
+# legs correctly for prisms too. The HYPOTENUSE is the exception: its diagonal
+# normal collapses under the Y>X>Z slot precedence, so its slot does NOT follow
+# the axis-face table (e.g. ori 0's hyp (+X+Z) and ori 3's hyp (+X-Z) both live
+# in FACE_RIGHT, while the table sends RIGHT to BACK under rotate_y). Move it
+# explicitly from prism_hyp_slot(old ori) to prism_hyp_slot(new ori) — verified
+# exact for all 12 orientations x 3 transforms, rot^4 == identity incl. slots
+# (scratchpad/verify_remap.py).
+static func _remap_cell(c: Array, orient_tab: Array, face_tab: Dictionary) -> Array:
+	var nc := [c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]]
+	for f in range(CellTypes.FACE_TOP, CellTypes.FACE_BACK + 1):
+		nc[face_tab[f]] = c[f]
+	if c[0] == CellTypes.Type.PRISM:
+		nc[1] = orient_tab[c[1]]
+		nc[CellTypes.prism_hyp_slot(nc[1])] = c[CellTypes.prism_hyp_slot(c[1])]
+	return nc
+
 # 90 CCW about Y. Requires a square footprint (gx == gz).
 static func rotate_y(cells: Array, gx: int, gy: int, gz: int) -> Array:
 	var out := _new_cells(gx, gy, gz)
@@ -115,13 +133,7 @@ static func rotate_y(cells: Array, gx: int, gy: int, gz: int) -> Array:
 					continue
 				var nx := z
 				var nz := gx - 1 - x
-				var nc := [c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]]
-				if c[0] == CellTypes.Type.PRISM:
-					nc[1] = ROT_ORIENT[c[1]]
-					# prisms are monochrome (color in slot 2) — nothing else to remap
-				else:
-					for f in range(CellTypes.FACE_TOP, CellTypes.FACE_BACK + 1):
-						nc[ROT_FACE[f]] = c[f]
+				var nc := _remap_cell(c, ROT_ORIENT, ROT_FACE)
 				out[nx][y][nz] = nc
 	return out
 
@@ -136,12 +148,7 @@ static func rotate_x(cells: Array, gx: int, gy: int, gz: int) -> Array:
 					continue
 				var ny := z
 				var nz := gy - 1 - y
-				var nc := [c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]]
-				if c[0] == CellTypes.Type.PRISM:
-					nc[1] = ROTX_ORIENT[c[1]]
-				else:
-					for f in range(CellTypes.FACE_TOP, CellTypes.FACE_BACK + 1):
-						nc[ROTX_FACE[f]] = c[f]
+				var nc := _remap_cell(c, ROTX_ORIENT, ROTX_FACE)
 				out[x][ny][nz] = nc
 	return out
 
@@ -154,12 +161,7 @@ static func flip_vertical(cells: Array, gx: int, gy: int, gz: int) -> Array:
 				if c[0] == CellTypes.Type.EMPTY:
 					continue
 				var ny := gy - 1 - y
-				var nc := [c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]]
-				if c[0] == CellTypes.Type.PRISM:
-					nc[1] = FLIP_ORIENT[c[1]]
-				else:
-					for f in range(CellTypes.FACE_TOP, CellTypes.FACE_BACK + 1):
-						nc[FLIP_FACE[f]] = c[f]
+				var nc := _remap_cell(c, FLIP_ORIENT, FLIP_FACE)
 				out[x][ny][z] = nc
 	return out
 
@@ -258,6 +260,9 @@ static func _build_diagwall(img: Image, use_alpha: bool, gx: int, gy: int, gz: i
 	var t := DIAGWALL_T
 	var wall_a := img.get_region(Rect2i(0, 0, F, F))       # lower-right face (SE)
 	var wall_b := img.get_region(Rect2i(F, 0, F, F))       # upper-left face (NW)
+	var end_a := img.get_region(Rect2i(F * 2, 0, t, F))    # SW end (x=0 / z=0 borders)
+	var end_b := img.get_region(Rect2i(F * 2 + t, 0, t, F))  # NE end
+	var ribbon := img.get_region(Rect2i(F * 2 + 2 * t, 0, F, F))  # rows 0..t-1 top plan, t..2t-1 bottom plan
 	var fill := _fill_color(wall_a, use_alpha)
 	for x in range(F):
 		for z in range(F):
@@ -269,6 +274,10 @@ static func _build_diagwall(img: Image, use_alpha: bool, gx: int, gy: int, gz: i
 				ori = 3
 			elif dif == -(t - 1):
 				ori = 1
+			# plan coordinates of the band: u along the wall, va across thickness
+			# (va 0 = the wall-B / NW side, t-1 = the wall-A / SE side)
+			var u := (x + z) >> 1
+			var va := (dif + t - 1) >> 1
 			for y in range(gy):
 				if ori < 0:
 					cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.SOLID, 0, fill)
@@ -277,9 +286,29 @@ static func _build_diagwall(img: Image, use_alpha: bool, gx: int, gy: int, gz: i
 					# step index along the diagonal
 					var step: int = mini(x, z)
 					cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.PRISM, ori, _encode(atlas, step, gy - 1 - y, use_alpha))
+				# end faces where the band meets the footprint borders; u across
+				# thickness, mirrored on the NE end so both read facing outward.
+				# Guarded so a boundary prism's hyp slot (its wall sample) is
+				# never clobbered — those prisms have no face on the border plane.
+				if z == 0 and _end_slot_ok(cells[x][y][z], CellTypes.FACE_BACK):
+					cells[x][y][z][CellTypes.FACE_BACK] = _encode(end_a, va, gy - 1 - y, use_alpha)
+				if x == 0 and _end_slot_ok(cells[x][y][z], CellTypes.FACE_LEFT):
+					cells[x][y][z][CellTypes.FACE_LEFT] = _encode(end_a, va, gy - 1 - y, use_alpha)
+				if z == F - 1 and _end_slot_ok(cells[x][y][z], CellTypes.FACE_FRONT):
+					cells[x][y][z][CellTypes.FACE_FRONT] = _encode(end_b, t - 1 - va, gy - 1 - y, use_alpha)
+				if x == F - 1 and _end_slot_ok(cells[x][y][z], CellTypes.FACE_RIGHT):
+					cells[x][y][z][CellTypes.FACE_RIGHT] = _encode(end_b, t - 1 - va, gy - 1 - y, use_alpha)
+			# ribbon plan onto the band's top and bottom (solid and prism alike);
+			# bottom mirrored across thickness to match the solid-cap convention
+			cells[x][gy - 1][z][CellTypes.FACE_TOP] = _encode(ribbon, u, va, use_alpha)
+			cells[x][0][z][CellTypes.FACE_BOTTOM] = _encode(ribbon, u, t + (t - 1 - va), use_alpha)
 	if use_alpha:
 		_erase_transparent(cells, gx, gy, gz)
 	return cells
+
+# True if writing `slot` on this cell can't clobber a prism's hypotenuse sample.
+static func _end_slot_ok(cell: Array, slot: int) -> bool:
+	return cell[0] != CellTypes.Type.PRISM or CellTypes.prism_hyp_slot(cell[1]) != slot
 
 # ─── DIAMOND 96x32 / CHAMFERED 144x32 (generalized chamfered box) ────────────
 # c = chamfer. axis face width aw = F-2c. Corners are Y-axis prisms.
@@ -340,14 +369,16 @@ static func _build_chamfered_box(img: Image, c: int, use_alpha: bool, gx: int, g
 		col = _paint_box_diag(cells, img, col, c, 3, ox, oz, F, gy, use_alpha)
 		col = _paint_box_diag(cells, img, col, c, 0, ox, oz, F, gy, use_alpha)
 		col = _paint_box_diag(cells, img, col, c, 1, ox, oz, F, gy, use_alpha)
-	# caps
+	# caps — corner prisms included: their top/bottom triangles show the cap
+	# design (same indexing as the neighboring solids), lateral slots keep the
+	# strip sample painted above.
 	for lx in range(F):
 		for lz in range(F):
 			var x := ox + lx
 			var z := oz + lz
-			if cells[x][0][z][0] == CellTypes.Type.SOLID:
+			if cells[x][0][z][0] != CellTypes.Type.EMPTY:
 				cells[x][0][z][CellTypes.FACE_BOTTOM] = _encode(cap, lx, F - 1 - lz, use_alpha)
-			if cells[x][gy - 1][z][0] == CellTypes.Type.SOLID:
+			if cells[x][gy - 1][z][0] != CellTypes.Type.EMPTY:
 				cells[x][gy - 1][z][CellTypes.FACE_TOP] = _encode(cap, lx, lz, use_alpha)
 	if use_alpha:
 		_erase_transparent(cells, gx, gy, gz)
@@ -388,7 +419,8 @@ static func _paint_box_diag(cells: Array, img: Image, col: int, c: int, corner: 
 		var p: Vector2i = positions[idx]
 		for y in range(gy):
 			var ci := _encode(img, col + idx, gy - 1 - y, use_alpha)
-			# Uniform across face slots: prisms render per-face now.
+			# Strip sample on every slot; the caps loop afterwards overwrites
+			# FACE_TOP / FACE_BOTTOM on the end layers with the cap design.
 			var pc: Array = cells[p.x][y][p.y]
 			for fi in range(CellTypes.FACE_TOP, CellTypes.FACE_BACK + 1):
 				pc[fi] = ci
@@ -460,6 +492,8 @@ static func _build_opening(img: Image, use_alpha: bool, gx: int, gy: int, gz: in
 	var top := img.get_region(Rect2i(F * 2, 0, F, F - d))
 	var back := img.get_region(Rect2i(F * 3, 0, F, F))
 	var bottom := img.get_region(Rect2i(F * 4, 0, F, F))
+	var side_l := img.get_region(Rect2i(F * 5, 0, F, F))
+	var side_r := img.get_region(Rect2i(F * 6, 0, F, F))
 	var fill := _fill_color(back, use_alpha)
 	for z in range(F):
 		for y in range(F):
@@ -494,6 +528,16 @@ static func _build_opening(img: Image, use_alpha: bool, gx: int, gy: int, gz: in
 		for y in range(F - d, F):
 			if cells[x][y][0][0] == CellTypes.Type.SOLID:
 				cells[x][y][0][CellTypes.FACE_BACK] = _encode(back, gx - 1 - x, F - 1 - y, use_alpha)
+	# pentagonal side faces (±X planes), 1:1 from side-L / side-R; -X mirrored so
+	# both read upright facing outward. The chamfer prism's ±X caps land in the
+	# same FACE_RIGHT / FACE_LEFT slots (its hyp lives in FACE_TOP), so painting
+	# every non-empty cell on the plane covers solids and the bevel triangles.
+	for y in range(gy):
+		for z in range(F):
+			if cells[gx - 1][y][z][0] != CellTypes.Type.EMPTY:
+				cells[gx - 1][y][z][CellTypes.FACE_RIGHT] = _encode(side_r, z, F - 1 - y, use_alpha)
+			if cells[0][y][z][0] != CellTypes.Type.EMPTY:
+				cells[0][y][z][CellTypes.FACE_LEFT] = _encode(side_l, F - 1 - z, F - 1 - y, use_alpha)
 	if use_alpha:
 		_erase_transparent(cells, gx, gy, gz)
 	return cells
@@ -565,12 +609,14 @@ static func _build_stairs(img: Image, nsteps: int, use_alpha: bool, gx: int, gy:
 			for z in range(gz):
 				if cells[x][y][z][0] != CellTypes.Type.SOLID:
 					continue
-				# top face where nothing above -> tread
+				# top face where nothing above -> tread (plan view of one step
+				# strip: u 0 = riser edge, v = F-1-z north-up like slab tops)
 				if y + 1 >= gy or cells[x][y + 1][z][0] == CellTypes.Type.EMPTY:
-					cells[x][y][z][CellTypes.FACE_TOP] = _encode(tread, x % ss, F - 1 - y, use_alpha)
-				# -X face where nothing to the left -> riser
+					cells[x][y][z][CellTypes.FACE_TOP] = _encode(tread, x % ss, F - 1 - z, use_alpha)
+				# -X face where nothing to the left -> riser (elevation rotated
+				# 90°: cell column = height within the step, row = z)
 				if x == 0 or cells[x - 1][y][z][0] == CellTypes.Type.EMPTY:
-					cells[x][y][z][CellTypes.FACE_LEFT] = _encode(riser, x % ss, F - 1 - y, use_alpha)
+					cells[x][y][z][CellTypes.FACE_LEFT] = _encode(riser, y % ss, z, use_alpha)
 				# +X wall at back
 				if x == F - 1:
 					cells[x][y][z][CellTypes.FACE_RIGHT] = _encode(back, F - 1 - z, F - 1 - y, use_alpha)
@@ -610,7 +656,9 @@ static func _build_pipe_quarter(img: Image, use_alpha: bool, gx: int, gy: int, g
 	var C := 19
 	var inset := 2
 	var Fin := RF - 2 * inset
-	# end-ring cell for fill/caps: cols 86..117
+	# atlas: outer-arc(45) | inner-arc(41) | end-ring(32) | cut(2)
+	var outer_arc := img.get_region(Rect2i(0, 0, 45, 32))
+	var inner_arc := img.get_region(Rect2i(45, 0, 41, 32))
 	var end_ring := img.get_region(Rect2i(86, 0, 32, 32))
 	var fill := _fill_color(end_ring, use_alpha)
 	# Build the full ring cross-section (type + orient), then take the SW quadrant.
@@ -642,16 +690,54 @@ static func _build_pipe_quarter(img: Image, use_alpha: bool, gx: int, gy: int, g
 			if cell_type != CellTypes.Type.EMPTY:
 				for y in range(gy):
 					cells[lx][y][lz] = CellTypes.make_cell(cell_type, orient, fill)
-	# caps from end-ring cell (approximate; ring texels used, corners ignored)
+	# Arc walls, 1:1 along the unrolled perimeters (v = gy-1-y). The quadrant's
+	# outer surface is south flat (13) + SW diagonal (19) + west flat (13) = 45
+	# columns; the bore surface is 11 + 19 + 11 = 41 — exactly the two arc cells'
+	# widths. Both walks run in the same rotational direction (from the +X-side
+	# cut toward the +Z-side cut), so four Y-rotations tile the texture
+	# continuously around the ring. Diagonal runs paint the prisms' hyp slots.
+	var u := 0
+	for lx in range(31, 18, -1):                       # outer south flat, -Z faces
+		_paint_pipe_col(cells, gy, lx, 0, CellTypes.FACE_BACK, outer_arc, u, use_alpha)
+		u += 1
+	for i in range(19):                                # outer SW diagonal prisms
+		var px := 18 - i
+		var pz := i
+		_paint_pipe_col(cells, gy, px, pz, CellTypes.prism_hyp_slot(cells[px][0][pz][1]), outer_arc, u, use_alpha)
+		u += 1
+	for lz in range(19, 32):                           # outer west flat, -X faces
+		_paint_pipe_col(cells, gy, 0, lz, CellTypes.FACE_LEFT, outer_arc, u, use_alpha)
+		u += 1
+	u = 0
+	for lx in range(31, 20, -1):                       # bore south flat, faces +Z into bore
+		_paint_pipe_col(cells, gy, lx, 1, CellTypes.FACE_FRONT, inner_arc, u, use_alpha)
+		u += 1
+	for i in range(19):                                # bore SW diagonal prisms
+		var bx := 20 - i
+		var bz := 2 + i
+		_paint_pipe_col(cells, gy, bx, bz, CellTypes.prism_hyp_slot(cells[bx][0][bz][1]), inner_arc, u, use_alpha)
+		u += 1
+	for lz in range(21, 32):                           # bore west flat, faces +X into bore
+		_paint_pipe_col(cells, gy, 1, lz, CellTypes.FACE_RIGHT, inner_arc, u, use_alpha)
+		u += 1
+	# caps from end-ring cell (approximate; ring texels used, corners ignored).
+	# Prisms included: their top/bottom triangles show the end-ring design.
 	for lx in range(gx):
 		for lz in range(gz):
-			if cells[lx][0][lz][0] == CellTypes.Type.SOLID:
+			if cells[lx][0][lz][0] != CellTypes.Type.EMPTY:
 				cells[lx][0][lz][CellTypes.FACE_BOTTOM] = _encode(end_ring, lx, 31 - lz, use_alpha)
-			if cells[lx][gy - 1][lz][0] == CellTypes.Type.SOLID:
+			if cells[lx][gy - 1][lz][0] != CellTypes.Type.EMPTY:
 				cells[lx][gy - 1][lz][CellTypes.FACE_TOP] = _encode(end_ring, lx, lz, use_alpha)
 	if use_alpha:
 		_erase_transparent(cells, gx, gy, gz)
 	return cells
+
+# Paint one full-height wall column of the pipe with atlas column u (v rises
+# downward from the top of the cell, v = gy-1-y).
+static func _paint_pipe_col(cells: Array, gy: int, x: int, z: int, slot: int, atlas: Image, u: int, use_alpha: bool) -> void:
+	for y in range(gy):
+		if cells[x][y][z][0] != CellTypes.Type.EMPTY:
+			cells[x][y][z][slot] = _encode(atlas, u, gy - 1 - y, use_alpha)
 
 # ─── shared ──────────────────────────────────────────────────────────────────
 static func _erase_transparent(cells: Array, gx: int, gy: int, gz: int) -> void:

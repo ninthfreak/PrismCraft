@@ -243,13 +243,16 @@ static func build_octagon(faces: Dictionary, footprint: int, gx: int, gy: int, g
 	_apply_octagon_diag_color(cells, color_maps["sw"], gy, c, 0, ox, oz, fp)
 	_apply_octagon_diag_color(cells, color_maps["se"], gy, c, 1, ox, oz, fp)
 
+	# caps — corner prisms included: their top/bottom triangles show the cap
+	# design (same indexing as the neighboring solids), lateral slots keep the
+	# diagonal-strip sample.
 	for lx in range(fp):
 		for lz in range(fp):
 			var x := ox + lx
 			var z := oz + lz
-			if cells[x][0][z][0] == CellTypes.Type.SOLID:
+			if cells[x][0][z][0] != CellTypes.Type.EMPTY:
 				cells[x][0][z][CellTypes.FACE_BOTTOM] = cap_map[lx][fp - 1 - lz]
-			if cells[x][gy - 1][z][0] == CellTypes.Type.SOLID:
+			if cells[x][gy - 1][z][0] != CellTypes.Type.EMPTY:
 				cells[x][gy - 1][z][CellTypes.FACE_TOP] = cap_map[lx][lz]
 
 	if use_alpha:
@@ -285,8 +288,8 @@ static func _apply_octagon_diag_color(cells: Array, color_map: Array, gy: int, c
 		var pos: Vector2i = prism_positions[idx]
 		for y in range(gy):
 			var ci: int = color_map[idx][gy - 1 - y]
-			# Prisms render per-face; set every face slot so the diagonal cell is
-			# uniformly the diagonal color (matching the pre-per-face look).
+			# Diagonal-strip sample on every slot; the caps loop afterwards
+			# overwrites FACE_TOP / FACE_BOTTOM on the end layers with the cap.
 			var pc: Array = cells[pos.x][y][pos.y]
 			for fi in range(CellTypes.FACE_TOP, CellTypes.FACE_BACK + 1):
 				pc[fi] = ci
