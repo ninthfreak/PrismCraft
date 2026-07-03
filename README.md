@@ -113,12 +113,24 @@ Working definitions are saved as Godot resources using the `VoxelDefinition` cla
 
 The full block-format spec -- cell encoding, color packing, and every texture atlas layout -- lives in [`docs/block_formats.md`](docs/block_formats.md) (human-readable) and [`docs/block_formats.json`](docs/block_formats.json) (machine-readable registry).
 
+## Batch Export
+
+Build and export an entire texture library to `.glb` in one headless pass -- no clicking through the editor:
+
+```
+godot --headless --script res://scripts/batch_export.gd -- <textures_dir> [exports_dir]
+```
+
+For every `.png` whose dimensions match a legal format, it builds the block (using the same `BlockImporter` code path as manual import, so the two can't drift) and exports a `.glb` named from the file per the naming convention (`form_wood_stairs_4_80x64.png` -> `form.wood.stairs_4.glb`). Unsupported sizes are logged and skipped; re-running overwrites same-ID files. Prints a summary of built/exported/skipped/failed grouped by role. `exports_dir` defaults to `<textures_dir>/exports`.
+
 ## Architecture
 
 - `scripts/editor_main.gd` -- main editor logic, UI, input handling, and tools
 - `scripts/cell_types.gd` -- cell type enum, RGB565/RGB5551 color encoding, block-texture size validation, favorite colors, and orientation names
 - `scripts/block_mesh_builder.gd` -- generates meshes from cell arrays with face culling (cutout cells never occlude neighbors)
 - `scripts/shape_builder.gd` -- builds every predefined shape (ramp, gable, diagonal wall, diamond, chamfered cube, cross, opening, panel/slabs, stairs, pipe-quarter) from exact-size 1:1 atlases, with canonical build + rotate-Y / rotate-X / vertical-flip orientation transforms
+- `scripts/block_importer.gd` -- static, UI-free block build (atlas slicing + cube/octagon geometry; shapes delegate to shape_builder); shared by manual import and batch export
+- `scripts/batch_export.gd` -- headless batch: build + GLB-export a whole texture folder in one pass
 - `scripts/mesh_exporter.gd` -- exports optimized `.glb` / `.obj` with greedy meshing and materials per color
 - `scripts/voxel_definition.gd` -- resource class for saving/loading definitions
 - `scripts/rig_data.gd` -- rigid segmented skeleton: per-voxel bone ownership/overlap, auto-fit, nearest-segment partition
