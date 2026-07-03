@@ -415,6 +415,35 @@ static func _build_cross(img: Image, use_alpha: bool, gx: int, gy: int, gz: int)
 				cells[x][0][z][CellTypes.FACE_BOTTOM] = _encode(cap, x, F - 1 - z, use_alpha)
 			if cells[x][gy - 1][z][0] == CellTypes.Type.SOLID:
 				cells[x][gy - 1][z][CellTypes.FACE_TOP] = _encode(cap, x, z, use_alpha)
+	# Vertical sides: the atlas's leading strip (cols 0..127) is the perimeter of
+	# the plus unrolled CCW from the +X arm end: 16,8,8,16,8,8,16,8,8,16,8,8. Each
+	# of the 12 segments maps 1:1 onto one run of exposed side faces (full height).
+	# Row [col0, width, x0, dx, z0, dz, face_slot]; cell = (x0+dx*i, z0+dz*i).
+	var strip := img.get_region(Rect2i(0, 0, F * 4, F))
+	var sides := [
+		[0, 16, 31, 0, 23, -1, CellTypes.FACE_RIGHT],
+		[16, 8, 31, -1, 8, 0, CellTypes.FACE_BACK],
+		[24, 8, 23, 0, 7, -1, CellTypes.FACE_RIGHT],
+		[32, 16, 23, -1, 0, 0, CellTypes.FACE_BACK],
+		[48, 8, 8, 0, 0, 1, CellTypes.FACE_LEFT],
+		[56, 8, 7, -1, 8, 0, CellTypes.FACE_BACK],
+		[64, 16, 0, 0, 8, 1, CellTypes.FACE_LEFT],
+		[80, 8, 0, 1, 23, 0, CellTypes.FACE_FRONT],
+		[88, 8, 8, 0, 24, 1, CellTypes.FACE_LEFT],
+		[96, 16, 8, 1, 31, 0, CellTypes.FACE_FRONT],
+		[112, 8, 23, 0, 31, -1, CellTypes.FACE_RIGHT],
+		[120, 8, 24, 1, 23, 0, CellTypes.FACE_FRONT],
+	]
+	for seg in sides:
+		var c0: int = seg[0]
+		var w: int = seg[1]
+		var slot: int = seg[6]
+		for i in range(w):
+			var x: int = seg[2] + seg[3] * i
+			var z: int = seg[4] + seg[5] * i
+			for y in range(gy):
+				if cells[x][y][z][0] == CellTypes.Type.SOLID:
+					cells[x][y][z][slot] = _encode(strip, c0 + i, F - 1 - y, use_alpha)
 	if use_alpha:
 		_erase_transparent(cells, gx, gy, gz)
 	return cells
