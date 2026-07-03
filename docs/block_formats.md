@@ -39,7 +39,7 @@ Each voxel cell is an 8-element array:
   | c_front | 6 | +Z |
   | c_back | 7 | −Z |
 
-> **Prisms carry a color per face.** A prism has 5 faces — 2 caps, 2 axis-aligned legs, and 1 diagonal hypotenuse — and each maps to a **distinct** cell slot (`slot_for_normal`, using the same Y→X→Z precedence as `face_index_from_normal`; the hypotenuse resolves to a free slot, collision-free across all 12 orientations). So a prism can have a different color on each side, editable with the Paint/Eyedropper tools. Uniform prisms (all slots equal) — including everything the shape importers currently produce — render as one color, exactly as before.
+> **Prisms carry a color per face.** A prism has 5 faces — 2 caps, 2 axis-aligned legs, and 1 diagonal hypotenuse — and each maps to a **distinct** cell slot (`slot_for_normal`, using the same Y→X→Z precedence as `face_index_from_normal`; the hypotenuse resolves to a free slot, collision-free across all 12 orientations). So a prism can have a different color on each side, editable with the Paint/Eyedropper tools. The shape importers use this too: edge prisms carry cap/ribbon/end-ring colors on their top and bottom triangles and strip/wall colors on their lateral faces. Uniform prisms (all slots equal) render as one color. The orientation transforms (rotate-Y / rotate-X / vertical flip) remap prism face slots normal-exactly — the hypotenuse slot moves by `prism_hyp_slot`, not by the axis-face tables, since diagonal normals collapse under the Y→X→Z slot precedence.
 
 ---
 
@@ -109,22 +109,22 @@ Orientation is chosen in the import preview — **one atlas serves every rotatio
 - **cross** — cols 0–127: strip `16,8,8,16,8,8,16,8,8,16,8,8`; cols 128–159: cap.
 - **ramp** — row 1 (y0–31): `slope | back | bottom | unused`; row 2 (y32–63): `side-L | side-R | unused`.
 - **gable** — row 1 (y0–15): `slope-A | slope-B | end-A | end-B` (each 32×16); row 2 (y16–47): `bottom` (32×32).
-- **diagwall** — `wall-A(32) | wall-B(32) | end-A(8) | end-B(8) | top+bottom ribbon block(32)`.
-- **opening** — seven 32-wide cells: `front | chamfer | top | back | bottom | side-L | side-R`.
+- **diagwall** — `wall-A(32) | wall-B(32) | end-A(8) | end-B(8) | top+bottom ribbon block(32)`. Ribbon rows 0–7 are the **top plan**, rows 8–15 the **bottom plan** (u = along-wall `(x+z)/2`, v = across-thickness `(x−z+7)/2`, bottom mirrored). Ends map 1:1 at the footprint borders — end-A = SW, end-B = NE (u = across-thickness, NE mirrored so both read facing outward). Boundary-prism caps take the ribbon; their hypotenuses keep the wall sample.
+- **opening** — seven 32-wide cells: `front | chamfer | top | back | bottom | side-L | side-R`. The pentagonal ±X sides are 1:1 (side-R u = z; side-L mirrored so both read upright facing outward); the bevel prism's ±X caps sample the same side cells.
 - **panel / slab_quarter / slab_half** — row 1: `top | bottom` (32×32 each); following rows: `N|S` then `E|W`, each 32 × thickness (1 / 8 / 16).
 - **stairs_2** — `tread(16) | riser(16) | back(32) | bottom(32) | side(32)`.
 - **stairs_4** — row 1: `tread(8) | riser(8) | back(32) | bottom(32)`; row 2: `side(32) | unused(48)`.
-- **pipe_quarter** — `outer-arc(45) | inner-arc(41) | end-ring(32) | cut(2)`.
+- **stairs tread/riser conventions** — the tread cell is a **plan view** of one step strip: u = x within the step (0 = riser edge), v = `F−1−z` (north-up, like slab tops). The riser cell is the riser elevation **rotated 90°**: u = height within the step (0 = bottom), v = z.
+- **pipe_quarter** — `outer-arc(45) | inner-arc(41) | end-ring(32) | cut(2)`. The arcs map 1:1 along the unrolled quadrant perimeters (outer: 13 flat + 19 diagonal + 13 flat = 45 columns; bore: 11+19+11 = 41; v = height). Diagonal runs paint the wall prisms' hypotenuse faces; both walks run in one rotational direction so four rotations tile the texture continuously around the ring.
 
 ---
 
 ## 6. Known texturing simplifications
 
-Geometry is complete and 1:1 for all shapes. A few shapes do not yet map **every** face 1:1 (prisms are monochrome by engine design, and some hidden/curved faces use a dominant-color fill):
+Geometry is complete and 1:1 for all shapes, and every atlas cell is read. The remaining simplifications:
 
-- **opening** — front/chamfer/top/back/bottom are 1:1; the two pentagonal side faces use fill.
-- **pipe_quarter** — fill and caps derive from the end-ring cell; per-texel arc mapping onto the curved inner/outer walls is approximate.
-- **shape-imported prisms** — the shape importers author one color per prism cell (uniform), so a slope/diagonal takes one color per cell, not a per-texel gradient. The engine and the Paint/Eyedropper tools support a separate color per prism face for hand-editing.
+- **pipe_quarter** — the 2-wide **cut** cell is reserved: the flat cross-section faces exposed when a quarter is not placed against its neighbor still use the dominant-color fill. The arcs themselves map 1:1 along the unrolled perimeters.
+- **slope prisms (ramp / gable)** — the slope importers author one color per prism cell (sampled from the slope cell), so a slope takes one color per cell, not a per-texel gradient across the diagonal face. Edge prisms elsewhere (octagons, chamfered, diamond, diagwall, opening, pipe) carry distinct per-face colors: caps from the cap/ribbon/end-ring cells, laterals from the strip/wall cells. The Paint/Eyedropper tools edit any prism face individually.
 
 ---
 
