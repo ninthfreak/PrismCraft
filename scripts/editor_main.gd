@@ -2998,58 +2998,11 @@ func _on_block_texture_selected(path: String) -> void:
 		_setup_shape_import(image, layout)
 		return
 
-	var faces := {}
-	var format_name := ""
-	var is_octagon := false
-	var octagon_fp := 0
-	var tile_w := grid_x
-	var tile_h := grid_y
-
-	if layout == "octagon_full" or layout == "octagon_half":
-		is_octagon = true
-		octagon_fp = tile_w if layout == "octagon_full" else tile_w / 2
-		var c := CellTypes.octagon_chamfer(octagon_fp)
-		var aw := octagon_fp - 2 * c
-		format_name = "Full Octagon (%d×%d)" % [w, h] if layout == "octagon_full" else "Half Octagon (%d×%d)" % [w, h]
-		var face_keys := ["east", "ne", "north", "nw", "west", "sw", "south", "se", "cap"]
-		var face_widths := [aw, c, aw, c, aw, c, aw, c, octagon_fp]
-		var col := 0
-		for i in range(9):
-			var fw: int = face_widths[i]
-			var fh: int = octagon_fp if i == 8 else h
-			faces[face_keys[i]] = image.get_region(Rect2i(col, 0, fw, fh))
-			col += fw
-	elif layout == "net":
-		format_name = "6-Face Net (%d×%d)" % [w, h]
-		var regions := {
-			"top": Rect2i(0, 0, tile_w, tile_h),
-			"front": Rect2i(tile_w, 0, tile_w, tile_h),
-			"right": Rect2i(tile_w * 2, 0, tile_w, tile_h),
-			"bottom": Rect2i(0, tile_h, tile_w, tile_h),
-			"back": Rect2i(tile_w, tile_h, tile_w, tile_h),
-			"left": Rect2i(tile_w * 2, tile_h, tile_w, tile_h),
-		}
-		for key in regions:
-			var r: Rect2i = regions[key]
-			faces[key] = image.get_region(r)
-	elif layout == "capped":
-		format_name = "Capped (%d×%d)" % [w, h]
-		var sides_img := image.get_region(Rect2i(0, 0, tile_w, tile_h))
-		var cap_img := image.get_region(Rect2i(tile_w, 0, tile_w, tile_h))
-		faces["front"] = sides_img
-		faces["back"] = sides_img
-		faces["right"] = sides_img
-		faces["left"] = sides_img
-		faces["top"] = cap_img
-		faces["bottom"] = cap_img
-	else:
-		format_name = "Uniform (%d×%d)" % [w, h]
-		faces["front"] = image
-		faces["back"] = image
-		faces["right"] = image
-		faces["left"] = image
-		faces["top"] = image
-		faces["bottom"] = image
+	# Slice via the shared importer so manual and batch paths never diverge.
+	var faces := BlockImporter.slice_faces(image, layout, grid_x, grid_y)
+	var is_octagon := layout == "octagon_full" or layout == "octagon_half"
+	var octagon_fp := BlockImporter.octagon_footprint(layout, grid_x) if is_octagon else 0
+	var format_name := _block_tex_format_name(layout, w, h)
 
 	_block_tex_shape = ""
 	_block_tex_faces = faces
@@ -3188,104 +3141,22 @@ func _on_block_tex_apply() -> void:
 	var faces := _block_tex_faces
 	_block_tex_faces = {}
 
-	if _block_tex_is_octagon:
-		_apply_octagon_block(faces, _block_tex_octagon_footprint)
-		return
-
-	var face_keys := ["top", "bottom", "right", "left", "front", "back"]
-	var face_indices := [CellTypes.FACE_TOP, CellTypes.FACE_BOTTOM, CellTypes.FACE_RIGHT, CellTypes.FACE_LEFT, CellTypes.FACE_FRONT, CellTypes.FACE_BACK]
-
-	var use_alpha := _block_tex_has_alpha
-	var color_maps := {}
-	var color_counts := {}
-	for key in face_keys:
-		var img: Image = faces[key]
-		var cmap: Array = []
-		cmap.resize(img.get_width())
-		for u in range(img.get_width()):
-			cmap[u] = []
-			cmap[u].resize(img.get_height())
-			for v in range(img.get_height()):
-				var pixel := img.get_pixel(u, v)
-				if not use_alpha and pixel.a < 0.5:
-					cmap[u][v] = -1
-				else:
-					var encoded: int
-					if use_alpha:
-						encoded = CellTypes.encode_rgb5551(pixel)
-					else:
-						encoded = CellTypes.encode_rgb565(pixel)
-					cmap[u][v] = encoded
-					color_counts[encoded] = color_counts.get(encoded, 0) + 1
-		color_maps[key] = cmap
-
-	var fill_color := 0
-	var best_count := 0
-	for idx in color_counts:
-		if color_counts[idx] > best_count:
-			best_count = color_counts[idx]
-			fill_color = idx
-
-	if use_alpha:
-		var fc := CellTypes.decode_color(fill_color)
-		fill_color = CellTypes.encode_rgb5551(Color(fc.r, fc.g, fc.b, 0.0))
-
 	_push_undo()
 	_init_cells()
-
-	if use_alpha:
-		for x in range(grid_x):
-			for y in range(grid_y):
-				for z in range(grid_z):
-					if x == 0 or x == grid_x - 1 or y == 0 or y == grid_y - 1 or z == 0 or z == grid_z - 1:
-						cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.SOLID, 0, fill_color)
+	if _block_tex_is_octagon:
+		cells = BlockImporter.build_octagon(faces, _block_tex_octagon_footprint, grid_x, grid_y, grid_z, _block_tex_has_alpha)
 	else:
-		for x in range(grid_x):
-			for y in range(grid_y):
-				for z in range(grid_z):
-					cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.SOLID, 0, fill_color)
-
-	_apply_face_texture(color_maps["front"], CellTypes.FACE_FRONT,
-		func(u: int, v: int) -> Vector3i:
-			return Vector3i(u, grid_y - 1 - v, grid_z - 1),
-		func(u: int, v: int) -> Vector3i:
-			return Vector3i(u, grid_y - 1 - v, grid_z - 1))
-
-	_apply_face_texture(color_maps["back"], CellTypes.FACE_BACK,
-		func(u: int, v: int) -> Vector3i:
-			return Vector3i(grid_x - 1 - u, grid_y - 1 - v, 0),
-		func(u: int, v: int) -> Vector3i:
-			return Vector3i(grid_x - 1 - u, grid_y - 1 - v, 0))
-
-	_apply_face_texture(color_maps["right"], CellTypes.FACE_RIGHT,
-		func(u: int, v: int) -> Vector3i:
-			return Vector3i(grid_x - 1, grid_y - 1 - v, grid_z - 1 - u),
-		func(u: int, v: int) -> Vector3i:
-			return Vector3i(grid_x - 1, grid_y - 1 - v, grid_z - 1 - u))
-
-	_apply_face_texture(color_maps["left"], CellTypes.FACE_LEFT,
-		func(u: int, v: int) -> Vector3i:
-			return Vector3i(0, grid_y - 1 - v, u),
-		func(u: int, v: int) -> Vector3i:
-			return Vector3i(0, grid_y - 1 - v, u))
-
-	_apply_face_texture(color_maps["top"], CellTypes.FACE_TOP,
-		func(u: int, v: int) -> Vector3i:
-			return Vector3i(u, grid_y - 1, v),
-		func(u: int, v: int) -> Vector3i:
-			return Vector3i(u, grid_y - 1, v))
-
-	_apply_face_texture(color_maps["bottom"], CellTypes.FACE_BOTTOM,
-		func(u: int, v: int) -> Vector3i:
-			return Vector3i(u, 0, grid_z - 1 - v),
-		func(u: int, v: int) -> Vector3i:
-			return Vector3i(u, 0, grid_z - 1 - v))
-
-	if use_alpha:
-		_erase_fully_transparent_cells()
-
+		cells = BlockImporter.build_cube(faces, _block_tex_has_alpha, grid_x, grid_y, grid_z)
 	_mark_dirty()
 	_rebuild_mesh()
+
+func _block_tex_format_name(layout: String, w: int, h: int) -> String:
+	match layout:
+		"octagon_full": return "Full Octagon (%d×%d)" % [w, h]
+		"octagon_half": return "Half Octagon (%d×%d)" % [w, h]
+		"net": return "6-Face Net (%d×%d)" % [w, h]
+		"capped": return "Capped (%d×%d)" % [w, h]
+		_: return "Uniform (%d×%d)" % [w, h]
 
 func _setup_shape_import(image: Image, shape: String) -> void:
 	_block_tex_shape = shape
@@ -3336,193 +3207,6 @@ func _apply_shape_block() -> void:
 	cells = ShapeBuilder.build(shape, _block_tex_shape_img, _block_tex_has_alpha, grid_x, grid_y, grid_z, opt)
 	_mark_dirty()
 	_rebuild_mesh()
-
-func _apply_octagon_block(faces: Dictionary, footprint: int) -> void:
-	var use_alpha := _block_tex_has_alpha
-	var c := CellTypes.octagon_chamfer(footprint)
-	var gx := grid_x
-	var gy := grid_y
-	var gz := grid_z
-	var ox := (gx - footprint) / 2
-	var oz := (gz - footprint) / 2
-
-	var oct_keys := ["east", "ne", "north", "nw", "west", "sw", "south", "se", "cap"]
-	var color_maps := {}
-	for key in oct_keys:
-		var img: Image = faces[key]
-		var cmap: Array = []
-		cmap.resize(img.get_width())
-		for u in range(img.get_width()):
-			cmap[u] = []
-			cmap[u].resize(img.get_height())
-			for v in range(img.get_height()):
-				var pixel := img.get_pixel(u, v)
-				var encoded: int
-				if use_alpha:
-					encoded = CellTypes.encode_rgb5551(pixel)
-				else:
-					encoded = CellTypes.encode_rgb565(pixel)
-				cmap[u][v] = encoded
-		color_maps[key] = cmap
-
-	var cap_map: Array = color_maps["cap"]
-	var cap_color_counts := {}
-	for u in range(cap_map.size()):
-		for v in range(cap_map[u].size()):
-			var cv: int = cap_map[u][v]
-			cap_color_counts[cv] = cap_color_counts.get(cv, 0) + 1
-	var fill_color := 0
-	var best_count := 0
-	for idx in cap_color_counts:
-		if cap_color_counts[idx] > best_count:
-			best_count = cap_color_counts[idx]
-			fill_color = idx
-
-	if use_alpha:
-		var fc := CellTypes.decode_color(fill_color)
-		fill_color = CellTypes.encode_rgb5551(Color(fc.r, fc.g, fc.b, 0.0))
-
-	_push_undo()
-	_init_cells()
-
-	var fp := footprint
-	for lx in range(fp):
-		for y in range(gy):
-			for lz in range(fp):
-				var x := ox + lx
-				var z := oz + lz
-				var in_octagon := true
-				var corner_type := -1
-				if lx + lz < c:
-					in_octagon = false
-					if lx + lz == c - 1:
-						corner_type = 0
-				elif (fp - 1 - lx) + lz < c:
-					in_octagon = false
-					if (fp - 1 - lx) + lz == c - 1:
-						corner_type = 1
-				elif (fp - 1 - lx) + (fp - 1 - lz) < c:
-					in_octagon = false
-					if (fp - 1 - lx) + (fp - 1 - lz) == c - 1:
-						corner_type = 2
-				elif lx + (fp - 1 - lz) < c:
-					in_octagon = false
-					if lx + (fp - 1 - lz) == c - 1:
-						corner_type = 3
-
-				if not in_octagon:
-					if corner_type >= 0:
-						var orientation: int
-						match corner_type:
-							0: orientation = 2
-							1: orientation = 3
-							2: orientation = 0
-							_: orientation = 1
-						cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.PRISM, orientation, fill_color)
-					# else: already empty from _init_cells
-				else:
-					cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.SOLID, 0, fill_color)
-
-	var x_max := ox + fp - 1
-	var z_max := oz + fp - 1
-	_apply_octagon_side(color_maps["east"], gy,
-		func(i: int, v: int) -> Vector3i: return Vector3i(x_max, gy - 1 - v, oz + c + i),
-		CellTypes.FACE_RIGHT)
-	_apply_octagon_side(color_maps["west"], gy,
-		func(i: int, v: int) -> Vector3i: return Vector3i(ox, gy - 1 - v, z_max - c - i),
-		CellTypes.FACE_LEFT)
-	_apply_octagon_side(color_maps["north"], gy,
-		func(i: int, v: int) -> Vector3i: return Vector3i(x_max - c - i, gy - 1 - v, z_max),
-		CellTypes.FACE_FRONT)
-	_apply_octagon_side(color_maps["south"], gy,
-		func(i: int, v: int) -> Vector3i: return Vector3i(ox + c + i, gy - 1 - v, oz),
-		CellTypes.FACE_BACK)
-
-	_apply_octagon_diag_color(color_maps["ne"], gy, c, 2, ox, oz, fp)
-	_apply_octagon_diag_color(color_maps["nw"], gy, c, 3, ox, oz, fp)
-	_apply_octagon_diag_color(color_maps["sw"], gy, c, 0, ox, oz, fp)
-	_apply_octagon_diag_color(color_maps["se"], gy, c, 1, ox, oz, fp)
-
-	for lx in range(fp):
-		for lz in range(fp):
-			var x := ox + lx
-			var z := oz + lz
-			if cells[x][0][z][0] == CellTypes.Type.SOLID:
-				cells[x][0][z][CellTypes.FACE_BOTTOM] = cap_map[lx][fp - 1 - lz]
-			if cells[x][gy - 1][z][0] == CellTypes.Type.SOLID:
-				cells[x][gy - 1][z][CellTypes.FACE_TOP] = cap_map[lx][lz]
-
-	if use_alpha:
-		_erase_fully_transparent_cells()
-
-	_mark_dirty()
-	_rebuild_mesh()
-
-func _apply_octagon_side(color_map: Array, gy: int, pos_fn: Callable, face_idx: int) -> void:
-	var face_w: int = color_map.size()
-	for i in range(face_w):
-		for v in range(gy):
-			var ci: int = color_map[i][v]
-			var p: Vector3i = pos_fn.call(i, v)
-			cells[p.x][p.y][p.z][face_idx] = ci
-
-func _apply_octagon_diag_color(color_map: Array, gy: int, chamfer: int, corner_type: int, ox: int, oz: int, fp: int) -> void:
-	var prism_positions: Array = []
-	for lx in range(fp):
-		for lz in range(fp):
-			var on_edge := false
-			match corner_type:
-				0: on_edge = (lx + lz == chamfer - 1)
-				1: on_edge = ((fp - 1 - lx) + lz == chamfer - 1)
-				2: on_edge = ((fp - 1 - lx) + (fp - 1 - lz) == chamfer - 1)
-				3: on_edge = (lx + (fp - 1 - lz) == chamfer - 1)
-			if on_edge:
-				prism_positions.append(Vector2i(ox + lx, oz + lz))
-
-	match corner_type:
-		0: prism_positions.sort_custom(func(a: Vector2i, b: Vector2i) -> bool: return a.x < b.x)
-		1: prism_positions.sort_custom(func(a: Vector2i, b: Vector2i) -> bool: return a.x > b.x)
-		2: prism_positions.sort_custom(func(a: Vector2i, b: Vector2i) -> bool: return a.x > b.x)
-		3: prism_positions.sort_custom(func(a: Vector2i, b: Vector2i) -> bool: return a.x < b.x)
-
-	for idx in range(prism_positions.size()):
-		var pos: Vector2i = prism_positions[idx]
-		for y in range(gy):
-			var ci: int = color_map[idx][gy - 1 - y]
-			# Prisms now render per-face; set every face slot so the whole diagonal
-			# cell reads the diagonal color uniformly (matching the previous look).
-			var pc: Array = cells[pos.x][y][pos.y]
-			for fi in range(CellTypes.FACE_TOP, CellTypes.FACE_BACK + 1):
-				pc[fi] = ci
-
-func _erase_fully_transparent_cells() -> void:
-	for x in range(grid_x):
-		for y in range(grid_y):
-			for z in range(grid_z):
-				var cell: Array = cells[x][y][z]
-				if cell[0] == CellTypes.Type.EMPTY:
-					continue
-				var all_transparent := true
-				for fi in range(CellTypes.FACE_TOP, CellTypes.FACE_BACK + 1):
-					var cv: int = cell[fi]
-					if not CellTypes.is_rgb5551(cv) or CellTypes.decode_rgb5551(cv).a >= CellTypes.ALPHA_THRESHOLD:
-						all_transparent = false
-						break
-				if all_transparent:
-					cells[x][y][z] = CellTypes.empty_cell()
-
-func _apply_face_texture(color_map: Array, face_idx: int, erase_pos: Callable, color_pos: Callable) -> void:
-	var w: int = color_map.size()
-	var h: int = color_map[0].size()
-	for u in range(w):
-		for v in range(h):
-			var ci: int = color_map[u][v]
-			if ci == -1:
-				var p: Vector3i = erase_pos.call(u, v)
-				cells[p.x][p.y][p.z] = CellTypes.empty_cell()
-			else:
-				var p: Vector3i = color_pos.call(u, v)
-				cells[p.x][p.y][p.z][face_idx] = ci
 
 func _export_obj() -> void:
 	export_dialog.current_dir = "res://definitions"
