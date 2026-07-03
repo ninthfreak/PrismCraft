@@ -15,7 +15,7 @@ const GY := 32
 const GZ := 32
 const CELL := 1.0 / 32.0
 
-# Naming convention v3.4: <material-variant>_<shape>_<WxH>.png -> block ID
+# Naming convention v3.6: <material-variant>_<shape>_<WxH>.png -> block ID
 # <material-variant>.<shape>. No roles; shape is mandatory (uniform = cube).
 # Fields use HYPHENS internally (stone-block, steel-corrugated, octagon-half),
 # so the only underscores are field separators — parsing needs no vocab list:

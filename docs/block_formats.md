@@ -129,7 +129,7 @@ Geometry is complete and 1:1 for all shapes. A few shapes do not yet map **every
 
 ---
 
-## 7. Naming (convention v3.4)
+## 7. Naming (convention v3.6)
 
 Texture files and block IDs follow:
 
