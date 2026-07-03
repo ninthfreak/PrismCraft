@@ -15,12 +15,23 @@ const GY := 32
 const GZ := 32
 const CELL := 1.0 / 32.0
 
-# Shape tokens that can appear as the <shape> field in a filename, longest first
-# so multi-word tokens peel before their prefixes (octagon_half before octagon).
+# Naming convention v3.1: <material>[_<variant>]_<shape>_<WxH>.png -> block ID
+# <material>[.<variant>].<shape>. No roles. Shape is mandatory (uniform = cube).
+# Material and variant fields may contain underscores (stone_brick, flecked_coal,
+# painted_red), so we peel the shape suffix and match the material prefix against
+# known vocab rather than splitting on every underscore.
+#
+# Shape tokens, multi-word first so they peel before their prefixes.
 const SHAPE_TOKENS := [
 	"octagon_half", "slab_quarter", "slab_half", "pipe_quarter", "stairs_2", "stairs_4",
-	"octagon", "capped", "net", "diamond", "chamfered", "cross", "ramp", "gable",
+	"octagon", "capped", "cube", "net", "diamond", "chamfered", "cross", "ramp", "gable",
 	"diagwall", "opening", "panel",
+]
+# Known materials, multi-word first for greedy longest-prefix matching.
+const MATERIALS := [
+	"stone_brick", "asphalt", "brick", "cement", "cobble", "concrete", "dirt", "grass",
+	"gravel", "ice", "leaves", "mud", "oak", "birch", "sand", "slate", "snow", "steel",
+	"stone", "water", "wood",
 ]
 
 func _initialize() -> void:
@@ -47,7 +58,7 @@ func _run(in_dir: String, out_dir: String) -> void:
 	var exported := 0
 	var skipped: Array = []      # [filename, reason]
 	var failed: Array = []       # [id, reason]
-	var by_role := {}            # role -> count
+	var by_shape := {}           # shape -> count
 
 	for f in pngs:
 		var path := in_dir.path_join(f)
@@ -65,25 +76,29 @@ func _run(in_dir: String, out_dir: String) -> void:
 		var cells := BlockImporter.build_cells(layout, img, GX, GY, GZ, BlockImporter.default_opt(layout))
 		built += 1
 
-		var block_id := _block_id(f)
+		var parsed := _parse_name(f)
+		var block_id: String = parsed["id"]
+		var shape: String = parsed["shape"]
 		var out_path := out_dir.path_join(block_id + ".glb")
 		var tris := MeshExporter.export_glb(out_path, cells, GX, GY, GZ, CELL)
-		var role := block_id.split(".")[0]
 		if tris > 0:
 			exported += 1
-			by_role[role] = by_role.get(role, 0) + 1
+			by_shape[shape] = by_shape.get(shape, 0) + 1
 			print("[ok]  %-40s -> %s.glb  (%d tris)" % [f, block_id, tris])
 		else:
 			failed.append([block_id, "export produced no geometry"])
 			print("[fail] %-40s -> export empty" % f)
 
-	_summary(in_dir, out_dir, pngs.size(), built, exported, skipped, failed, by_role)
+	_summary(in_dir, out_dir, pngs.size(), built, exported, skipped, failed, by_shape)
 
-# Filename -> block ID. Strips the extension and the trailing _WxH, peels a known
-# shape token (kept verbatim), and joins the remaining fields with dots.
-#   wall_brick_32x32.png          -> wall.brick
-#   form_wood_stairs_4_80x64.png  -> form.wood.stairs_4
-func _block_id(filename: String) -> String:
+# Filename -> {id, shape}. Strips the extension and trailing _WxH, peels the
+# mandatory shape suffix, matches the material prefix against known vocab, and
+# treats whatever remains as the variant. Field underscores are preserved.
+#   brick_cube_32x32.png             -> brick.cube
+#   steel_corrugated_cube_32x32.png  -> steel.corrugated.cube
+#   stone_brick_cube_32x32.png       -> stone_brick.cube
+#   wood_stairs_4_80x64.png          -> wood.stairs_4
+func _parse_name(filename: String) -> Dictionary:
 	var base := filename.get_basename()
 	var re := RegEx.new()
 	re.compile("_\\d+x\\d+$")
@@ -92,26 +107,40 @@ func _block_id(filename: String) -> String:
 		base = base.substr(0, m.get_start())
 	var shape := ""
 	for tok in SHAPE_TOKENS:
-		if base.ends_with("_" + tok):
+		if base == tok or base.ends_with("_" + tok):
 			shape = tok
-			base = base.substr(0, base.length() - tok.length() - 1)
+			base = "" if base == tok else base.substr(0, base.length() - tok.length() - 1)
 			break
-	var id := base.replace("_", ".")
+	var material := ""
+	var variant := ""
+	for mat in MATERIALS:
+		if base == mat or base.begins_with(mat + "_"):
+			material = mat
+			var rest := base.substr(mat.length())
+			variant = rest.substr(1) if rest.begins_with("_") else rest
+			break
+	if material == "":
+		var us := base.find("_")
+		material = base if us < 0 else base.substr(0, us)
+		variant = "" if us < 0 else base.substr(us + 1)
+	var id := material
+	if variant != "":
+		id += "." + variant
 	if shape != "":
 		id += "." + shape
-	return id
+	return {"id": id, "shape": shape}
 
-func _summary(in_dir: String, out_dir: String, total: int, built: int, exported: int, skipped: Array, failed: Array, by_role: Dictionary) -> void:
+func _summary(in_dir: String, out_dir: String, total: int, built: int, exported: int, skipped: Array, failed: Array, by_shape: Dictionary) -> void:
 	print("\n==================== batch export summary ====================")
 	print("input:   ", in_dir)
 	print("output:  ", out_dir)
 	print("textures found: %d | built: %d | exported: %d | skipped: %d | failed: %d" % [total, built, exported, skipped.size(), failed.size()])
-	if not by_role.is_empty():
-		print("\nexported by role:")
-		var roles := by_role.keys()
-		roles.sort()
-		for r in roles:
-			print("  %-12s %d" % [r, by_role[r]])
+	if not by_shape.is_empty():
+		print("\nexported by shape:")
+		var shapes := by_shape.keys()
+		shapes.sort()
+		for s in shapes:
+			print("  %-12s %d" % [s, by_shape[s]])
 	if not skipped.is_empty():
 		print("\nskipped:")
 		for s in skipped:

@@ -129,13 +129,15 @@ Geometry is complete and 1:1 for all shapes. A few shapes do not yet map **every
 
 ---
 
-## 7. Naming (convention v2.7)
+## 7. Naming (convention v3.1)
 
 Texture files and block IDs follow:
 
 ```
-<role>_<material>[_<variant>][_<shape>]_<WxH>.png     (files)
-<role>.<material>[.<variant>][.<shape>]               (block IDs)
+<material>[_<variant>]_<shape>_<WxH>.png     (files)
+<material>[.<variant>].<shape>               (block IDs)
 ```
 
-The `shape` token matches a registry format above (e.g. `octagon`, `capped`, `stairs_2`, `pipe_quarter`); omitted = 32×32 uniform cube. Roles: `terrain`, `wall`, `floor`, `path`, `roof`, `structural`, `form`, `flora`. See the naming convention document for the full role/variant vocabulary.
+**No roles** (removed in v3 — use is the builder's decision, inferred from shape + material). **Shape is mandatory** on every texture — the 32×32 uniform block carries the explicit `cube` token (`brick_cube_32x32.png`), nothing is implicit. The `shape` token matches a registry format above (`cube`, `capped`, `net`, `octagon`, `octagon_half`, `diamond`, `chamfered`, `cross`, `ramp`, `gable`, `diagwall`, `opening`, `pipe_quarter`, `panel`, `slab_quarter`, `slab_half`, `stairs_2`, `stairs_4`).
+
+Material and variant are single fields that may themselves contain underscores (`stone_brick`, `flecked_coal`, `painted_red`); only the field separators become dots in the block ID. Variants describe intrinsic material differences only (`corrugated`, `plank`, `rusted`, `painted_<color>`, `flecked_<mineral>`…); transient/environmental states (`damp`, `wet`, `snowy`, `frozen`) are shader effects, never baked into textures. See the naming convention document for the full material/variant vocabulary.
