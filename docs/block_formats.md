@@ -122,7 +122,6 @@ Orientation is chosen in the import preview — **one atlas serves every rotatio
 
 Geometry is complete and 1:1 for all shapes. A few shapes do not yet map **every** face 1:1 (prisms are monochrome by engine design, and some hidden/curved faces use a dominant-color fill):
 
-- **cross** — caps are textured 1:1; the 12 side faces use the atlas's dominant color.
 - **opening** — front/chamfer/top/back/bottom are 1:1; the two pentagonal side faces use fill.
 - **pipe_quarter** — fill and caps derive from the end-ring cell; per-texel arc mapping onto the curved inner/outer walls is approximate.
 - **shape-imported prisms** — the shape importers author one color per prism cell (uniform), so a slope/diagonal takes one color per cell, not a per-texel gradient. The engine and the Paint/Eyedropper tools support a separate color per prism face for hand-editing.
