@@ -187,8 +187,8 @@ static func slot_for_normal(n: Vector3) -> int:
 static func prism_hyp_slot(orientation: int) -> int:
 	var axis := orientation / 4
 	var corner := orientation % 4
-	var cu := [0, 1, 1, 0][corner]
-	var cv := [0, 0, 1, 1][corner]
+	var cu: int = [0, 1, 1, 0][corner]
+	var cv: int = [0, 0, 1, 1][corner]
 	var hu := 1 - 2 * cu
 	var hv := 1 - 2 * cv
 	var uax: Vector3
@@ -205,11 +205,11 @@ static func prism_hyp_slot(orientation: int) -> int:
 static func prism_paint_slot(orientation: int, n: Vector3i) -> int:
 	var axis := orientation / 4
 	var corner := orientation % 4
-	var axis_n := [Vector3i(0, 1, 0), Vector3i(1, 0, 0), Vector3i(0, 0, 1)][axis]
+	var axis_n: Vector3i = [Vector3i(0, 1, 0), Vector3i(1, 0, 0), Vector3i(0, 0, 1)][axis]
 	if n.x * axis_n.x + n.y * axis_n.y + n.z * axis_n.z != 0:
 		return face_index_from_normal(n)  # cap
-	var cu := [0, 1, 1, 0][corner]
-	var cv := [0, 0, 1, 1][corner]
+	var cu: int = [0, 1, 1, 0][corner]
+	var cv: int = [0, 0, 1, 1][corner]
 	var uax: Vector3i
 	var vax: Vector3i
 	match axis:
