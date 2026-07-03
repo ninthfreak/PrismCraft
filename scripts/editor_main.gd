@@ -406,6 +406,7 @@ func _setup_ui() -> void:
 	view_menu.add_check_item("Mirror Z", 4)
 	view_menu.add_separator()
 	view_menu.add_item("Compare Two Models…", 5)
+	view_menu.add_item("Tiling Preview…", 8)
 	view_menu.add_item("Rig / Skeleton (prototype)…", 6)
 	view_menu.add_check_item("Voxel Grid on Model", 7)
 	view_menu.set_item_checked(view_menu.get_item_index(7), _voxel_grid_lines)
@@ -902,6 +903,7 @@ func _on_view_menu(id: int) -> void:
 		5: _open_compare_view()
 		6: _open_rig_view()
 		7: _toggle_voxel_grid_lines()
+		8: _open_tile_view()
 
 func _open_compare_view() -> void:
 	var cv := CompareView.new()
@@ -910,6 +912,13 @@ func _open_compare_view() -> void:
 	var disp := current_file_path.get_file() if not current_file_path.is_empty() else "(current)"
 	cv.load_cells(1, cells, grid_x, grid_y, grid_z, disp)
 	cv.popup_centered(Vector2i(1400, 820))
+
+func _open_tile_view() -> void:
+	var tv := TileView.new()
+	add_child(tv)
+	tv.refresh_requested.connect(func(): tv.set_model(cells, grid_x, grid_y, grid_z))
+	tv.set_model(cells, grid_x, grid_y, grid_z)
+	tv.popup_centered(Vector2i(1200, 820))
 
 func _open_rig_view() -> void:
 	var rv := RigView.new()
