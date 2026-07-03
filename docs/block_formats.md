@@ -129,13 +129,15 @@ Geometry is complete and 1:1 for all shapes. A few shapes do not yet map **every
 
 ---
 
-## 7. Naming (convention v2.7)
+## 7. Naming (convention v3.4)
 
 Texture files and block IDs follow:
 
 ```
-<role>_<material>[_<variant>][_<shape>]_<WxH>.png     (files)
-<role>.<material>[.<variant>][.<shape>]               (block IDs)
+<material-variant>_<shape>_<WxH>.png     (files)
+<material-variant>.<shape>               (block IDs)
 ```
 
-The `shape` token matches a registry format above (e.g. `octagon`, `capped`, `stairs_2`, `pipe_quarter`); omitted = 32×32 uniform cube. Roles: `terrain`, `wall`, `floor`, `path`, `roof`, `structural`, `form`, `flora`. See the naming convention document for the full role/variant vocabulary.
+**No roles** (removed in v3 — use is the builder's decision, inferred from shape + material). **Shape is mandatory** on every texture — the 32×32 uniform block carries the explicit `cube` token (`brick_cube_32x32.png`), nothing is implicit. The `shape` token matches a registry format above (`cube`, `capped`, `net`, `octagon`, `octagon-half`, `diamond`, `chamfered`, `cross`, `ramp`, `gable`, `diagwall`, `opening`, `pipe-quarter`, `panel`, `slab-quarter`, `slab-half`, `stairs-2`, `stairs-4`).
+
+**Fields use hyphens internally** (`stone-block`, `steel-corrugated`, `stone-flecked-coal`, `octagon-half`), so the **only underscores are the field separators**. The block ID is the filename minus `_WxH` with those underscores turned into dots — no vocabulary list needed to parse it. Variants describe intrinsic material differences only (`corrugated`, `plank`, `rusted`, `painted-<color>`, `flecked-<mineral>`…); transient/environmental states (`damp`, `wet`, `snowy`, `frozen`) are shader effects, never baked into textures.
