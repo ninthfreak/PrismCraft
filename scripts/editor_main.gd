@@ -933,6 +933,8 @@ func _open_texture_editor() -> void:
 	add_child(te)
 	# Always derive the canvas from the current model, so the editor reflects
 	# whatever voxels are on screen (imported, loaded, or hand-edited).
+	# Remember a shape the user picks (correcting a wrong guess) so save keeps it.
+	te.layout_chosen.connect(func(l: String): _current_block_tex_layout = l)
 	te.load_from_model(cells, grid_x, grid_y, grid_z, _current_block_tex_layout)
 	te.popup_centered(Vector2i(1500, 860))
 
