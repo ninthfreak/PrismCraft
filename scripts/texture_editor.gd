@@ -10,12 +10,22 @@ extends Window
 const GX := 32
 const CELL := 1.0
 
+# Emitted when the user explicitly picks a shape, so the editor can remember the
+# corrected layout on the model (persisted on save) instead of guessing again.
+signal layout_chosen(layout: String)
+
 const TOOL_PENCIL := 0
 const TOOL_FILL := 1
 const TOOL_ERASE := 2
 const TOOL_EYEDROP := 3
 
 var _layout := "uniform"
+# The model this editor is bound to, kept so switching the shape re-derives the
+# atlas from the same voxels instead of blanking the canvas.
+var _model_cells: Array = []
+var _model_gx := 32
+var _model_gy := 32
+var _model_gz := 32
 var _img: Image
 var _tex: ImageTexture
 var _regions: Array = []
@@ -375,23 +385,38 @@ func _new_canvas(layout: String) -> void:
 func load_from_model(cells: Array, gx: int, gy: int, gz: int, hint: String) -> void:
 	if cells.is_empty():
 		return
+	_model_cells = cells
+	_model_gx = gx; _model_gy = gy; _model_gz = gz
 	var layout := hint
 	var atlas: Image = BlockImporter.reconstruct_atlas(layout, cells, gx, gy, gz) if layout != "" else null
 	if atlas == null:
 		layout = BlockImporter.guess_layout(cells, gx, gy, gz)
 		atlas = BlockImporter.reconstruct_atlas(layout, cells, gx, gy, gz) if layout != "" else null
 	if atlas == null:
-		_status.text = "  couldn't derive an atlas from this model"
+		_status.text = "  couldn't derive an atlas from this model — pick a shape to try"
 		return
+	_apply_atlas(layout, atlas)
+	_status.text = "  editing the current block's texture (%s) — switch Shape to re-read as another" % layout
+
+# Set the canvas to `img` at `layout` (regions, size, preview all follow).
+func _apply_atlas(layout: String, img: Image) -> void:
 	_new_canvas(layout)
-	_img = atlas
+	_img = img
 	_tex = ImageTexture.create_from_image(_img)
 	_canvas.refresh()
 	_rebuild_preview()
-	_status.text = "  editing the current block's texture (%s)" % layout
 
 func _on_shape_selected(i: int) -> void:
 	var f: Array = formats()[i]
+	# Re-derive the atlas from the bound model under the newly chosen shape,
+	# rather than blanking — this is how you correct a wrong initial guess.
+	if not _model_cells.is_empty():
+		var atlas := BlockImporter.reconstruct_atlas(f[0], _model_cells, _model_gx, _model_gy, _model_gz)
+		if atlas != null:
+			_apply_atlas(f[0], atlas)
+			layout_chosen.emit(f[0])
+			_status.text = "  re-read the model as %s (%dx%d)" % [f[1], f[2], f[3]]
+			return
 	_new_canvas(f[0])
 	_status.text = "  new %s canvas (%dx%d)" % [f[1], f[2], f[3]]
 
