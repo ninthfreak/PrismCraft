@@ -98,6 +98,13 @@ const _FACE_DIR := {
 	CellTypes.FACE_RIGHT: Vector3i(1, 0, 0), CellTypes.FACE_LEFT: Vector3i(-1, 0, 0),
 	CellTypes.FACE_FRONT: Vector3i(0, 0, 1), CellTypes.FACE_BACK: Vector3i(0, 0, -1),
 }
+# Visibility rank: when several faces share an atlas texel, the most-seen one
+# wins. Top is seen most, bottom least — so a shared cap texel takes the top
+# color and the bottom conforms.
+const _FACE_VIS := {
+	CellTypes.FACE_TOP: 6, CellTypes.FACE_RIGHT: 3, CellTypes.FACE_LEFT: 3,
+	CellTypes.FACE_FRONT: 3, CellTypes.FACE_BACK: 3, CellTypes.FACE_BOTTOM: 1,
+}
 
 static func reconstruct_atlas(layout: String, cells: Array, gx: int, gy: int, gz: int) -> Image:
 	var dims := atlas_dims(layout, gx, gy)
@@ -113,9 +120,10 @@ static func reconstruct_atlas(layout: String, cells: Array, gx: int, gy: int, gz
 		for u in range(w):
 			probe.set_pixel(u, v, CellTypes.decode_rgb565(1 + v * w + u))
 	var probe_cells: Array = build_cells(layout, probe, gx, gy, gz, default_opt(layout))
-	# Inverse map: code -> the cell face that read it, preferring exposed faces
-	# (the 1:1 write) over interior fill copies of a region's dominant texel.
-	var src := {}   # code -> [x, y, z, slot, exposed]
+	# Inverse map: code -> the cell face that read it. When several faces share a
+	# texel, keep the most-visible: exposed beats interior, then top > sides >
+	# bottom (rank = exposed*100 + face visibility).
+	var src := {}   # code -> [x, y, z, slot, rank]
 	for x in range(gx):
 		for y in range(gy):
 			for z in range(gz):
@@ -130,9 +138,10 @@ static func reconstruct_atlas(layout: String, cells: Array, gx: int, gy: int, gz
 					var nx := x + d.x; var ny := y + d.y; var nz := z + d.z
 					var exposed: bool = nx < 0 or nx >= gx or ny < 0 or ny >= gy or nz < 0 or nz >= gz \
 						or probe_cells[nx][ny][nz][0] == CellTypes.Type.EMPTY
+					var rank: int = (100 if exposed else 0) + _FACE_VIS[slot]
 					var cur = src.get(code)
-					if cur == null or (exposed and not cur[4]):
-						src[code] = [x, y, z, slot, exposed]
+					if cur == null or rank > cur[4]:
+						src[code] = [x, y, z, slot, rank]
 	var out := Image.create_empty(w, h, false, Image.FORMAT_RGBA8)
 	out.fill(Color(0, 0, 0, 0))
 	for code in src:
@@ -141,6 +150,30 @@ static func reconstruct_atlas(layout: String, cells: Array, gx: int, gy: int, gz
 			continue
 		out.set_pixel((code - 1) % w, (code - 1) / w, CellTypes.decode_color(cells[e[0]][e[1]][e[2]][e[3]]))
 	return out
+
+# How many EXPOSED faces of `cells` this atlas can't reproduce — i.e. per-face
+# voxel edits that exceed what the shared-texel atlas can hold (a chamfer top
+# painted differently from its bottom, etc.). 0 means the atlas is a faithful
+# round-trip. Used to warn instead of silently showing a stale texture.
+static func atlas_divergence(layout: String, cells: Array, atlas: Image, gx: int, gy: int, gz: int) -> int:
+	if atlas == null:
+		return 0
+	var rebuilt: Array = build_cells(layout, atlas, gx, gy, gz, default_opt(layout))
+	var n := 0
+	for x in range(gx):
+		for y in range(gy):
+			for z in range(gz):
+				var rc: Array = cells[x][y][z]
+				if rc[0] == CellTypes.Type.EMPTY:
+					continue
+				for slot in range(CellTypes.FACE_TOP, CellTypes.FACE_BACK + 1):
+					var d: Vector3i = _FACE_DIR[slot]
+					var nx := x + d.x; var ny := y + d.y; var nz := z + d.z
+					var exposed: bool = nx < 0 or nx >= gx or ny < 0 or ny >= gy or nz < 0 or nz >= gz \
+						or cells[nx][ny][nz][0] == CellTypes.Type.EMPTY
+					if exposed and rebuilt[x][y][z][slot] != rc[slot]:
+						n += 1
+	return n
 
 # One 32x32 face image, reading the exact cell face slot build_cube writes to.
 static func _face_img(cells: Array, face: String, gx: int, gy: int, gz: int) -> Image:
