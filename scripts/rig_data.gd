@@ -298,12 +298,6 @@ func _dist_point_seg(p: Vector3, a: Vector3, b: Vector3) -> float:
 func compute_owner() -> void:
 	owner = PackedInt32Array()
 	owner.resize(gx * gy * gz)
-	var segs: Array = []
-	for j in range(njoints()):
-		var p: int = JOINT_PARENT[j]
-		if p < 0:
-			continue
-		segs.append([p, joint_pos[p], joint_pos[j]])
 	for x in range(gx):
 		for y in range(gy):
 			for z in range(gz):
@@ -311,16 +305,18 @@ func compute_owner() -> void:
 				if solid[i] == 0:
 					owner[i] = -1
 					continue
-				# Sample in the joints' index space (not voxel centres) so a
-				# symmetric model rigs symmetrically — see the note in rig_view.gd.
+				# Assign to the nearest JOINT (not the nearest bone), so each body
+				# part owns the region around it: head owns the head, neck a neck,
+				# chest the chest, and endpoints own the hands/feet. Sample in the
+				# joints' index space so a symmetric model rigs symmetrically.
 				var pt := Vector3(x, y, z)
 				var best := INF
 				var best_owner := 0
-				for s in segs:
-					var d: float = _dist_point_seg(pt, s[1], s[2])
+				for j in range(njoints()):
+					var d: float = pt.distance_squared_to(joint_pos[j])
 					if d < best:
 						best = d
-						best_owner = s[0]
+						best_owner = j
 				owner[i] = best_owner
 
 # ─── Painting (used by the editor Rig Paint tool) ───

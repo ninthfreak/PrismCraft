@@ -726,13 +726,6 @@ func _compute_owner() -> PackedInt32Array:
 	for j in range(NJ):
 		_bb_min.append(Vector3i(gx, gy, gz))
 		_bb_max.append(Vector3i(-1, -1, -1))
-	# segments: [parent_joint, a, b] — voxel owned by the segment's parent (pivot)
-	var segs: Array = []
-	for j in range(NJ):
-		var p: int = JOINT_PARENT[j]
-		if p < 0:
-			continue
-		segs.append([p, _joint_pos[p], _joint_pos[j]])
 	for x in range(gx):
 		for y in range(gy):
 			for z in range(gz):
@@ -740,20 +733,18 @@ func _compute_owner() -> PackedInt32Array:
 				if _solid[idx] == 0:
 					owner[idx] = -1
 					continue
-				# Sample in the same index space the joints live in (they come from
-				# detection as integer/half indices). Using voxel centres (index +
-				# 0.5) instead put the two on axes half a voxel apart, so mirrored
-				# voxels got unequal distances and a symmetric model rigged
-				# asymmetrically. Index-space sampling keeps L/R partitions mirror
-				# images of each other.
+				# Assign to the nearest JOINT (not the nearest bone), so each body
+				# part owns the region around it: head owns the head, neck a neck,
+				# chest the chest, and endpoints own the hands/feet. Sample in the
+				# joints' index space so a symmetric model rigs symmetrically.
 				var pt := Vector3(x, y, z)
 				var best := INF
 				var best_owner := 0
-				for s in segs:
-					var d: float = _dist_point_seg(pt, s[1], s[2])
+				for j in range(NJ):
+					var d: float = pt.distance_squared_to(_joint_pos[j])
 					if d < best:
 						best = d
-						best_owner = s[0]
+						best_owner = j
 				owner[idx] = best_owner
 				var bmn: Vector3i = _bb_min[best_owner]
 				var bmx: Vector3i = _bb_max[best_owner]
