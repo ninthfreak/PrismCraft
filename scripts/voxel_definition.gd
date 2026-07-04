@@ -6,6 +6,10 @@ extends Resource
 @export var grid_z: int = 16
 @export var edit_mode: int = 0
 @export var cell_data: PackedInt32Array = PackedInt32Array()
+# Atlas layout this block was textured as (uniform/capped/net/octagon_*/shape),
+# so the Texture Editor can rebuild the right atlas from the cells after a
+# reload. Empty = unknown (the editor falls back to guessing from geometry).
+@export var block_shape: String = ""
 
 func set_from_cells(p_cells: Array, gx: int, gy: int, gz: int, mode: int) -> void:
 	grid_x = gx
