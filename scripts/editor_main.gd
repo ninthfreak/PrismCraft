@@ -157,6 +157,12 @@ var _block_tex_is_octagon: bool
 var _block_tex_octagon_footprint: int = 0
 var _block_tex_shape: String = ""
 var _block_tex_shape_img: Image
+# The atlas of the last block texture applied, so the Texture Editor can open
+# on it. Carried from selection (source + layout) and committed on apply.
+var _block_tex_source_img: Image = null
+var _block_tex_layout: String = ""
+var _current_block_tex: Image = null
+var _current_block_tex_layout: String = ""
 var _block_tex_orient_option: OptionButton
 var _block_tex_orient_row: HBoxContainer
 # Per-shape orientation menu entries -> [label, opt-dict for ShapeBuilder.build]
@@ -925,6 +931,8 @@ func _open_tile_view() -> void:
 func _open_texture_editor() -> void:
 	var te := TextureEditor.new()
 	add_child(te)
+	if _current_block_tex != null:
+		te.load_atlas(_current_block_tex, _current_block_tex_layout)
 	te.popup_centered(Vector2i(1500, 860))
 
 func _open_rig_view() -> void:
@@ -3033,6 +3041,8 @@ func _on_block_texture_selected(path: String) -> void:
 	if layout == "":
 		_show_texture_size_error(w, h)
 		return
+	_block_tex_source_img = image
+	_block_tex_layout = layout
 
 	if layout in ["ramp", "gable", "diagwall", "diamond", "chamfered", "cross", "opening",
 			"panel", "slab_quarter", "slab_half", "stairs_2", "stairs_4", "pipe_quarter"]:
@@ -3171,6 +3181,11 @@ func _on_block_tex_apply() -> void:
 	if not _block_tex_basename.is_empty():
 		_suggested_name = _block_tex_basename
 		current_file_path = ""
+
+	# Remember the applied atlas so the Texture Editor can open on it.
+	if _block_tex_source_img != null:
+		_current_block_tex = _block_tex_source_img
+		_current_block_tex_layout = _block_tex_layout
 
 	if _block_tex_shape != "":
 		_apply_shape_block()

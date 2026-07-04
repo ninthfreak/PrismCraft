@@ -368,6 +368,21 @@ func _new_canvas(layout: String) -> void:
 		_canvas.refresh()
 	_rebuild_preview()
 
+# Seed the editor from an in-memory atlas (the texture on the current block),
+# rather than from a file. Layout must match the image's dimensions.
+func load_atlas(img: Image, layout: String) -> void:
+	if img == null or layout == "":
+		return
+	if CellTypes.validate_block_texture(img.get_width(), img.get_height(), GX, GX) != layout:
+		return
+	_new_canvas(layout)
+	_img = img.duplicate()
+	_img.convert(Image.FORMAT_RGBA8)
+	_tex = ImageTexture.create_from_image(_img)
+	_canvas.refresh()
+	_rebuild_preview()
+	_status.text = "  loaded the current block's texture (%s)" % layout
+
 func _on_shape_selected(i: int) -> void:
 	var f: Array = formats()[i]
 	_new_canvas(f[0])
