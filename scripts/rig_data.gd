@@ -67,43 +67,34 @@ func set_grid(cells: Array, ngx: int, ngy: int, ngz: int) -> void:
 func auto_fit() -> void:
 	if gx == 0:
 		return
+	# Rest pose is ARMS AT THE SIDES (matches the editor's characters), not a
+	# T-pose. Read the silhouette from per-row run structure: neck pinch first
+	# (so the head can be any size), then arm band (>=3 runs) / torso / legs.
 	var width := PackedInt32Array(); width.resize(gy)
-	var xmn := PackedInt32Array(); xmn.resize(gy)
-	var xmx := PackedInt32Array(); xmx.resize(gy)
-	var runs := PackedInt32Array(); runs.resize(gy)
+	var nrun := PackedInt32Array(); nrun.resize(gy)
 	var ylo := gy; var yhi := -1
 	var zsum := 0.0; var zcount := 0
 	for y in range(gy):
-		var lo := gx; var hi := -1; var r := 0; var prev := false
-		for x in range(gx):
-			var occ := false
-			var base := (x * gy + y) * gz
-			for z in range(gz):
-				if solid[base + z] != 0:
-					occ = true
-					zsum += z; zcount += 1
-			if occ:
-				lo = mini(lo, x); hi = maxi(hi, x)
-				if not prev:
-					r += 1
-			prev = occ
-		if hi >= 0:
+		var r: Array = _runs_at(y)
+		nrun[y] = r.size()
+		if r.size() > 0:
 			ylo = mini(ylo, y); yhi = maxi(yhi, y)
-			width[y] = hi - lo + 1; xmn[y] = lo; xmx[y] = hi; runs[y] = r
+			var iv0: Vector2i = r[0]
+			var ivn: Vector2i = r[r.size() - 1]
+			width[y] = ivn.y - iv0.x + 1
+			for x in range(gx):
+				var base := (x * gy + y) * gz
+				for z in range(gz):
+					if solid[base + z] != 0:
+						zsum += z; zcount += 1
 	if yhi < 0:
 		return
 	var cz := zsum / maxf(zcount, 1)
+	var H: int = maxi(yhi - ylo, 1)
 
-	var shoulder_y := ylo
-	for y in range(ylo, yhi + 1):
-		if width[y] > width[shoulder_y]:
-			shoulder_y = y
-	var arm_lo := xmn[shoulder_y]
-	var arm_hi := xmx[shoulder_y]
-
-	var neck_y := shoulder_y
+	var neck_y := ylo + int(0.45 * H)
 	var neck_w := 1 << 30
-	for y in range(shoulder_y + 1, yhi + 1):
+	for y in range(ylo + int(0.45 * H), yhi + 1):
 		if width[y] > 0 and width[y] < neck_w:
 			neck_w = width[y]; neck_y = y
 
@@ -114,30 +105,90 @@ func auto_fit() -> void:
 			for z in range(gz):
 				if solid[base + z] != 0:
 					hx += x; hy += y; hz += z; hn += 1
-	var head_cx := (hx / maxf(hn, 1)) if hn > 0 else float(arm_lo + arm_hi) * 0.5
-	var head_cy := (hy / maxf(hn, 1)) if hn > 0 else float(neck_y + 4)
-	var head_cz := (hz / maxf(hn, 1)) if hn > 0 else cz
+	var head_cx := (hx / hn) if hn > 0 else float(gx) * 0.5
+	var head_cy := (hy / hn) if hn > 0 else float(neck_y + 4)
+	var head_cz := (hz / hn) if hn > 0 else cz
 
-	var hips_y := ylo + 1
-	for y in range(ylo, shoulder_y):
-		if runs[y] >= 2:
-			hips_y = y
-	hips_y = mini(hips_y + 1, shoulder_y - 1)
+	# arm band: longest contiguous stretch below the neck that splits into >=3
+	# runs (arm | torso | arm); its bottom row = the wrists.
+	var arm_top := -1; var arm_bot := -1
+	var seg_start := -1; var seg_best := 0
+	for y in range(ylo, neck_y + 1):
+		var three := y < neck_y and nrun[y] >= 3
+		if three and seg_start < 0:
+			seg_start = y
+		if not three and seg_start >= 0:
+			if y - seg_start > seg_best:
+				seg_best = y - seg_start; arm_bot = seg_start; arm_top = y - 1
+			seg_start = -1
 
-	var spine_y := int(round((hips_y + shoulder_y) * 0.5))
-	var seed_x := int(float(xmn[spine_y] + xmx[spine_y]) * 0.5) if width[spine_y] > 0 else gx / 2
-	var trange := _central_x_run(spine_y, seed_x)
-	var torso_lo := float(trange.x)
-	var torso_hi := float(trange.y)
+	var torso_lo: float; var torso_hi: float
+	if arm_top >= 0:
+		var rr: Array = _runs_at((arm_top + arm_bot) / 2)
+		var sx := 0.0; var sc := 0
+		for iv in rr:
+			var w: int = iv.y - iv.x + 1
+			sx += float(iv.x + iv.y) * 0.5 * w; sc += w
+		var comx := sx / maxf(sc, 1)
+		var bi: Vector2i = rr[0]
+		for iv in rr:
+			if absf(float(iv.x + iv.y) * 0.5 - comx) < absf(float(bi.x + bi.y) * 0.5 - comx):
+				bi = iv
+		torso_lo = bi.x; torso_hi = bi.y
+	else:
+		var tr := _central_x_run((ylo + neck_y) / 2, gx / 2)
+		torso_lo = tr.x; torso_hi = tr.y
 	var torso_cx := (torso_lo + torso_hi) * 0.5
 
-	var leg_y := int(round((ylo + hips_y) * 0.5))
-	var legs := _two_runs(leg_y)
-	var lo_leg := legs.x     # lower-x leg  (character's RIGHT when facing viewer)
-	var hi_leg := legs.y     # higher-x leg (character's LEFT)
+	# shoulders: widest single-run row between the arm band and the neck.
+	var shoulder_y := arm_top if arm_top >= 0 else neck_y - 1
+	var sw := -1
+	for y in range((arm_top if arm_top >= 0 else ylo) + 1, neck_y + 1):
+		if nrun[y] == 1 and width[y] > sw:
+			sw = width[y]; shoulder_y = y
+	if sw < 0:
+		for y in range(ylo, neck_y):
+			if width[y] > sw:
+				sw = width[y]; shoulder_y = y
 
-	var ankle_y := float(ylo + 1)
-	var knee_y := (ankle_y + hips_y) * 0.5
+	# legs: lowest contiguous 2-run band; hips at its top.
+	var leg_top := ylo - 1
+	for y in range(ylo, yhi + 1):
+		if nrun[y] == 2:
+			leg_top = y
+		else:
+			break
+	var hips_y := clampi((leg_top if leg_top >= ylo else ylo) + 1, ylo + 1, maxi(ylo + 2, shoulder_y - 1))
+	var lo_leg: float; var hi_leg: float
+	if leg_top >= ylo:
+		var legs := _two_runs((ylo + leg_top) / 2)
+		lo_leg = legs.x; hi_leg = legs.y     # low x = char RIGHT, high x = char LEFT
+	else:
+		lo_leg = torso_cx - float(gx) * 0.06; hi_leg = torso_cx + float(gx) * 0.06
+
+	# arm columns: run centres outside the torso across the band (median).
+	var lxs: Array = []; var rxs: Array = []
+	if arm_top >= 0:
+		for y in range(arm_bot, arm_top + 1):
+			for iv in _runs_at(y):
+				var c := float(iv.x + iv.y) * 0.5
+				if float(iv.y) < torso_lo:
+					rxs.append(c)
+				elif float(iv.x) > torso_hi:
+					lxs.append(c)
+	var l_arm_x := _median_f(lxs) if not lxs.is_empty() else torso_hi
+	var r_arm_x := _median_f(rxs) if not rxs.is_empty() else torso_lo
+
+	# Calibrate joint heights from the silhouette extremes to anatomical points.
+	hips_y = clampi(hips_y + int(round(0.07 * (shoulder_y - hips_y))), hips_y, shoulder_y - 1)  # up off the crotch
+	var arm_shoulder_y := int(round(shoulder_y + 0.55 * (neck_y - shoulder_y)))                # up toward the neck
+	var arm_span := float(arm_shoulder_y - arm_bot) if arm_bot >= 0 else float(arm_shoulder_y - hips_y)
+	var elbow_y := arm_shoulder_y - 0.53 * arm_span
+	var wrist_y := arm_shoulder_y - 0.87 * arm_span                                            # inset up from the fingertip
+	var leg_span := float(hips_y - ylo)
+	var knee_y := hips_y - 0.47 * leg_span
+	var ankle_y := float(ylo) + roundf(0.10 * leg_span)                                        # up off the toe
+	var spine_y := int(round((hips_y + shoulder_y) * 0.5))
 
 	joint_pos.resize(njoints())
 	joint_pos[0]  = Vector3(torso_cx, hips_y, cz)                        # hips
@@ -146,12 +197,13 @@ func auto_fit() -> void:
 	joint_pos[3]  = Vector3(torso_cx, neck_y, cz)                        # neck
 	joint_pos[4]  = Vector3(head_cx, head_cy, head_cz)                   # head
 	# Anatomical L/R: the higher-x side is the character's LEFT, lower-x is RIGHT.
-	joint_pos[5]  = Vector3(torso_hi, shoulder_y, cz)                    # L_shoulder
-	joint_pos[6]  = Vector3((torso_hi + arm_hi) * 0.5, shoulder_y, cz)   # L_elbow
-	joint_pos[7]  = Vector3(arm_hi, shoulder_y, cz)                      # L_wrist
-	joint_pos[8]  = Vector3(torso_lo, shoulder_y, cz)                    # R_shoulder
-	joint_pos[9]  = Vector3((torso_lo + arm_lo) * 0.5, shoulder_y, cz)   # R_elbow
-	joint_pos[10] = Vector3(arm_lo, shoulder_y, cz)                      # R_wrist
+	# Arms hang vertically at the sides: shoulder (top) -> elbow -> wrist (bottom).
+	joint_pos[5]  = Vector3(l_arm_x, arm_shoulder_y, cz)                 # L_shoulder
+	joint_pos[6]  = Vector3(l_arm_x, elbow_y, cz)                        # L_elbow
+	joint_pos[7]  = Vector3(l_arm_x, wrist_y, cz)                        # L_wrist
+	joint_pos[8]  = Vector3(r_arm_x, arm_shoulder_y, cz)                 # R_shoulder
+	joint_pos[9]  = Vector3(r_arm_x, elbow_y, cz)                        # R_elbow
+	joint_pos[10] = Vector3(r_arm_x, wrist_y, cz)                        # R_wrist
 	joint_pos[11] = Vector3(hi_leg, hips_y, cz)                          # L_hip
 	joint_pos[12] = Vector3(hi_leg, knee_y, cz)                          # L_knee
 	joint_pos[13] = Vector3(hi_leg, ankle_y, cz)                         # L_ankle
@@ -213,6 +265,26 @@ func _two_runs(y: int) -> Vector2:
 	var c := gx * 0.5
 	return Vector2(c - gx * 0.12, c + gx * 0.12)
 
+# Solid x-runs (front projection) at height y, as [lo, hi] intervals.
+func _runs_at(y: int) -> Array:
+	var res: Array = []
+	var s := -1
+	for x in range(gx):
+		if _solid_col_at(x, y):
+			if s < 0:
+				s = x
+		elif s >= 0:
+			res.append(Vector2i(s, x - 1)); s = -1
+	if s >= 0:
+		res.append(Vector2i(s, gx - 1))
+	return res
+
+func _median_f(a: Array) -> float:
+	if a.is_empty():
+		return 0.0
+	a.sort()
+	return float(a[a.size() / 2])
+
 func _dist_point_seg(p: Vector3, a: Vector3, b: Vector3) -> float:
 	var ab := b - a
 	var denom := ab.length_squared()
@@ -239,7 +311,9 @@ func compute_owner() -> void:
 				if solid[i] == 0:
 					owner[i] = -1
 					continue
-				var pt := Vector3(x + 0.5, y + 0.5, z + 0.5)
+				# Sample in the joints' index space (not voxel centres) so a
+				# symmetric model rigs symmetrically — see the note in rig_view.gd.
+				var pt := Vector3(x, y, z)
 				var best := INF
 				var best_owner := 0
 				for s in segs:
