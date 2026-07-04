@@ -1965,6 +1965,7 @@ func _grid_raycast(from: Vector3, dir: Vector3) -> Dictionary:
 	var grid_end := Vector3(grid_x * s, grid_y * s, grid_z * s)
 	var t_near := 0.0
 	var t_far := 100.0
+	var entry_axis := -1     # which slab the ray crossed last to enter the grid
 	for ax in range(3):
 		if abs(dir[ax]) < 1e-8:
 			if from[ax] < 0.0 or from[ax] > grid_end[ax]:
@@ -1974,7 +1975,9 @@ func _grid_raycast(from: Vector3, dir: Vector3) -> Dictionary:
 			var t1 := (grid_end[ax] - from[ax]) / dir[ax]
 			if t0 > t1:
 				var tmp := t0; t0 = t1; t1 = tmp
-			t_near = maxf(t_near, t0)
+			if t0 > t_near:
+				t_near = t0
+				entry_axis = ax
 			t_far = minf(t_far, t1)
 			if t_near > t_far:
 				return {}
@@ -2002,7 +2005,17 @@ func _grid_raycast(from: Vector3, dir: Vector3) -> Dictionary:
 	var t_delta_y: float = abs(s / dir.y) if abs(dir.y) > 1e-8 else INF
 	var t_delta_z: float = abs(s / dir.z) if abs(dir.z) > 1e-8 else INF
 
+	# Seed the normal with the boundary face the ray enters through. Without this,
+	# a ray whose very first cell is already solid (e.g. an imported cube that
+	# fills the whole grid, or any voxel flush with the grid edge) returns a zero
+	# normal — which silently breaks Paint, Eyedropper and inward Extrude.
 	var normal := Vector3i.ZERO
+	if entry_axis >= 0:
+		var step_e := 1 if dir[entry_axis] >= 0 else -1
+		match entry_axis:
+			0: normal = Vector3i(-step_e, 0, 0)
+			1: normal = Vector3i(0, -step_e, 0)
+			_: normal = Vector3i(0, 0, -step_e)
 	var max_steps := grid_x + grid_y + grid_z
 	for _i in range(max_steps):
 		var cd: int
