@@ -60,6 +60,73 @@ static func slice_faces(image: Image, layout: String, gx: int, gy: int) -> Dicti
 		faces = {"front": image, "back": image, "right": image, "left": image, "top": image, "bottom": image}
 	return faces
 
+# ─── reverse: rebuild an atlas from the current cells ────────────────────────
+# The Texture Editor derives its canvas from the live model (the voxels are the
+# source of truth), so it can never desync from what's on screen. Cube-family
+# atlases are exact inverses of build_cube's 1:1 face map. Returns null for
+# layouts we can't yet reconstruct (octagon / predefined shapes).
+static func reconstruct_atlas(layout: String, cells: Array, gx: int, gy: int, gz: int) -> Image:
+	match layout:
+		"uniform":
+			return _face_img(cells, "front", gx, gy, gz)
+		"capped":
+			var img := Image.create_empty(gx * 2, gy, false, Image.FORMAT_RGBA8)
+			img.blit_rect(_face_img(cells, "front", gx, gy, gz), Rect2i(0, 0, gx, gy), Vector2i(0, 0))
+			img.blit_rect(_face_img(cells, "top", gx, gy, gz), Rect2i(0, 0, gx, gy), Vector2i(gx, 0))
+			return img
+		"net":
+			var net := Image.create_empty(gx * 3, gy * 2, false, Image.FORMAT_RGBA8)
+			var place := {"top": Vector2i(0, 0), "front": Vector2i(gx, 0), "right": Vector2i(gx * 2, 0),
+				"bottom": Vector2i(0, gy), "back": Vector2i(gx, gy), "left": Vector2i(gx * 2, gy)}
+			for k in place:
+				net.blit_rect(_face_img(cells, k, gx, gy, gz), Rect2i(0, 0, gx, gy), place[k])
+			return net
+	return null
+
+# One 32x32 face image, reading the exact cell face slot build_cube writes to.
+static func _face_img(cells: Array, face: String, gx: int, gy: int, gz: int) -> Image:
+	var img := Image.create_empty(gx, gy, false, Image.FORMAT_RGBA8)
+	for u in range(gx):
+		for v in range(gy):
+			var p: Vector3i
+			var slot: int
+			match face:
+				"front": p = Vector3i(u, gy - 1 - v, gz - 1); slot = CellTypes.FACE_FRONT
+				"back": p = Vector3i(gx - 1 - u, gy - 1 - v, 0); slot = CellTypes.FACE_BACK
+				"right": p = Vector3i(gx - 1, gy - 1 - v, gz - 1 - u); slot = CellTypes.FACE_RIGHT
+				"left": p = Vector3i(0, gy - 1 - v, u); slot = CellTypes.FACE_LEFT
+				"top": p = Vector3i(u, gy - 1, v); slot = CellTypes.FACE_TOP
+				_: p = Vector3i(u, 0, gz - 1 - v); slot = CellTypes.FACE_BOTTOM
+			var cell: Array = cells[p.x][p.y][p.z]
+			if cell[0] == CellTypes.Type.EMPTY:
+				img.set_pixel(u, v, Color(0, 0, 0, 0))
+			else:
+				img.set_pixel(u, v, CellTypes.decode_color(cell[slot]))
+	return img
+
+# Best-effort layout guess from geometry when the model carries no stored shape.
+# A full-ish solid block reconstructs as a cube: "uniform" if all six faces are
+# identical, else "net" (which can hold any per-face colouring). "" if there is
+# nothing to show.
+static func guess_layout(cells: Array, gx: int, gy: int, gz: int) -> String:
+	var any := false
+	for x in range(gx):
+		for y in range(gy):
+			for z in range(gz):
+				if cells[x][y][z][0] != CellTypes.Type.EMPTY:
+					any = true
+					break
+			if any: break
+		if any: break
+	if not any:
+		return ""
+	var faces := ["front", "back", "right", "left", "top", "bottom"]
+	var first := _face_img(cells, faces[0], gx, gy, gz).get_data()
+	for i in range(1, faces.size()):
+		if _face_img(cells, faces[i], gx, gy, gz).get_data() != first:
+			return "net"
+	return "uniform"
+
 # ─── grid helper ─────────────────────────────────────────────────────────────
 static func _new_cells(gx: int, gy: int, gz: int) -> Array:
 	var cells: Array = []

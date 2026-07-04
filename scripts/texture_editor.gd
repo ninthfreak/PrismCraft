@@ -368,20 +368,29 @@ func _new_canvas(layout: String) -> void:
 		_canvas.refresh()
 	_rebuild_preview()
 
-# Seed the editor from an in-memory atlas (the texture on the current block),
-# rather than from a file. Layout must match the image's dimensions.
-func load_atlas(img: Image, layout: String) -> void:
-	if img == null or layout == "":
+# Derive the canvas from the current model so the editor always reflects what's
+# on screen. `hint` is the model's stored block_shape (may be empty); if it's a
+# layout we can rebuild, the atlas is reconstructed from the cells, otherwise we
+# guess a cube layout from geometry.
+func load_from_model(cells: Array, gx: int, gy: int, gz: int, hint: String) -> void:
+	if cells.is_empty():
 		return
-	if CellTypes.validate_block_texture(img.get_width(), img.get_height(), GX, GX) != layout:
+	var layout := hint
+	var atlas: Image = BlockImporter.reconstruct_atlas(layout, cells, gx, gy, gz) if layout != "" else null
+	if atlas == null:
+		layout = BlockImporter.guess_layout(cells, gx, gy, gz)
+		atlas = BlockImporter.reconstruct_atlas(layout, cells, gx, gy, gz) if layout != "" else null
+	if atlas == null:
+		# Known shape we can't yet rebuild, or nothing to show.
+		if hint != "":
+			_status.text = "  this block is a '%s' — editing its texture from the model isn't supported yet; Load a PNG" % hint
 		return
 	_new_canvas(layout)
-	_img = img.duplicate()
-	_img.convert(Image.FORMAT_RGBA8)
+	_img = atlas
 	_tex = ImageTexture.create_from_image(_img)
 	_canvas.refresh()
 	_rebuild_preview()
-	_status.text = "  loaded the current block's texture (%s)" % layout
+	_status.text = "  editing the current block's texture (%s)" % layout
 
 func _on_shape_selected(i: int) -> void:
 	var f: Array = formats()[i]

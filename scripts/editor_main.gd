@@ -931,8 +931,9 @@ func _open_tile_view() -> void:
 func _open_texture_editor() -> void:
 	var te := TextureEditor.new()
 	add_child(te)
-	if _current_block_tex != null:
-		te.load_atlas(_current_block_tex, _current_block_tex_layout)
+	# Always derive the canvas from the current model, so the editor reflects
+	# whatever voxels are on screen (imported, loaded, or hand-edited).
+	te.load_from_model(cells, grid_x, grid_y, grid_z, _current_block_tex_layout)
 	te.popup_centered(Vector2i(1500, 860))
 
 func _open_rig_view() -> void:
@@ -2955,6 +2956,7 @@ func _save_to_path(path: String) -> void:
 	DirAccess.make_dir_recursive_absolute(path.get_base_dir())
 	var def := VoxelDefinition.new()
 	def.set_from_cells(cells, grid_x, grid_y, grid_z, edit_mode)
+	def.block_shape = _current_block_tex_layout
 	# Binary .res honours FLAG_COMPRESS (lossless); the mostly-empty cell grid
 	# shrinks from ~14 MB to ~30 KB. Text .tres ignores the flag but still works.
 	if ResourceSaver.save(def, path, ResourceSaver.FLAG_COMPRESS) == OK:
@@ -3566,6 +3568,10 @@ func _load_from_path(path: String) -> void:
 	grid_z = def.grid_z
 	CELL_SIZE = 1.0 / CHAR_RES if edit_mode == EditMode.CHARACTER else 1.0 / BLOCK_RES
 	cells = def.to_cells()
+	# Texture Editor derives its atlas from these cells; carry the stored shape
+	# (may be empty for older saves — it then guesses from geometry).
+	_current_block_tex = null
+	_current_block_tex_layout = def.block_shape
 	# Legacy (narrower) character models are re-centered into the standard grid.
 	if edit_mode == EditMode.CHARACTER and (grid_x < CHAR_GX or grid_y < CHAR_GY or grid_z < CHAR_GZ):
 		_embed_cells_centered(maxi(grid_x, CHAR_GX), maxi(grid_y, CHAR_GY), maxi(grid_z, CHAR_GZ))
