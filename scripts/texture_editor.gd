@@ -396,7 +396,15 @@ func load_from_model(cells: Array, gx: int, gy: int, gz: int, hint: String) -> v
 		_status.text = "  couldn't derive an atlas from this model — pick a shape to try"
 		return
 	_apply_atlas(layout, atlas)
-	_status.text = "  editing the current block's texture (%s) — switch Shape to re-read as another" % layout
+	_status.text = "  editing the current block's texture (%s)%s" % [layout, _divergence_note(layout, atlas)]
+
+# Warn when the block's voxels carry per-face edits the shared-texel atlas can't
+# hold (e.g. a chamfer's top painted differently from its bottom).
+func _divergence_note(layout: String, atlas: Image) -> String:
+	var n := BlockImporter.atlas_divergence(layout, _model_cells, atlas, _model_gx, _model_gy, _model_gz)
+	if n > 0:
+		return "  ·  ⚠ %d face(s) can't be shown in this atlas (top/bottom or shared faces differ)" % n
+	return ""
 
 # Set the canvas to `img` at `layout` (regions, size, preview all follow).
 func _apply_atlas(layout: String, img: Image) -> void:
@@ -415,7 +423,7 @@ func _on_shape_selected(i: int) -> void:
 		if atlas != null:
 			_apply_atlas(f[0], atlas)
 			layout_chosen.emit(f[0])
-			_status.text = "  re-read the model as %s (%dx%d)" % [f[1], f[2], f[3]]
+			_status.text = "  re-read the model as %s%s" % [f[1], _divergence_note(f[0], atlas)]
 			return
 	_new_canvas(f[0])
 	_status.text = "  new %s canvas (%dx%d)" % [f[1], f[2], f[3]]
