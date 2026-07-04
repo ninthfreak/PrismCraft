@@ -531,12 +531,20 @@ func _auto_fit() -> void:
 					lxs.append(c)
 	var l_arm_x := _median_f(lxs) if not lxs.is_empty() else torso_hi
 	var r_arm_x := _median_f(rxs) if not rxs.is_empty() else torso_lo
-	var wrist_y := float(arm_bot) if arm_bot >= 0 else float(hips_y)
-	var elbow_y := (float(shoulder_y) + wrist_y) * 0.5
 
+	# Joint heights, calibrated to the arms-at-side proportions. The detected
+	# landmarks are silhouette extremes (armpit split, fingertip, crotch apex,
+	# toe); nudge each joint to the anatomical point by a fixed fraction of its
+	# limb so it holds across builds instead of pinning to the extreme.
+	hips_y = clampi(hips_y + int(round(0.07 * (shoulder_y - hips_y))), hips_y, shoulder_y - 1)  # up off the crotch
+	var arm_shoulder_y := int(round(shoulder_y + 0.55 * (neck_y - shoulder_y)))                # up toward the neck
+	var arm_span := float(arm_shoulder_y - arm_bot) if arm_bot >= 0 else float(arm_shoulder_y - hips_y)
+	var elbow_y := arm_shoulder_y - 0.53 * arm_span
+	var wrist_y := arm_shoulder_y - 0.87 * arm_span                                            # inset up from the fingertip
+	var leg_span := float(hips_y - ylo)
+	var knee_y := hips_y - 0.47 * leg_span
+	var ankle_y := float(ylo) + round(0.10 * leg_span)                                         # up off the toe
 	var spine_y := int(round((hips_y + shoulder_y) * 0.5))
-	var ankle_y := float(ylo + 1)
-	var knee_y := (ankle_y + hips_y) * 0.5
 
 	_joint_pos[0]  = Vector3(torso_cx, hips_y, cz)                    # hips
 	_joint_pos[1]  = Vector3(torso_cx, spine_y, cz)                   # spine
@@ -545,10 +553,10 @@ func _auto_fit() -> void:
 	_joint_pos[4]  = Vector3(head_cx, head_cy, head_cz)              # head (endpoint)
 	# Anatomical L/R: higher-x side is the character's LEFT, lower-x is RIGHT.
 	# Arms hang vertically at the sides: shoulder (top) -> elbow -> wrist (bottom).
-	_joint_pos[5]  = Vector3(l_arm_x, shoulder_y, cz)               # L_shoulder
+	_joint_pos[5]  = Vector3(l_arm_x, arm_shoulder_y, cz)           # L_shoulder
 	_joint_pos[6]  = Vector3(l_arm_x, elbow_y, cz)                  # L_elbow
 	_joint_pos[7]  = Vector3(l_arm_x, wrist_y, cz)                  # L_wrist (endpoint)
-	_joint_pos[8]  = Vector3(r_arm_x, shoulder_y, cz)               # R_shoulder
+	_joint_pos[8]  = Vector3(r_arm_x, arm_shoulder_y, cz)           # R_shoulder
 	_joint_pos[9]  = Vector3(r_arm_x, elbow_y, cz)                  # R_elbow
 	_joint_pos[10] = Vector3(r_arm_x, wrist_y, cz)                  # R_wrist (endpoint)
 	_joint_pos[11] = Vector3(rleg_x, hips_y, cz)                     # L_hip
