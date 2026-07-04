@@ -89,6 +89,7 @@ Hold **Shift** with Line to lock to an axis, with Rectangle to force a square, o
 - **Import Character Sprites** to generate a rough 3D model from a front and side PNG using silhouette intersection
 - **Export Model** (File menu) writes an optimized mesh as glTF binary (`.glb`, recommended) or Wavefront `.obj`, using greedy face merging with materials per unique color
 - **Rig Paint tool** and **Rig / Skeleton** window (View menu) for painting per-voxel bone ownership and overlap regions, then bend-testing a rigid segmented skeleton
+- **Texture Editor** (View menu) -- atlas-aware canvas for authoring block textures. Pick a shape and the canvas opens at the exact required size with every atlas region outlined and labeled; paint (pencil / region-bounded fill / erase-to-cutout / eyedropper, single-level undo) and the block rebuilds through the real import path into a live 3D preview beside the canvas. Saves/loads plain PNGs (default filename follows the naming convention), so external pixel editors round-trip cleanly.
 - **Tiling Preview** (View menu) repeats the current block edge-to-edge in a grid so you can see how it reads when tiled. Set independent tile counts along X / Y / Z, and rotate the block in 90° steps (all tiles share the rotation) to check seams in any orientation. A single MultiMesh instances one block mesh, so large tile counts stay cheap; "Refresh from Editor" re-pulls the working model after edits. View only -- no editing.
 - **Compare Two Models** (View menu) shows two definitions side by side
 - **Unsaved changes protection** on New, Open, mode switch, and quit
@@ -138,5 +139,6 @@ For every `.png` whose dimensions match a legal format, it builds the block (usi
 - `scripts/rig_view.gd` -- Rig / Skeleton window: bend-test the painted rig and export a posed scene
 - `scripts/compare_view.gd` -- side-by-side comparison of two definitions
 - `scripts/tile_view.gd` -- tiling preview: MultiMesh-instanced grid of the current block with per-axis tile counts and 90° block rotation
+- `scripts/texture_editor.gd` -- atlas-aware texture editor: exact-size canvas with labeled atlas regions per shape, paint tools, and a live 3D preview built via BlockImporter
 - `scripts/orbit_camera.gd` -- orbit camera with right-click drag, pan, and zoom
 - `scripts/view_cube.gd` -- 3D orientation widget with face clicking and drag rotation

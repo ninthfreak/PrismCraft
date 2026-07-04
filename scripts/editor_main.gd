@@ -407,6 +407,7 @@ func _setup_ui() -> void:
 	view_menu.add_separator()
 	view_menu.add_item("Compare Two Models…", 5)
 	view_menu.add_item("Tiling Preview…", 8)
+	view_menu.add_item("Texture Editor…", 9)
 	view_menu.add_item("Rig / Skeleton (prototype)…", 6)
 	view_menu.add_check_item("Voxel Grid on Model", 7)
 	view_menu.set_item_checked(view_menu.get_item_index(7), _voxel_grid_lines)
@@ -904,6 +905,7 @@ func _on_view_menu(id: int) -> void:
 		6: _open_rig_view()
 		7: _toggle_voxel_grid_lines()
 		8: _open_tile_view()
+		9: _open_texture_editor()
 
 func _open_compare_view() -> void:
 	var cv := CompareView.new()
@@ -919,6 +921,11 @@ func _open_tile_view() -> void:
 	tv.refresh_requested.connect(func(): tv.set_model(cells, grid_x, grid_y, grid_z))
 	tv.set_model(cells, grid_x, grid_y, grid_z)
 	tv.popup_centered(Vector2i(1200, 820))
+
+func _open_texture_editor() -> void:
+	var te := TextureEditor.new()
+	add_child(te)
+	te.popup_centered(Vector2i(1500, 860))
 
 func _open_rig_view() -> void:
 	var rv := RigView.new()
