@@ -740,7 +740,13 @@ func _compute_owner() -> PackedInt32Array:
 				if _solid[idx] == 0:
 					owner[idx] = -1
 					continue
-				var pt := Vector3(x + 0.5, y + 0.5, z + 0.5)
+				# Sample in the same index space the joints live in (they come from
+				# detection as integer/half indices). Using voxel centres (index +
+				# 0.5) instead put the two on axes half a voxel apart, so mirrored
+				# voxels got unequal distances and a symmetric model rigged
+				# asymmetrically. Index-space sampling keeps L/R partitions mirror
+				# images of each other.
+				var pt := Vector3(x, y, z)
 				var best := INF
 				var best_owner := 0
 				for s in segs:
