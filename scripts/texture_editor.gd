@@ -381,9 +381,7 @@ func load_from_model(cells: Array, gx: int, gy: int, gz: int, hint: String) -> v
 		layout = BlockImporter.guess_layout(cells, gx, gy, gz)
 		atlas = BlockImporter.reconstruct_atlas(layout, cells, gx, gy, gz) if layout != "" else null
 	if atlas == null:
-		# Known shape we can't yet rebuild, or nothing to show.
-		if hint != "":
-			_status.text = "  this block is a '%s' — editing its texture from the model isn't supported yet; Load a PNG" % hint
+		_status.text = "  couldn't derive an atlas from this model"
 		return
 	_new_canvas(layout)
 	_img = atlas

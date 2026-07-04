@@ -62,26 +62,85 @@ static func slice_faces(image: Image, layout: String, gx: int, gy: int) -> Dicti
 
 # ─── reverse: rebuild an atlas from the current cells ────────────────────────
 # The Texture Editor derives its canvas from the live model (the voxels are the
-# source of truth), so it can never desync from what's on screen. Cube-family
-# atlases are exact inverses of build_cube's 1:1 face map. Returns null for
-# layouts we can't yet reconstruct (octagon / predefined shapes).
-static func reconstruct_atlas(layout: String, cells: Array, gx: int, gy: int, gz: int) -> Image:
+# source of truth), so it can never desync from what's on screen.
+#
+# Rather than hand-write an inverse per shape, we invert the REAL importer: run a
+# probe atlas whose every texel is a unique colour through build_cells, note
+# which cell face each texel landed on, then read those faces from the actual
+# cells. The importer is the single source of truth, so reconstruction can never
+# drift from it, and it's exact wherever import is 1:1.
+
+# Atlas pixel size for a layout (block mode: gx = gy = gz = 32).
+static func atlas_dims(layout: String, gx: int, gy: int) -> Vector2i:
 	match layout:
-		"uniform":
-			return _face_img(cells, "front", gx, gy, gz)
-		"capped":
-			var img := Image.create_empty(gx * 2, gy, false, Image.FORMAT_RGBA8)
-			img.blit_rect(_face_img(cells, "front", gx, gy, gz), Rect2i(0, 0, gx, gy), Vector2i(0, 0))
-			img.blit_rect(_face_img(cells, "top", gx, gy, gz), Rect2i(0, 0, gx, gy), Vector2i(gx, 0))
-			return img
-		"net":
-			var net := Image.create_empty(gx * 3, gy * 2, false, Image.FORMAT_RGBA8)
-			var place := {"top": Vector2i(0, 0), "front": Vector2i(gx, 0), "right": Vector2i(gx * 2, 0),
-				"bottom": Vector2i(0, gy), "back": Vector2i(gx, gy), "left": Vector2i(gx * 2, gy)}
-			for k in place:
-				net.blit_rect(_face_img(cells, k, gx, gy, gz), Rect2i(0, 0, gx, gy), place[k])
-			return net
-	return null
+		"uniform": return Vector2i(gx, gy)
+		"capped": return Vector2i(gx * 2, gy)
+		"net": return Vector2i(gx * 3, gy * 2)
+		"octagon_full": return Vector2i(CellTypes.octagon_atlas_width(gx), gy)
+		"octagon_half": return Vector2i(CellTypes.octagon_atlas_width(gx / 2), gy)
+		"ramp": return Vector2i(128, 64)
+		"gable": return Vector2i(128, 48)
+		"diagwall": return Vector2i(112, 32)
+		"diamond": return Vector2i(96, 32)
+		"chamfered": return Vector2i(144, 32)
+		"cross": return Vector2i(160, 32)
+		"opening": return Vector2i(224, 32)
+		"pipe_quarter": return Vector2i(120, 32)
+		"stairs_2": return Vector2i(128, 32)
+		"stairs_4": return Vector2i(80, 64)
+		"panel": return Vector2i(64, 34)
+		"slab_quarter": return Vector2i(64, 48)
+		"slab_half": return Vector2i(64, 64)
+	return Vector2i.ZERO
+
+const _FACE_DIR := {
+	CellTypes.FACE_TOP: Vector3i(0, 1, 0), CellTypes.FACE_BOTTOM: Vector3i(0, -1, 0),
+	CellTypes.FACE_RIGHT: Vector3i(1, 0, 0), CellTypes.FACE_LEFT: Vector3i(-1, 0, 0),
+	CellTypes.FACE_FRONT: Vector3i(0, 0, 1), CellTypes.FACE_BACK: Vector3i(0, 0, -1),
+}
+
+static func reconstruct_atlas(layout: String, cells: Array, gx: int, gy: int, gz: int) -> Image:
+	var dims := atlas_dims(layout, gx, gy)
+	if dims == Vector2i.ZERO:
+		return null
+	var w := dims.x
+	var h := dims.y
+	if w * h >= 0x10000:      # codes must fit in a distinct RGB565 value (none do)
+		return null
+	# Probe: each texel a unique code 1..w*h, as a colour that re-encodes to it.
+	var probe := Image.create_empty(w, h, false, Image.FORMAT_RGBA8)
+	for v in range(h):
+		for u in range(w):
+			probe.set_pixel(u, v, CellTypes.decode_rgb565(1 + v * w + u))
+	var probe_cells: Array = build_cells(layout, probe, gx, gy, gz, default_opt(layout))
+	# Inverse map: code -> the cell face that read it, preferring exposed faces
+	# (the 1:1 write) over interior fill copies of a region's dominant texel.
+	var src := {}   # code -> [x, y, z, slot, exposed]
+	for x in range(gx):
+		for y in range(gy):
+			for z in range(gz):
+				var pc: Array = probe_cells[x][y][z]
+				if pc[0] == CellTypes.Type.EMPTY:
+					continue
+				for slot in range(CellTypes.FACE_TOP, CellTypes.FACE_BACK + 1):
+					var code: int = pc[slot]
+					if code <= 0 or code > w * h:
+						continue
+					var d: Vector3i = _FACE_DIR[slot]
+					var nx := x + d.x; var ny := y + d.y; var nz := z + d.z
+					var exposed: bool = nx < 0 or nx >= gx or ny < 0 or ny >= gy or nz < 0 or nz >= gz \
+						or probe_cells[nx][ny][nz][0] == CellTypes.Type.EMPTY
+					var cur = src.get(code)
+					if cur == null or (exposed and not cur[4]):
+						src[code] = [x, y, z, slot, exposed]
+	var out := Image.create_empty(w, h, false, Image.FORMAT_RGBA8)
+	out.fill(Color(0, 0, 0, 0))
+	for code in src:
+		var e: Array = src[code]
+		if cells[e[0]][e[1]][e[2]][0] == CellTypes.Type.EMPTY:
+			continue
+		out.set_pixel((code - 1) % w, (code - 1) / w, CellTypes.decode_color(cells[e[0]][e[1]][e[2]][e[3]]))
+	return out
 
 # One 32x32 face image, reading the exact cell face slot build_cube writes to.
 static func _face_img(cells: Array, face: String, gx: int, gy: int, gz: int) -> Image:
