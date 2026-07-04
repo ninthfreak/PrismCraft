@@ -119,12 +119,19 @@ Orientation is chosen in the import preview — **one atlas serves every rotatio
 
 ---
 
-## 6. Known texturing simplifications
+## 6. Texturing fidelity — strict 1:1
 
-Geometry is complete and 1:1 for all shapes, and every atlas cell is read. The remaining simplifications:
+**Every exposed face maps to exactly one atlas texel** — cube, octagon, and all
+predefined shapes, including prism caps, legs and hypotenuses, the pipe's arcs
+and its radial cut faces. No sampling, averaging, resampling, or guessing on any
+visible face.
 
-- **pipe_quarter** — the 2-wide **cut** cell is reserved: the flat cross-section faces exposed when a quarter is not placed against its neighbor still use the dominant-color fill. The arcs themselves map 1:1 along the unrolled perimeters.
-- **slope prisms (ramp / gable)** — the slope importers author one color per prism cell (sampled from the slope cell), so a slope takes one color per cell, not a per-texel gradient across the diagonal face. Edge prisms elsewhere (octagons, chamfered, diamond, diagwall, opening, pipe) carry distinct per-face colors: caps from the cap/ribbon/end-ring cells, laterals from the strip/wall cells. The Paint/Eyedropper tools edit any prism face individually.
+Two clarifications, neither a violation:
+
+- **Interior / hidden faces** (between two solids) carry a dominant-color fill, but they are never visible and have no atlas texel — there is nothing for them to be 1:1 with.
+- **A prism face is one voxel color by definition.** A slope takes one color per cell (one atlas texel per cell), which *is* 1:1 — not a gradient across the diagonal face. Edge prisms carry a distinct color per face (caps from the cap/ribbon/end-ring cells, laterals from the strip/wall cells), individually editable with Paint/Eyedropper.
+
+Because import is strictly 1:1, it is exactly invertible: the Texture Editor rebuilds a block's atlas from its voxels by running the importer on a probe atlas to recover the texel↔face map, so the editor can never desync from what's on the block.
 
 ---
 

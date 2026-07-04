@@ -720,6 +720,16 @@ static func _build_pipe_quarter(img: Image, use_alpha: bool, gx: int, gy: int, g
 	for lz in range(21, 32):                           # bore west flat, faces +X into bore
 		_paint_pipe_col(cells, gy, 1, lz, CellTypes.FACE_RIGHT, inner_arc, u, use_alpha)
 		u += 1
+	# Radial cut faces — exposed only when the quarter stands alone (interior once
+	# rotated into a ring). The wall is `inset` voxels thick, matching the 2-wide
+	# cut cell: +X end at lx=gx-1, +Z end at lz=gz-1, u = radial index (0 outer).
+	var cut := img.get_region(Rect2i(118, 0, 2, 32))
+	for y in range(gy):
+		for r in range(inset):
+			if cells[gx - 1][y][r][0] != CellTypes.Type.EMPTY:
+				cells[gx - 1][y][r][CellTypes.FACE_RIGHT] = _encode(cut, r, gy - 1 - y, use_alpha)
+			if cells[r][y][gz - 1][0] != CellTypes.Type.EMPTY:
+				cells[r][y][gz - 1][CellTypes.FACE_FRONT] = _encode(cut, r, gy - 1 - y, use_alpha)
 	# caps from end-ring cell (approximate; ring texels used, corners ignored).
 	# Prisms included: their top/bottom triangles show the end-ring design.
 	for lx in range(gx):
