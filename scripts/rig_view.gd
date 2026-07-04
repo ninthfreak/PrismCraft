@@ -543,7 +543,7 @@ func _auto_fit() -> void:
 	var wrist_y := arm_shoulder_y - 0.87 * arm_span                                            # inset up from the fingertip
 	var leg_span := float(hips_y - ylo)
 	var knee_y := hips_y - 0.47 * leg_span
-	var ankle_y := float(ylo) + round(0.10 * leg_span)                                         # up off the toe
+	var ankle_y := float(ylo) + roundf(0.10 * leg_span)                                        # up off the toe
 	var spine_y := int(round((hips_y + shoulder_y) * 0.5))
 
 	_joint_pos[0]  = Vector3(torso_cx, hips_y, cz)                    # hips
