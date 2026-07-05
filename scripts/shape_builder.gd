@@ -274,9 +274,8 @@ static func _build_diagwall(img: Image, use_alpha: bool, gx: int, gy: int, gz: i
 				ori = 3
 			elif dif == -(t - 1):
 				ori = 1
-			# plan coordinates of the band: u along the wall, va across thickness
-			# (va 0 = the wall-B / NW side, t-1 = the wall-A / SE side)
-			var u := (x + z) >> 1
+			# va: across-thickness index for the end faces. The band is 2t-1
+			# diagonals wide but an end cell is only t wide, so ends stay 2:1.
 			var va := (dif + t - 1) >> 1
 			for y in range(gy):
 				if ori < 0:
@@ -298,10 +297,14 @@ static func _build_diagwall(img: Image, use_alpha: bool, gx: int, gy: int, gz: i
 					cells[x][y][z][CellTypes.FACE_FRONT] = _encode(end_b, t - 1 - va, gy - 1 - y, use_alpha)
 				if x == F - 1 and _end_slot_ok(cells[x][y][z], CellTypes.FACE_RIGHT):
 					cells[x][y][z][CellTypes.FACE_RIGHT] = _encode(end_b, t - 1 - va, gy - 1 - y, use_alpha)
-			# ribbon plan onto the band's top and bottom (solid and prism alike);
-			# bottom mirrored across thickness to match the solid-cap convention
-			cells[x][gy - 1][z][CellTypes.FACE_TOP] = _encode(ribbon, u, va, use_alpha)
-			cells[x][0][z][CellTypes.FACE_BOTTOM] = _encode(ribbon, u, t + (t - 1 - va), use_alpha)
+			# Ribbon plan onto the band's top and bottom, strictly 1:1: column =
+			# position along the diagonal (min(x,z)), row = the across-thickness
+			# diagonal index (dif + t-1, i.e. 0..2t-2). Top occupies rows 0..2t-2,
+			# bottom rows 2t-1..4t-3. Every band cell gets its own texel — the old
+			# (x+z)>>1 / (dif+t-1)>>1 halved it, pairing cells 2:1 and dropping rows.
+			var rrow: int = dif + t - 1
+			cells[x][gy - 1][z][CellTypes.FACE_TOP] = _encode(ribbon, mini(x, z), rrow, use_alpha)
+			cells[x][0][z][CellTypes.FACE_BOTTOM] = _encode(ribbon, mini(x, z), (2 * t - 1) + rrow, use_alpha)
 	if use_alpha:
 		_erase_transparent(cells, gx, gy, gz)
 	return cells
