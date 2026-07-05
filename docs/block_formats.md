@@ -92,7 +92,6 @@ Dimensions are the atlas `width × height` in pixels. Block mode, `F = 32`.
 | **ramp** | 128×64 | 45° wedge, one prism per step | slope up +X/+Z/−X/−Z, each also inverted (8) |
 | **gable** | 128×48 | two 45° slopes at a centered ridge, half-height (ridge y=16) | ridge along Z or X (2) |
 | **diagwall** | 112×32 | diagonal wall band, thickness 8, prisms on both long faces | diagonal NE-SW or NW-SE (2) |
-| **opening** | 224×32 | cube with one top edge chamfered 45° (depth 8) | chamfer on +Z/+X/−Z/−X top edge (4) |
 | **panel** | 64×34 | flat cube 32×32×1 | on floor/ceiling/±X wall/±Z wall (6) |
 | **slab_quarter** | 64×48 | flat cube 32×32×8 | on floor/ceiling/±X wall/±Z wall (6) |
 | **slab_half** | 64×64 | flat cube 32×32×16 | on floor/ceiling/±X wall/±Z wall (6) |
@@ -110,7 +109,6 @@ Orientation is chosen in the import preview — **one atlas serves every rotatio
 - **ramp** — row 1 (y0–31): `slope | back | bottom | unused`; row 2 (y32–63): `side-L | side-R | unused`.
 - **gable** — row 1 (y0–15): `slope-A | slope-B | end-A | end-B` (each 32×16); row 2 (y16–47): `bottom` (32×32).
 - **diagwall** — `wall-A(32) | wall-B(32) | end-A(8) | end-B(8) | top-plan(32×32)`. The top plan is a literal **top-down view**: texel `(x,z)` is the top of cell `(x,z)`, so the diagonal band appears diagonally in the atlas exactly as seen from above — no shear, trivially 1:1 (one texel per top face). The **bottom** shares the same texel (top-wins, like the shape caps; a wall's underside is rarely seen). Ends (end-A = SW, end-B = NE) are **2:1**: the band is `2t−1 = 15` diagonals wide but an end cell is only `t = 8`, so the two ends of a side share their 8-wide region. Boundary-prism caps take the plan; their hypotenuses keep the wall sample.
-- **opening** — seven 32-wide cells: `front | chamfer | top | back | bottom | side-L | side-R`. The pentagonal ±X sides are 1:1 (side-R u = z; side-L mirrored so both read upright facing outward); the bevel prism's ±X caps sample the same side cells.
 - **panel / slab_quarter / slab_half** — row 1: `top | bottom` (32×32 each); following rows: `N|S` then `E|W`, each 32 × thickness (1 / 8 / 16).
 - **stairs_2** — `tread(16) | riser(16) | back(32) | bottom(32) | side(32)`.
 - **stairs_4** — row 1: `tread(8) | riser(8) | back(32) | bottom(32)`; row 2: `side(32) | unused(48)`.
@@ -150,6 +148,6 @@ Texture files and block IDs follow:
 <material-variant>.<shape>               (block IDs)
 ```
 
-**No roles** (removed in v3 — use is the builder's decision, inferred from shape + material). **Shape is mandatory** on every texture — the 32×32 uniform block carries the explicit `cube` token (`brick_cube_32x32.png`), nothing is implicit. The `shape` token matches a registry format above (`cube`, `capped`, `net`, `octagon`, `octagon-half`, `diamond`, `chamfered`, `cross`, `ramp`, `gable`, `diagwall`, `opening`, `pipe-quarter`, `panel`, `slab-quarter`, `slab-half`, `stairs-2`, `stairs-4`).
+**No roles** (removed in v3 — use is the builder's decision, inferred from shape + material). **Shape is mandatory** on every texture — the 32×32 uniform block carries the explicit `cube` token (`brick_cube_32x32.png`), nothing is implicit. The `shape` token matches a registry format above (`cube`, `capped`, `net`, `octagon`, `octagon-half`, `diamond`, `chamfered`, `cross`, `ramp`, `gable`, `diagwall`, `pipe-quarter`, `panel`, `slab-quarter`, `slab-half`, `stairs-2`, `stairs-4`).
 
 **Fields use hyphens internally** (`stone-block`, `steel-corrugated`, `stone-flecked-coal`, `octagon-half`), so the **only underscores are the field separators**. The block ID is the filename minus `_WxH` with those underscores turned into dots — no vocabulary list needed to parse it. Variants describe intrinsic material differences only (`corrugated`, `plank`, `rusted`, `painted-<color>`, `flecked-<mineral>`…); transient/environmental states (`damp`, `wet`, `snowy`, `frozen`) are shader effects, never baked into textures.
