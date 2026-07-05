@@ -6,7 +6,7 @@ class_name BlockImporter
 # here. Every function is static and free of scene/UI state.
 
 const SHAPE_LAYOUTS := ["ramp", "gable", "diagwall", "diamond", "chamfered",
-	"cross", "opening", "panel", "slab_quarter", "slab_half",
+	"cross", "panel", "slab_quarter", "slab_half",
 	"stairs_2", "stairs_4", "pipe_quarter"]
 
 # ─── entry point ─────────────────────────────────────────────────────────────
@@ -84,7 +84,6 @@ static func atlas_dims(layout: String, gx: int, gy: int) -> Vector2i:
 		"diamond": return Vector2i(96, 32)
 		"chamfered": return Vector2i(144, 32)
 		"cross": return Vector2i(160, 32)
-		"opening": return Vector2i(224, 32)
 		"pipe_quarter": return Vector2i(120, 32)
 		"stairs_2": return Vector2i(128, 32)
 		"stairs_4": return Vector2i(80, 64)

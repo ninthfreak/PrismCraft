@@ -1,6 +1,6 @@
 class_name ShapeBuilder
 # Builds predefined prism shapes (ramp, gable, diagonal wall, diamond, chamfered
-# cube, cross, chamfered opening) from an exact-size 1:1 atlas into a cell grid.
+# cube, cross) from an exact-size 1:1 atlas into a cell grid.
 #
 # Each shape is constructed in a fixed CANONICAL orientation, then rotated about
 # Y and/or flipped vertically to reach the orientation the user picked in the
@@ -14,7 +14,6 @@ const CHAMFER_COLUMN := 4
 const CROSS_ARM := 16
 const CROSS_DEPTH := 8
 const DIAGWALL_T := 8
-const OPENING_CHAMFER := 8
 
 # Y-rotation 90 CCW: source(x,z) -> dest(z, N-1-x). Faces: +X->-Z, +Z->+X, etc.
 const ROT_ORIENT := [3, 0, 1, 2, 8, 11, 10, 9, 7, 4, 5, 6]
@@ -38,7 +37,6 @@ static func build(shape: String, img: Image, use_alpha: bool, gx: int, gy: int, 
 		"diamond": cells = _build_chamfered_box(img, gx / 2, use_alpha, gx, gy, gz)
 		"chamfered": cells = _build_chamfered_box(img, CHAMFER_COLUMN, use_alpha, gx, gy, gz)
 		"cross": cells = _build_cross(img, use_alpha, gx, gy, gz)
-		"opening": cells = _build_opening(img, use_alpha, gx, gy, gz)
 		"panel": cells = _build_slab(img, 1, use_alpha, gx, gy, gz)
 		"slab_quarter": cells = _build_slab(img, 8, use_alpha, gx, gy, gz)
 		"slab_half": cells = _build_slab(img, 16, use_alpha, gx, gy, gz)
@@ -478,68 +476,6 @@ static func _build_cross(img: Image, use_alpha: bool, gx: int, gy: int, gz: int)
 			for y in range(gy):
 				if cells[x][y][z][0] == CellTypes.Type.SOLID:
 					cells[x][y][z][slot] = _encode(strip, c0 + i, F - 1 - y, use_alpha)
-	if use_alpha:
-		_erase_transparent(cells, gx, gy, gz)
-	return cells
-
-# ─── CHAMFERED OPENING 224x32 ────────────────────────────────────────────────
-# Canonical: chamfer on the +Z (front) top edge, depth OPENING_CHAMFER.
-# Bevel = X-axis prism ori 4, extruded along X.
-static func _build_opening(img: Image, use_alpha: bool, gx: int, gy: int, gz: int) -> Array:
-	var cells := _new_cells(gx, gy, gz)
-	var F := gx
-	var d := OPENING_CHAMFER
-	var front := img.get_region(Rect2i(0, 0, F, F - d))
-	var chamfer := img.get_region(Rect2i(F, 0, F, d))
-	var top := img.get_region(Rect2i(F * 2, 0, F, F - d))
-	var back := img.get_region(Rect2i(F * 3, 0, F, F))
-	var bottom := img.get_region(Rect2i(F * 4, 0, F, F))
-	var side_l := img.get_region(Rect2i(F * 5, 0, F, F))
-	var side_r := img.get_region(Rect2i(F * 6, 0, F, F))
-	var fill := _fill_color(back, use_alpha)
-	for z in range(F):
-		for y in range(F):
-			var m := (F - 1 - y) + (F - 1 - z)   # dist from top-front corner
-			var carved := (y >= F - d and m < d)
-			if carved and m != d - 1:
-				continue   # removed
-			for x in range(gx):
-				if carved and m == d - 1:
-					cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.PRISM, 4, _encode(chamfer, gx - 1 - x, (d - 1) - (F - 1 - z), use_alpha))
-				else:
-					cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.SOLID, 0, fill)
-	# flat faces
-	for x in range(gx):
-		for y in range(F - d):
-			# front (+Z at z=F-1) for lower part
-			if cells[x][y][F - 1][0] == CellTypes.Type.SOLID:
-				cells[x][y][F - 1][CellTypes.FACE_FRONT] = _encode(front, x, F - d - 1 - y, use_alpha)
-			# back (-Z at z=0)
-			if cells[x][y][0][0] == CellTypes.Type.SOLID:
-				cells[x][y][0][CellTypes.FACE_BACK] = _encode(back, gx - 1 - x, F - 1 - y, use_alpha)
-	for x in range(gx):
-		for z in range(F):
-			# The flat top spans only z=0..F-d-1 (the front edge is chamfered
-			# away); the `top` region is F x (F-d), so map z into that height.
-			if cells[x][gy - 1][z][0] == CellTypes.Type.SOLID:
-				cells[x][gy - 1][z][CellTypes.FACE_TOP] = _encode(top, x, F - d - 1 - z, use_alpha)
-			if cells[x][0][z][0] == CellTypes.Type.SOLID:
-				cells[x][0][z][CellTypes.FACE_BOTTOM] = _encode(bottom, x, F - 1 - z, use_alpha)
-	# remaining upper-back rows for back face (y >= F-d)
-	for x in range(gx):
-		for y in range(F - d, F):
-			if cells[x][y][0][0] == CellTypes.Type.SOLID:
-				cells[x][y][0][CellTypes.FACE_BACK] = _encode(back, gx - 1 - x, F - 1 - y, use_alpha)
-	# pentagonal side faces (±X planes), 1:1 from side-L / side-R; -X mirrored so
-	# both read upright facing outward. The chamfer prism's ±X caps land in the
-	# same FACE_RIGHT / FACE_LEFT slots (its hyp lives in FACE_TOP), so painting
-	# every non-empty cell on the plane covers solids and the bevel triangles.
-	for y in range(gy):
-		for z in range(F):
-			if cells[gx - 1][y][z][0] != CellTypes.Type.EMPTY:
-				cells[gx - 1][y][z][CellTypes.FACE_RIGHT] = _encode(side_r, z, F - 1 - y, use_alpha)
-			if cells[0][y][z][0] != CellTypes.Type.EMPTY:
-				cells[0][y][z][CellTypes.FACE_LEFT] = _encode(side_l, F - 1 - z, F - 1 - y, use_alpha)
 	if use_alpha:
 		_erase_transparent(cells, gx, gy, gz)
 	return cells
