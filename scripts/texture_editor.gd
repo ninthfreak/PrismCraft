@@ -138,8 +138,7 @@ static func regions_for(layout: String) -> Array:
 		"diagwall":
 			return [_r("wall A (SE)", 0, 0, F, F), _r("wall B (NW)", F, 0, F, F),
 				_r("end A (SW)", 64, 0, 8, F), _r("end B (NE)", 72, 0, 8, F),
-				_r("ribbon top", 80, 0, F, 8), _r("ribbon bottom", 80, 8, F, 8),
-				_r("unused", 80, 16, F, 16)]
+				_r("top plan", 80, 0, F, F)]
 		"opening":
 			return [_r("front", 0, 0, F, 24), _r("unused", 0, 24, F, 8),
 				_r("chamfer", F, 0, F, 8), _r("unused", F, 8, F, 24),
