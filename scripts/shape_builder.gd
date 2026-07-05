@@ -297,14 +297,13 @@ static func _build_diagwall(img: Image, use_alpha: bool, gx: int, gy: int, gz: i
 					cells[x][y][z][CellTypes.FACE_FRONT] = _encode(end_b, t - 1 - va, gy - 1 - y, use_alpha)
 				if x == F - 1 and _end_slot_ok(cells[x][y][z], CellTypes.FACE_RIGHT):
 					cells[x][y][z][CellTypes.FACE_RIGHT] = _encode(end_b, t - 1 - va, gy - 1 - y, use_alpha)
-			# Ribbon plan onto the band's top and bottom, strictly 1:1: column =
-			# position along the diagonal (min(x,z)), row = the across-thickness
-			# diagonal index (dif + t-1, i.e. 0..2t-2). Top occupies rows 0..2t-2,
-			# bottom rows 2t-1..4t-3. Every band cell gets its own texel — the old
-			# (x+z)>>1 / (dif+t-1)>>1 halved it, pairing cells 2:1 and dropping rows.
-			var rrow: int = dif + t - 1
-			cells[x][gy - 1][z][CellTypes.FACE_TOP] = _encode(ribbon, mini(x, z), rrow, use_alpha)
-			cells[x][0][z][CellTypes.FACE_BOTTOM] = _encode(ribbon, mini(x, z), (2 * t - 1) + rrow, use_alpha)
+			# Ribbon is a top-down PLAN of the band: texel (x,z) is the top of cell
+			# (x,z). The band therefore appears diagonally in the atlas exactly as
+			# seen from above — no shear, and trivially 1:1 (one texel per top
+			# face). The bottom shares the same texel (top-wins, like the shape
+			# caps), since a wall's underside is rarely seen.
+			cells[x][gy - 1][z][CellTypes.FACE_TOP] = _encode(ribbon, x, z, use_alpha)
+			cells[x][0][z][CellTypes.FACE_BOTTOM] = _encode(ribbon, x, z, use_alpha)
 	if use_alpha:
 		_erase_transparent(cells, gx, gy, gz)
 	return cells
