@@ -82,7 +82,6 @@ Hold **Shift** with Line to lock to an axis, with Rectangle to force a square, o
   - **64x34** (panel) -- flat 32x32x1, floor/ceiling/wall
   - **64x48** (slab_quarter) -- flat 32x32x8, floor/ceiling/wall
   - **64x64** (slab_half) -- flat 32x32x16, floor/ceiling/wall
-  - **128x32** (stairs_2) -- solid stair, two 16-voxel steps
   - **80x64** (stairs_4) -- solid stair, four 8-voxel steps
   - **120x32** (pipe_quarter) -- hollow octagonal pipe; four rotations close a ring
 - **Import Character Sprites** to generate a rough 3D model from a front and side PNG using silhouette intersection

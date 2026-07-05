@@ -40,7 +40,6 @@ static func build(shape: String, img: Image, use_alpha: bool, gx: int, gy: int, 
 		"panel": cells = _build_slab(img, 1, use_alpha, gx, gy, gz)
 		"slab_quarter": cells = _build_slab(img, 8, use_alpha, gx, gy, gz)
 		"slab_half": cells = _build_slab(img, 16, use_alpha, gx, gy, gz)
-		"stairs_2": cells = _build_stairs(img, 2, use_alpha, gx, gy, gz)
 		"stairs_4": cells = _build_stairs(img, 4, use_alpha, gx, gy, gz)
 		"pipe_quarter": cells = _build_pipe_quarter(img, use_alpha, gx, gy, gz)
 		_: return _new_cells(gx, gy, gz)
