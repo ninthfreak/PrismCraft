@@ -109,7 +109,7 @@ Orientation is chosen in the import preview — **one atlas serves every rotatio
 - **cross** — cols 0–127: strip `16,8,8,16,8,8,16,8,8,16,8,8`; cols 128–159: cap.
 - **ramp** — row 1 (y0–31): `slope | back | bottom | unused`; row 2 (y32–63): `side-L | side-R | unused`.
 - **gable** — row 1 (y0–15): `slope-A | slope-B | end-A | end-B` (each 32×16); row 2 (y16–47): `bottom` (32×32).
-- **diagwall** — `wall-A(32) | wall-B(32) | end-A(8) | end-B(8) | top+bottom ribbon block(32)`. Ribbon rows 0–7 are the **top plan**, rows 8–15 the **bottom plan** (u = along-wall `(x+z)/2`, v = across-thickness `(x−z+7)/2`, bottom mirrored). Ends map 1:1 at the footprint borders — end-A = SW, end-B = NE (u = across-thickness, NE mirrored so both read facing outward). Boundary-prism caps take the ribbon; their hypotenuses keep the wall sample.
+- **diagwall** — `wall-A(32) | wall-B(32) | end-A(8) | end-B(8) | ribbon block(32×32)`. Ribbon is strictly 1:1: column = `min(x,z)` (position along the diagonal), row = `(x−z)+7` (across the thickness); the **top** uses rows 0–14, the **bottom** rows 15–29 — every top/bottom face has its own texel. Ends (end-A = SW, end-B = NE) are **2:1**: the band is `2t−1 = 15` diagonals wide but an end cell is only `t = 8`, so the two ends of a side share their 8-wide region. Boundary-prism caps take the ribbon; their hypotenuses keep the wall sample.
 - **opening** — seven 32-wide cells: `front | chamfer | top | back | bottom | side-L | side-R`. The pentagonal ±X sides are 1:1 (side-R u = z; side-L mirrored so both read upright facing outward); the bevel prism's ±X caps sample the same side cells.
 - **panel / slab_quarter / slab_half** — row 1: `top | bottom` (32×32 each); following rows: `N|S` then `E|W`, each 32 × thickness (1 / 8 / 16).
 - **stairs_2** — `tread(16) | riser(16) | back(32) | bottom(32) | side(32)`.
@@ -123,10 +123,16 @@ Orientation is chosen in the import preview — **one atlas serves every rotatio
 
 **Every exposed face maps to exactly one atlas texel** — cube, octagon, and all
 predefined shapes, including prism caps, legs and hypotenuses, the pipe's arcs
-and its radial cut faces. No sampling, averaging, resampling, or guessing on any
-visible face.
+and its radial cut faces, and the diagonal wall's top/bottom. No sampling,
+averaging, resampling, or guessing on any visible face.
 
-Two clarifications, neither a violation:
+The one deliberate exception is **symmetric faces that share a texel by design**:
+a shape's top and bottom caps share the cap region, and a diagonal wall's two
+end faces share their 8-wide end region. Reconstruction keeps the most-visible
+of a shared pair (top > sides > bottom), and the Texture Editor **warns** when
+per-face edits diverge from what the atlas can hold, so it is never silent.
+
+Two more clarifications, neither a violation:
 
 - **Interior / hidden faces** (between two solids) carry a dominant-color fill, but they are never visible and have no atlas texel — there is nothing for them to be 1:1 with.
 - **A prism face is one voxel color by definition.** A slope takes one color per cell (one atlas texel per cell), which *is* 1:1 — not a gradient across the diagonal face. Edge prisms carry a distinct color per face (caps from the cap/ribbon/end-ring cells, laterals from the strip/wall cells), individually editable with Paint/Eyedropper.

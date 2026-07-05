@@ -1447,33 +1447,51 @@ func _erase_with_mirror(pos: Vector3i) -> void:
 		if _in_bounds(mxz):
 			cells[mxz.x][mxz.y][mxz.z] = CellTypes.empty_cell()
 
-func _bucket_fill(start: Vector3i) -> void:
+# Surface bucket: flood the connected run of same-coloured faces that share the
+# clicked face's orientation, staying on that plane. Only exposed faces fill,
+# and the colour is read from the clicked face (prism-aware), not the top.
+func _bucket_fill(start: Vector3i, normal: Vector3i) -> void:
+	if normal == Vector3i.ZERO:
+		return
 	var start_cell: Array = cells[start.x][start.y][start.z]
-	var match_color: int = start_cell[2]
-	if match_color == current_color:
+	var target: int = start_cell[_face_color_slot(start_cell, normal)]
+	if target == current_color:
 		return
 	_push_undo()
+	var axes := _plane_axes(normal)     # the two in-plane axes, perpendicular to normal
 	var queue: Array[Vector3i] = [start]
-	var visited := {}
-	visited[start] = true
+	var visited := {start: true}
 	while not queue.is_empty():
 		var pos: Vector3i = queue.pop_front()
 		var cell: Array = cells[pos.x][pos.y][pos.z]
-		for fi in range(2, 8):
-			if cell[fi] == match_color:
-				cell[fi] = current_color
-		for d in [Vector3i(1,0,0), Vector3i(-1,0,0), Vector3i(0,1,0), Vector3i(0,-1,0), Vector3i(0,0,1), Vector3i(0,0,-1)]:
-			var np: Vector3i = pos + d
-			if not _in_bounds(np) or visited.has(np):
-				continue
-			var nc: Array = cells[np.x][np.y][np.z]
-			if nc[0] == CellTypes.Type.EMPTY:
-				continue
-			if nc[2] == match_color:
-				visited[np] = true
-				queue.append(np)
+		cell[_face_color_slot(cell, normal)] = current_color
+		for a in axes:
+			for s in [1, -1]:
+				var np: Vector3i = pos + a * s
+				if not _in_bounds(np) or visited.has(np):
+					continue
+				var nc: Array = cells[np.x][np.y][np.z]
+				if nc[0] == CellTypes.Type.EMPTY:
+					continue
+				var front: Vector3i = np + normal
+				var exposed: bool = not _in_bounds(front) or cells[front.x][front.y][front.z][0] == CellTypes.Type.EMPTY
+				if exposed and nc[_face_color_slot(nc, normal)] == target:
+					visited[np] = true
+					queue.append(np)
 	_mark_dirty()
 	_rebuild_mesh()
+
+func _face_color_slot(cell: Array, normal: Vector3i) -> int:
+	if cell[0] == CellTypes.Type.PRISM:
+		return CellTypes.prism_paint_slot(cell[1], normal)
+	return CellTypes.face_index_from_normal(normal)
+
+func _plane_axes(normal: Vector3i) -> Array:
+	if absi(normal.x) == 1:
+		return [Vector3i(0, 1, 0), Vector3i(0, 0, 1)]
+	if absi(normal.y) == 1:
+		return [Vector3i(1, 0, 0), Vector3i(0, 0, 1)]
+	return [Vector3i(1, 0, 0), Vector3i(0, 1, 0)]
 
 func _eyedrop_color(target: Vector3i) -> void:
 	var cell: Array = cells[target.x][target.y][target.z]
@@ -2130,7 +2148,7 @@ func _on_left_click() -> void:
 				_mark_mirror_chunks_dirty(target_cell)
 		ToolType.BUCKET:
 			if _in_bounds(target_cell) and cells[target_cell.x][target_cell.y][target_cell.z][0] != CellTypes.Type.EMPTY:
-				_bucket_fill(target_cell)
+				_bucket_fill(target_cell, _hit_normal)
 		ToolType.EYEDROP:
 			if _in_bounds(target_cell) and cells[target_cell.x][target_cell.y][target_cell.z][0] != CellTypes.Type.EMPTY:
 				_eyedrop_color(target_cell)
