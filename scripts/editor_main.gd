@@ -3331,8 +3331,14 @@ func _on_export_obj_selected(path: String) -> void:
 	else:
 		if path.get_extension() == "":
 			path += ".glb"
-		var tris := MeshExporter.export_glb(path, cells, grid_x, grid_y, grid_z, CELL_SIZE)
-		dims_label.text = "Exported %d triangles (glb)" % tris if tris > 0 else "Export failed"
+		var tris := MeshExporter.export_glb_textured(path, cells, grid_x, grid_y, grid_z, CELL_SIZE)
+		if tris > 0:
+			var div: int = MeshExporter._last_export_divergence
+			dims_label.text = "Exported %d triangles (glb)" % tris
+			if div > 0:
+				dims_label.text += " — %d faces exceed 6-sided atlas" % div
+		else:
+			dims_label.text = "Export failed"
 
 func _import_character_sprites() -> void:
 	if _unsaved_changes:

@@ -153,3 +153,39 @@ Texture files and block IDs follow:
 **No roles** (removed in v3 — use is the builder's decision, inferred from shape + material). **Shape is mandatory** on every texture — the 32×32 uniform block carries the explicit `cube` token (`brick_cube_32x32.png`), nothing is implicit. The `shape` token matches a registry format above (`cube`, `capped`, `net`, `octagon`, `octagon-half`, `diamond`, `chamfered`, `cross`, `ramp`, `gable`, `diagwall`, `opening`, `pipe-quarter`, `panel`, `slab-quarter`, `slab-half`, `stairs-2`, `stairs-4`).
 
 **Fields use hyphens internally** (`stone-block`, `steel-corrugated`, `stone-flecked-coal`, `octagon-half`), so the **only underscores are the field separators**. The block ID is the filename minus `_WxH` with those underscores turned into dots — no vocabulary list needed to parse it. Variants describe intrinsic material differences only (`corrugated`, `plank`, `rusted`, `painted-<color>`, `flecked-<mineral>`…); transient/environmental states (`damp`, `wet`, `snowy`, `frozen`) are shader effects, never baked into textures.
+
+---
+
+## 8. GLB export (textured, spec v1)
+
+Runtime consumers instance tens of thousands of blocks, so exports must be
+**low-poly with the detail in a texture, never in geometry**. `MeshExporter.export_glb_textured`
+(used by the batch pipeline and the editor's *Export Model → .glb*) emits:
+
+- **Shape-minimal geometry.** Coplanar exposed faces merge regardless of color,
+  so a textured cube is **12 triangles** (not ~9k texel-quads), a ramp/gable ≤ 24,
+  etc. Prisms keep their real diagonal faces.
+- **An embedded 6-sided atlas.** A single PNG in the GLB binary chunk, laid out as
+  a **cube net** — 3 columns (top/bottom · front/back · right/left) × 2 rows.
+  For a 32³ block that is the familiar **96×64 "net"** sheet, and it re-imports as
+  a `net` cube atlas (same per-face read conventions as `build_cube`).
+- **UV0 per vertex**, texel edges on grid lines, `NEAREST` sampler, `CLAMP_TO_EDGE`.
+- **One material `voxel`** (metallic 0, roughness 1, `baseColorTexture`), `OPAQUE`
+  except cutout blocks which use `alphaMode MASK`, cutoff 0.5. `COLOR_0` is dropped.
+
+**The atlas is an orthographic projection of the exposed surface onto the six
+cardinal planes.** Each voxel face = one texel (per-voxel color *is* 1:1, §6), so
+the projection is lossless for convex/heightfield shapes (cube, ramp, gable,
+stairs, slab, panel). A prism's diagonal face resolves to the cardinal region its
+normal most faces (`slot_for_normal`) and projects to its cell's texel.
+
+The **one lossy case is genuine concavity** — two exposed faces with the same
+cardinal normal that project onto the same texel (an overhang, a tunnel ceiling
+above the block floor in `opening`, the two ends of a `diagwall`). These resolve
+**nearest-to-viewer (top-wins)**, exactly the shared-texel rule of §6.
+`MeshExporter._last_export_divergence` counts any faces the atlas can't reproduce;
+the batch summary and the editor status line report the count so it is never
+silent. A block with 0 divergence is a faithful round-trip.
+
+> This is the first place the **6-sided atlas** standard is used. Import/edit still
+> use the per-shape sheets of §5; migrating those to 6-sided is a separate step.

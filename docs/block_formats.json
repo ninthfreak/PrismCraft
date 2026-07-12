@@ -30,6 +30,17 @@
     "render_rule": "Cutout cells alpha-test in the fragment shader (discard when alpha < 0.5), render double-sided, and never occlude neighboring faces."
   },
   "import_rule": "Strict 1:1: one texel maps to exactly one voxel face, nearest-neighbor, never scaled/filtered/padded/cropped. A texture whose (width,height) does not exactly match a registry entry is rejected with a warning and nothing is imported.",
+  "export": {
+    "purpose": "Low-poly UV-mapped GLB for runtime instancing; detail lives in an embedded texture, never in face subdivision.",
+    "entry": "MeshExporter.export_glb_textured (batch pipeline + editor Export Model .glb)",
+    "geometry": "Coplanar exposed faces merge regardless of color: cube = 12 tris, prisms keep real diagonal faces. Hard ceiling 500 tris.",
+    "atlas": "Single embedded PNG, 6-sided cube net: 3 cols (top/bottom | front/back | right/left) x 2 rows. 32^3 block -> 96x64, re-imports as 'net'.",
+    "atlas_fill": "Orthographic projection of the exposed surface onto the six cardinal planes; one voxel face = one texel. Prism diagonal faces map to the cardinal region their normal most faces (slot_for_normal).",
+    "material": "single 'voxel', metallic 0, roughness 1, baseColorTexture, doubleSided false; OPAQUE except cutout -> alphaMode MASK cutoff 0.5. COLOR_0 dropped.",
+    "sampler": "magFilter/minFilter NEAREST (9728), wrap CLAMP_TO_EDGE (33071).",
+    "fidelity": "Lossless for convex/heightfield shapes (per-voxel color is 1:1). Concave collisions (overhang, opening tunnel, diagwall ends) resolve nearest-to-viewer (top-wins); _last_export_divergence counts faces the atlas cannot reproduce and is reported.",
+    "note": "First use of the 6-sided atlas standard. Import/edit still use the per-shape sheets in 'formats'; migrating those is a separate step."
+  },
   "formats": [
     { "name": "uniform", "shape_token": null, "dimensions": [32, 32], "grid_relative": "gx x gy", "geometry": "full cube", "atlas": "single 32x32 cell applied to all 6 faces", "orientations": [], "packing": "565 or 5551" },
     { "name": "capped", "shape_token": "capped", "dimensions": [64, 32], "grid_relative": "(gx*2) x gy", "geometry": "full cube", "atlas": "left 32x32 = 4 sides; right 32x32 = shared top+bottom cap", "orientations": [], "packing": "565 or 5551", "note": "formerly called column/log" },

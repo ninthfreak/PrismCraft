@@ -67,11 +67,13 @@ func _run(in_dir: String, out_dir: String) -> void:
 		var block_id: String = parsed["id"]
 		var shape: String = parsed["shape"]
 		var out_path := out_dir.path_join(block_id + ".glb")
-		var tris := MeshExporter.export_glb(out_path, cells, GX, GY, GZ, CELL)
+		var tris := MeshExporter.export_glb_textured(out_path, cells, GX, GY, GZ, CELL)
 		if tris > 0:
 			exported += 1
 			by_shape[shape] = by_shape.get(shape, 0) + 1
-			print("[ok]  %-40s -> %s.glb  (%d tris)" % [f, block_id, tris])
+			var div: int = MeshExporter._last_export_divergence
+			var note := "  [%d faces exceed atlas]" % div if div > 0 else ""
+			print("[ok]  %-40s -> %s.glb  (%d tris)%s" % [f, block_id, tris, note])
 		else:
 			failed.append([block_id, "export produced no geometry"])
 			print("[fail] %-40s -> export empty" % f)
