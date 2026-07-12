@@ -78,7 +78,6 @@ static func formats() -> Array:
 		["panel", "panel", 64, 34],
 		["slab_quarter", "slab-quarter", 64, 48],
 		["slab_half", "slab-half", 64, 64],
-		["stairs_2", "stairs-2", 128, 32],
 		["stairs_4", "stairs-4", 80, 64],
 		["pipe_quarter", "pipe-quarter", 120, 32],
 	]
@@ -147,9 +146,6 @@ static func regions_for(layout: String) -> Array:
 		"slab_half":
 			return [_r("top", 0, 0, F, F), _r("bottom", F, 0, F, F),
 				_r("N", 0, 32, F, 16), _r("S", F, 32, F, 16), _r("E", 0, 48, F, 16), _r("W", F, 48, F, 16)]
-		"stairs_2":
-			return [_r("tread", 0, 0, 16, F), _r("riser", 16, 0, 16, F), _r("back", 32, 0, F, F),
-				_r("bottom", 64, 0, F, F), _r("side", 96, 0, F, F)]
 		"stairs_4":
 			return [_r("tread", 0, 0, 8, F), _r("riser", 8, 0, 8, F), _r("back", 16, 0, F, F),
 				_r("bottom", 48, 0, F, F), _r("side", 0, 32, F, F), _r("unused", 32, 32, 48, F)]

@@ -28,3 +28,20 @@ whose ±X caps sampled the adjacent side cells.
 It never shipped a committed block texture in the repo — its source atlases lived
 only in the texture-library bundle — so retiring it removed the shape definition
 (builder, size/validation, editor entries, docs) but deleted no tracked assets.
+
+---
+
+## stairs-2 (128×32)
+
+**Retired:** 2026-07 · **Reason:** looked bad in-game.
+
+A solid staircase of two 16-voxel steps, extruded along Z (like the ramp), with
+four climb orientations (+X/+Z/−X/−Z).
+
+**Atlas layout** — single row: `tread(16) | riser(16) | back(32) | bottom(32) | side(32)`.
+The tread cell is a plan view of one step strip; the riser cell is the riser
+elevation rotated 90°. (stairs-4 keeps the same tread/riser conventions.)
+
+The shared `_build_stairs(img, nsteps, …)` builder stays — stairs-4 still uses
+it; only the stairs-2 registrations (dispatch, size/validation, editor entries,
+docs) were removed. No committed block textures existed for it.

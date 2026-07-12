@@ -95,7 +95,6 @@ Dimensions are the atlas `width × height` in pixels. Block mode, `F = 32`.
 | **panel** | 64×34 | flat cube 32×32×1 | on floor/ceiling/±X wall/±Z wall (6) |
 | **slab_quarter** | 64×48 | flat cube 32×32×8 | on floor/ceiling/±X wall/±Z wall (6) |
 | **slab_half** | 64×64 | flat cube 32×32×16 | on floor/ceiling/±X wall/±Z wall (6) |
-| **stairs_2** | 128×32 | solid staircase, 2 steps of 16 | climb +X/+Z/−X/−Z (4) |
 | **stairs_4** | 80×64 | solid staircase, 4 steps of 8 | climb +X/+Z/−X/−Z (4) |
 | **pipe_quarter** | 120×32 | quadrant of a 64×64 hollow octagon ring; four rotations close a ring | quadrant 0/90/180/270° (4) |
 
@@ -110,9 +109,8 @@ Orientation is chosen in the import preview — **one atlas serves every rotatio
 - **gable** — row 1 (y0–15): `slope-A | slope-B | end-A | end-B` (each 32×16); row 2 (y16–47): `bottom` (32×32).
 - **diagwall** — `wall-A(32) | wall-B(32) | end-A(8) | end-B(8) | top-plan(32×32)`. The top plan is a literal **top-down view**: texel `(x,z)` is the top of cell `(x,z)`, so the diagonal band appears diagonally in the atlas exactly as seen from above — no shear, trivially 1:1 (one texel per top face). The **bottom** shares the same texel (top-wins, like the shape caps; a wall's underside is rarely seen). Ends (end-A = SW, end-B = NE) are **2:1**: the band is `2t−1 = 15` diagonals wide but an end cell is only `t = 8`, so the two ends of a side share their 8-wide region. Boundary-prism caps take the plan; their hypotenuses keep the wall sample.
 - **panel / slab_quarter / slab_half** — row 1: `top | bottom` (32×32 each); following rows: `N|S` then `E|W`, each 32 × thickness (1 / 8 / 16).
-- **stairs_2** — `tread(16) | riser(16) | back(32) | bottom(32) | side(32)`.
 - **stairs_4** — row 1: `tread(8) | riser(8) | back(32) | bottom(32)`; row 2: `side(32) | unused(48)`.
-- **stairs tread/riser conventions** — the tread cell is a **plan view** of one step strip: u = x within the step (0 = riser edge), v = `F−1−z` (north-up, like slab tops). The riser cell is the riser elevation **rotated 90°**: u = height within the step (0 = bottom), v = z.
+- **stairs tread/riser conventions** — the tread cell is a **plan view** of one step strip: u = x within the step (0 = riser edge), v = `F−1−z` (north-up, like slab tops). The riser cell is the riser elevation **rotated 90°**: u = height within the step (0 = bottom), v = z. The shared strips are sampled **shifted by `ss` along z on alternating steps** (`so = (step%2)·ss`), so the brick coursing climbs the stair as a staggered running bond rather than lining up in vertical columns.
 - **pipe_quarter** — `outer-arc(45) | inner-arc(41) | end-ring(32) | cut(2)`. The arcs map 1:1 along the unrolled quadrant perimeters (outer: 13 flat + 19 diagonal + 13 flat = 45 columns; bore: 11+19+11 = 41; v = height). Diagonal runs paint the wall prisms' hypotenuse faces; both walks run in one rotational direction so four rotations tile the texture continuously around the ring.
 
 ---
@@ -148,6 +146,6 @@ Texture files and block IDs follow:
 <material-variant>.<shape>               (block IDs)
 ```
 
-**No roles** (removed in v3 — use is the builder's decision, inferred from shape + material). **Shape is mandatory** on every texture — the 32×32 uniform block carries the explicit `cube` token (`brick_cube_32x32.png`), nothing is implicit. The `shape` token matches a registry format above (`cube`, `capped`, `net`, `octagon`, `octagon-half`, `diamond`, `chamfered`, `cross`, `ramp`, `gable`, `diagwall`, `pipe-quarter`, `panel`, `slab-quarter`, `slab-half`, `stairs-2`, `stairs-4`).
+**No roles** (removed in v3 — use is the builder's decision, inferred from shape + material). **Shape is mandatory** on every texture — the 32×32 uniform block carries the explicit `cube` token (`brick_cube_32x32.png`), nothing is implicit. The `shape` token matches a registry format above (`cube`, `capped`, `net`, `octagon`, `octagon-half`, `diamond`, `chamfered`, `cross`, `ramp`, `gable`, `diagwall`, `pipe-quarter`, `panel`, `slab-quarter`, `slab-half`, `stairs-4`).
 
 **Fields use hyphens internally** (`stone-block`, `steel-corrugated`, `stone-flecked-coal`, `octagon-half`), so the **only underscores are the field separators**. The block ID is the filename minus `_WxH` with those underscores turned into dots — no vocabulary list needed to parse it. Variants describe intrinsic material differences only (`corrugated`, `plank`, `rusted`, `painted-<color>`, `flecked-<mineral>`…); transient/environmental states (`damp`, `wet`, `snowy`, `frozen`) are shader effects, never baked into textures.

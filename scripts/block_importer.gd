@@ -7,7 +7,7 @@ class_name BlockImporter
 
 const SHAPE_LAYOUTS := ["ramp", "gable", "diagwall", "diamond", "chamfered",
 	"cross", "panel", "slab_quarter", "slab_half",
-	"stairs_2", "stairs_4", "pipe_quarter"]
+	"stairs_4", "pipe_quarter"]
 
 # ─── entry point ─────────────────────────────────────────────────────────────
 # layout: a string returned by CellTypes.validate_block_texture (non-empty).
@@ -85,7 +85,6 @@ static func atlas_dims(layout: String, gx: int, gy: int) -> Vector2i:
 		"chamfered": return Vector2i(144, 32)
 		"cross": return Vector2i(160, 32)
 		"pipe_quarter": return Vector2i(120, 32)
-		"stairs_2": return Vector2i(128, 32)
 		"stairs_4": return Vector2i(80, 64)
 		"panel": return Vector2i(64, 34)
 		"slab_quarter": return Vector2i(64, 48)

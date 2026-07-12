@@ -40,7 +40,6 @@ static func build(shape: String, img: Image, use_alpha: bool, gx: int, gy: int, 
 		"panel": cells = _build_slab(img, 1, use_alpha, gx, gy, gz)
 		"slab_quarter": cells = _build_slab(img, 8, use_alpha, gx, gy, gz)
 		"slab_half": cells = _build_slab(img, 16, use_alpha, gx, gy, gz)
-		"stairs_2": cells = _build_stairs(img, 2, use_alpha, gx, gy, gz)
 		"stairs_4": cells = _build_stairs(img, 4, use_alpha, gx, gy, gz)
 		"pipe_quarter": cells = _build_pipe_quarter(img, use_alpha, gx, gy, gz)
 		_: return _new_cells(gx, gy, gz)
@@ -547,14 +546,20 @@ static func _build_stairs(img: Image, nsteps: int, use_alpha: bool, gx: int, gy:
 			for z in range(gz):
 				if cells[x][y][z][0] != CellTypes.Type.SOLID:
 					continue
+				# Per-step half-brick stagger: consecutive steps sample the shared
+				# tread/riser strip shifted by ss along z, so the coursing runs as
+				# a staggered running bond climbing the stair instead of a stack
+				# bond with joints lining up between steps.
+				var i := x / ss
+				var so := (i % 2) * ss
 				# top face where nothing above -> tread (plan view of one step
 				# strip: u 0 = riser edge, v = F-1-z north-up like slab tops)
 				if y + 1 >= gy or cells[x][y + 1][z][0] == CellTypes.Type.EMPTY:
-					cells[x][y][z][CellTypes.FACE_TOP] = _encode(tread, x % ss, F - 1 - z, use_alpha)
+					cells[x][y][z][CellTypes.FACE_TOP] = _encode(tread, x % ss, (F - 1 - z + so) % F, use_alpha)
 				# -X face where nothing to the left -> riser (elevation rotated
 				# 90°: cell column = height within the step, row = z)
 				if x == 0 or cells[x - 1][y][z][0] == CellTypes.Type.EMPTY:
-					cells[x][y][z][CellTypes.FACE_LEFT] = _encode(riser, y % ss, z, use_alpha)
+					cells[x][y][z][CellTypes.FACE_LEFT] = _encode(riser, y % ss, (z + so) % F, use_alpha)
 				# +X wall at back
 				if x == F - 1:
 					cells[x][y][z][CellTypes.FACE_RIGHT] = _encode(back, F - 1 - z, F - 1 - y, use_alpha)
