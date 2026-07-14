@@ -75,11 +75,9 @@ static func formats() -> Array:
 		["ramp", "ramp", 128, 64],
 		["gable", "gable", 128, 48],
 		["diagwall", "diagwall", 112, 32],
-		["opening", "opening", 224, 32],
 		["panel", "panel", 64, 34],
 		["slab_quarter", "slab-quarter", 64, 48],
 		["slab_half", "slab-half", 64, 64],
-		["stairs_2", "stairs-2", 128, 32],
 		["stairs_4", "stairs-4", 80, 64],
 		["pipe_quarter", "pipe-quarter", 120, 32],
 	]
@@ -139,12 +137,6 @@ static func regions_for(layout: String) -> Array:
 			return [_r("wall A (SE)", 0, 0, F, F), _r("wall B (NW)", F, 0, F, F),
 				_r("end A (SW)", 64, 0, 8, F), _r("end B (NE)", 72, 0, 8, F),
 				_r("top plan", 80, 0, F, F)]
-		"opening":
-			return [_r("front", 0, 0, F, 24), _r("unused", 0, 24, F, 8),
-				_r("chamfer", F, 0, F, 8), _r("unused", F, 8, F, 24),
-				_r("top", F * 2, 0, F, 24), _r("unused", F * 2, 24, F, 8),
-				_r("back", F * 3, 0, F, F), _r("bottom", F * 4, 0, F, F),
-				_r("side L", F * 5, 0, F, F), _r("side R", F * 6, 0, F, F)]
 		"panel":
 			return [_r("top", 0, 0, F, F), _r("bottom", F, 0, F, F),
 				_r("N", 0, 32, F, 1), _r("S", F, 32, F, 1), _r("E", 0, 33, F, 1), _r("W", F, 33, F, 1)]
@@ -154,9 +146,6 @@ static func regions_for(layout: String) -> Array:
 		"slab_half":
 			return [_r("top", 0, 0, F, F), _r("bottom", F, 0, F, F),
 				_r("N", 0, 32, F, 16), _r("S", F, 32, F, 16), _r("E", 0, 48, F, 16), _r("W", F, 48, F, 16)]
-		"stairs_2":
-			return [_r("tread", 0, 0, 16, F), _r("riser", 16, 0, 16, F), _r("back", 32, 0, F, F),
-				_r("bottom", 64, 0, F, F), _r("side", 96, 0, F, F)]
 		"stairs_4":
 			return [_r("tread", 0, 0, 8, F), _r("riser", 8, 0, 8, F), _r("back", 16, 0, F, F),
 				_r("bottom", 48, 0, F, F), _r("side", 0, 32, F, F), _r("unused", 32, 32, 48, F)]

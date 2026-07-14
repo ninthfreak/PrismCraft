@@ -175,10 +175,6 @@ const _SHAPE_ORIENTS := {
 	],
 	"gable": [["Ridge along Z", {"facing": 0}], ["Ridge along X", {"facing": 1}]],
 	"diagwall": [["Diagonal NE-SW", {"facing": 0}], ["Diagonal NW-SE", {"facing": 1}]],
-	"opening": [
-		["Chamfer front +Z", {"facing": 0}], ["Chamfer +X", {"facing": 1}],
-		["Chamfer back -Z", {"facing": 2}], ["Chamfer -X", {"facing": 3}],
-	],
 	"panel": [
 		["On floor", {}], ["On ceiling", {"ops": ["flip"]}],
 		["On +Z wall", {"ops": ["rx"]}], ["On -Z wall", {"ops": ["rx", "rx", "rx"]}],
@@ -193,10 +189,6 @@ const _SHAPE_ORIENTS := {
 		["On floor", {}], ["On ceiling", {"ops": ["flip"]}],
 		["On +Z wall", {"ops": ["rx"]}], ["On -Z wall", {"ops": ["rx", "rx", "rx"]}],
 		["On +X wall", {"ops": ["rx", "ry"]}], ["On -X wall", {"ops": ["rx", "ry", "ry", "ry"]}],
-	],
-	"stairs_2": [
-		["Climb +X", {"facing": 0}], ["Climb +Z", {"facing": 1}],
-		["Climb -X", {"facing": 2}], ["Climb -Z", {"facing": 3}],
 	],
 	"stairs_4": [
 		["Climb +X", {"facing": 0}], ["Climb +Z", {"facing": 1}],
@@ -3066,8 +3058,8 @@ func _on_block_texture_selected(path: String) -> void:
 	_block_tex_source_img = image
 	_block_tex_layout = layout
 
-	if layout in ["ramp", "gable", "diagwall", "diamond", "chamfered", "cross", "opening",
-			"panel", "slab_quarter", "slab_half", "stairs_2", "stairs_4", "pipe_quarter"]:
+	if layout in ["ramp", "gable", "diagwall", "diamond", "chamfered", "cross",
+			"panel", "slab_quarter", "slab_half", "stairs_4", "pipe_quarter"]:
 		_setup_shape_import(image, layout)
 		return
 
@@ -3105,9 +3097,9 @@ func _show_texture_size_error(w: int, h: int) -> void:
 	if grid_x == 32 and grid_y == 32:
 		msg += "\nPredefined shapes (block mode):\n"
 		msg += "  96×32 diamond · 144×32 chamfered · 160×32 cross\n"
-		msg += "  128×64 ramp · 128×48 gable · 112×32 diagonal wall · 224×32 opening\n"
+		msg += "  128×64 ramp · 128×48 gable · 112×32 diagonal wall\n"
 		msg += "  64×34 panel · 64×48 slab_quarter · 64×64 slab_half\n"
-		msg += "  128×32 stairs_2 · 80×64 stairs_4 · 120×32 pipe_quarter\n"
+		msg += "  80×64 stairs_4 · 120×32 pipe_quarter\n"
 	var dlg := AcceptDialog.new()
 	dlg.title = "Unsupported Texture Size"
 	dlg.dialog_text = msg
@@ -3154,7 +3146,7 @@ func _setup_block_tex_wizard() -> void:
 
 	vbox.add_child(HSeparator.new())
 	_block_tex_hint_label = Label.new()
-	_block_tex_hint_label.text = "Cubes: 32, 64 (capped), 96 net · Octagon 124/60 · Shapes (block mode): 96 diamond, 144 chamfered, 160 cross, 128×64 ramp, 128×48 gable, 112 diagwall, 224 opening, 64×34/48/64 panel/slabs, 128×32 stairs_2, 80×64 stairs_4, 120 pipe_quarter"
+	_block_tex_hint_label.text = "Cubes: 32, 64 (capped), 96 net · Octagon 124/60 · Shapes (block mode): 96 diamond, 144 chamfered, 160 cross, 128×64 ramp, 128×48 gable, 112 diagwall, 64×34/48/64 panel/slabs, 80×64 stairs_4, 120 pipe_quarter"
 	_block_tex_hint_label.add_theme_font_size_override("font_size", 11)
 	_block_tex_hint_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.7))
 	_block_tex_hint_label.autowrap_mode = TextServer.AUTOWRAP_WORD
