@@ -26,7 +26,7 @@ const GY := 32
 const GZ := 32
 const CELL := 1.0 / 32.0
 
-const LAYOUTS := ["uniform", "capped", "net", "octagon_full", "octagon_half",
+const LAYOUTS := ["cube", "octagon_full", "octagon_half",
 	"ramp", "gable", "diagwall", "diamond", "chamfered", "cross", "panel",
 	"slab_quarter", "slab_half", "stairs_4", "pipe_quarter"]
 
@@ -47,10 +47,7 @@ func _initialize() -> void:
 
 
 func _check(layout: String) -> bool:
-	var dims := BlockImporter.atlas_dims(layout, GX, GY)
-	var img := Image.create_empty(dims.x, dims.y, false, Image.FORMAT_RGBA8)
-	img.fill(Color(0.58, 0.58, 0.58, 1.0))
-	var cells: Array = BlockImporter.build_cells(layout, img, GX, GY, GZ, BlockImporter.default_opt(layout))
+	var cells: Array = ShapeBuilder.build(layout, GX, GY, GZ)
 
 	var unit := CELL * CELL * CELL
 	var cell_vol := 0.0

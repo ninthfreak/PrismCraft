@@ -46,6 +46,9 @@ static func build(shape: String, gx: int, gy: int, gz: int, opt: Dictionary = {}
 		"slab_half": cells = _build_slab(16, gx, gy, gz)
 		"stairs_4": cells = _build_stairs(4, gx, gy, gz)
 		"pipe_quarter": cells = _build_pipe_quarter(gx, gy, gz)
+		"cube": cells = _build_cube(gx, gy, gz)
+		"octagon_full": cells = _build_octagon(gx, gx, gy, gz)
+		"octagon_half": cells = _build_octagon(gx / 2, gx, gy, gz)
 		_: return _new_cells(gx, gy, gz)
 
 	var facing: int = opt.get("facing", 0)
@@ -381,4 +384,59 @@ static func _build_pipe_quarter(gx: int, gy: int, gz: int) -> Array:
 			if cell_type != CellTypes.Type.EMPTY:
 				for y in range(gy):
 					cells[lx][y][lz] = CellTypes.make_cell(cell_type, orient, FLAT)
+	return cells
+
+# ─── CUBE ────────────────────────────────────────────────────────────────────
+# Every cell solid. The old importer had three cube layouts (uniform, capped,
+# net); they differed only in how an atlas was unwrapped onto the faces, never
+# in geometry, so without colour they are one shape.
+static func _build_cube(gx: int, gy: int, gz: int) -> Array:
+	var cells := _new_cells(gx, gy, gz)
+	for x in range(gx):
+		for y in range(gy):
+			for z in range(gz):
+				cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.SOLID, 0, FLAT)
+	return cells
+
+# ─── OCTAGON ─────────────────────────────────────────────────────────────────
+# A regular octagon: the chamfer is sized so all eight sides come out equal
+# (CellTypes.octagon_chamfer). Its faces therefore sit at multiples of 45deg,
+# which a prism cell expresses exactly — the corner cut is a run of prisms along
+# the diagonal, not a staircase of cubes.
+static func _build_octagon(footprint: int, gx: int, gy: int, gz: int) -> Array:
+	var cells := _new_cells(gx, gy, gz)
+	var c := CellTypes.octagon_chamfer(footprint)
+	var ox := (gx - footprint) / 2
+	var oz := (gz - footprint) / 2
+	var fp := footprint
+	for lx in range(fp):
+		for y in range(gy):
+			for lz in range(fp):
+				var x := ox + lx
+				var z := oz + lz
+				var in_octagon := true
+				var corner_type := -1
+				if lx + lz < c:
+					in_octagon = false
+					if lx + lz == c - 1: corner_type = 0
+				elif (fp - 1 - lx) + lz < c:
+					in_octagon = false
+					if (fp - 1 - lx) + lz == c - 1: corner_type = 1
+				elif (fp - 1 - lx) + (fp - 1 - lz) < c:
+					in_octagon = false
+					if (fp - 1 - lx) + (fp - 1 - lz) == c - 1: corner_type = 2
+				elif lx + (fp - 1 - lz) < c:
+					in_octagon = false
+					if lx + (fp - 1 - lz) == c - 1: corner_type = 3
+				if not in_octagon:
+					if corner_type >= 0:
+						var orientation: int
+						match corner_type:
+							0: orientation = 2
+							1: orientation = 3
+							2: orientation = 0
+							_: orientation = 1
+						cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.PRISM, orientation, FLAT)
+				else:
+					cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.SOLID, 0, FLAT)
 	return cells
