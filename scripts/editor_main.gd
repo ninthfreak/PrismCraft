@@ -19,7 +19,6 @@ var current_file_path := ""
 # Naming-convention base name suggested by the last imported block texture
 # (filename minus the trailing dimension token), used as the Save/Export default.
 var _suggested_name := ""
-var _block_tex_basename := ""
 var floor_y: int = 0      # clamp lower bound, measured along edit_axis
 var ceiling_y: int = -1   # clamp upper bound along edit_axis (-1 = off)
 var edit_axis: int = 1    # 0 = X, 1 = Y, 2 = Z. The floor/ceiling clamp and
@@ -122,28 +121,18 @@ var preview_light_container: VBoxContainer
 
 var save_dialog: FileDialog
 var open_dialog: FileDialog
-var import_dialog: FileDialog
-var import_block_dialog: FileDialog
 var export_dialog: FileDialog
 var _export_slab_mode := false
 var confirm_dialog: ConfirmationDialog
 var smooth_dialog: ConfirmationDialog
 var smooth_depth_spin: SpinBox
-var block_tex_wizard: AcceptDialog
-var _block_tex_faces: Dictionary
-var _block_tex_has_alpha: bool
-var _block_tex_is_octagon: bool
-var _block_tex_octagon_footprint: int = 0
-var _block_tex_shape: String = ""
-var _block_tex_shape_img: Image
+var shape_dialog: AcceptDialog
+var _shape_pick: OptionButton
+var _shape_orient_pick: OptionButton
+var _shape_orient_row: HBoxContainer
 # The atlas of the last block texture applied, so the Texture Editor can open
 # on it. Carried from selection (source + layout) and committed on apply.
-var _block_tex_source_img: Image = null
-var _block_tex_layout: String = ""
-var _current_block_tex: Image = null
-var _current_block_tex_layout: String = ""
-var _block_tex_orient_option: OptionButton
-var _block_tex_orient_row: HBoxContainer
+var _shape_id: String = ""
 # Per-shape orientation menu entries -> [label, opt-dict for ShapeBuilder.build]
 const _SHAPE_ORIENTS := {
 	"ramp": [
@@ -178,10 +167,6 @@ const _SHAPE_ORIENTS := {
 		["Quadrant 180°", {"facing": 2}], ["Quadrant 270°", {"facing": 3}],
 	],
 }
-var _block_tex_format_label: Label
-var _block_tex_previews: Dictionary
-var _block_tex_preview_grid: GridContainer
-var _block_tex_hint_label: Label
 
 @onready var camera: Camera3D = $Camera3D
 
@@ -302,8 +287,7 @@ func _setup_ui() -> void:
 	file_menu.add_item("Save", 2, KEY_MASK_CTRL | KEY_S)
 	file_menu.add_item("Save As...", 7, KEY_MASK_CTRL | KEY_MASK_SHIFT | KEY_S)
 	file_menu.add_separator()
-	file_menu.add_item("Import PNG...", 3, KEY_MASK_CTRL | KEY_I)
-	file_menu.add_item("Import Block Texture...", 5)
+	file_menu.add_item("Shape Library...", 5, KEY_MASK_CTRL | KEY_L)
 	file_menu.add_separator()
 	file_menu.add_item("Export Model (.glb)...", 6)
 	file_menu.add_item("Export Slab as Part (.glb)...", 9)
@@ -327,7 +311,6 @@ func _setup_ui() -> void:
 	view_menu.add_check_item("Mirror X", 3)
 	view_menu.add_check_item("Mirror Z", 4)
 	view_menu.add_separator()
-	view_menu.add_item("Texture Editor…", 9)
 	view_menu.add_check_item("Voxel Grid on Model", 7)
 	view_menu.set_item_checked(view_menu.get_item_index(7), _voxel_grid_lines)
 	view_menu.id_pressed.connect(_on_view_menu)
@@ -663,24 +646,6 @@ func _setup_ui() -> void:
 	open_dialog.file_selected.connect(_on_open_file_selected)
 	add_child(open_dialog)
 
-	import_dialog = FileDialog.new()
-	import_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
-	import_dialog.access = FileDialog.ACCESS_FILESYSTEM
-	import_dialog.add_filter("*.png ; PNG Image")
-	import_dialog.title = "Import PNG as Face"
-	import_dialog.size = Vector2i(700, 500)
-	import_dialog.file_selected.connect(_on_import_file_selected)
-	add_child(import_dialog)
-
-	import_block_dialog = FileDialog.new()
-	import_block_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
-	import_block_dialog.access = FileDialog.ACCESS_FILESYSTEM
-	import_block_dialog.add_filter("*.png ; PNG Image")
-	import_block_dialog.title = "Import Block Texture"
-	import_block_dialog.size = Vector2i(700, 500)
-	import_block_dialog.file_selected.connect(_on_block_texture_selected)
-	add_child(import_block_dialog)
-
 	export_dialog = FileDialog.new()
 	export_dialog.file_mode = FileDialog.FILE_MODE_SAVE_FILE
 	export_dialog.access = FileDialog.ACCESS_FILESYSTEM
@@ -690,7 +655,7 @@ func _setup_ui() -> void:
 	export_dialog.file_selected.connect(_on_export_selected)
 	add_child(export_dialog)
 
-	_setup_block_tex_wizard()
+	_setup_shape_library()
 	_setup_smooth_dialog()
 
 	confirm_dialog = ConfirmationDialog.new()
@@ -746,17 +711,6 @@ func _on_view_menu(id: int) -> void:
 		3: _toggle_mirror_x()
 		4: _toggle_mirror_z()
 		7: _toggle_voxel_grid_lines()
-		9: _open_texture_editor()
-
-func _open_texture_editor() -> void:
-	var te := TextureEditor.new()
-	add_child(te)
-	# Always derive the canvas from the current model, so the editor reflects
-	# whatever voxels are on screen (imported, loaded, or hand-edited).
-	# Remember a shape the user picks (correcting a wrong guess) so save keeps it.
-	te.layout_chosen.connect(func(l: String): _current_block_tex_layout = l)
-	te.load_from_model(cells, grid_x, grid_y, grid_z, _current_block_tex_layout)
-	te.popup_centered(Vector2i(1500, 860))
 
 # ─── Ghost layer ───
 
@@ -1228,8 +1182,7 @@ func _on_file_menu(id: int) -> void:
 		0: _new()
 		1: _open()
 		2: _save()
-		3: _import_png()
-		5: _import_block_texture()
+		5: _open_shape_library()
 		6: _export_model()
 		7: _save_as()
 		9: _export_slab_part()
@@ -1365,7 +1318,6 @@ func _unhandled_input(event: InputEvent) -> void:
 					get_viewport().set_input_as_handled(); return
 				KEY_O: _open(); get_viewport().set_input_as_handled(); return
 				KEY_N: _new(); get_viewport().set_input_as_handled(); return
-				KEY_I: _import_png(); get_viewport().set_input_as_handled(); return
 
 		match event.keycode:
 			KEY_TAB:
@@ -2587,7 +2539,7 @@ func _save_to_path(path: String) -> void:
 	DirAccess.make_dir_recursive_absolute(path.get_base_dir())
 	var def := VoxelDefinition.new()
 	def.set_from_cells(cells, grid_x, grid_y, grid_z)
-	def.block_shape = _current_block_tex_layout
+	def.block_shape = _shape_id
 	# Binary .res honours FLAG_COMPRESS (lossless); the mostly-empty cell grid
 	# shrinks from ~14 MB to ~30 KB. Text .tres ignores the flag but still works.
 	if ResourceSaver.save(def, path, ResourceSaver.FLAG_COMPRESS) == OK:
@@ -2605,291 +2557,90 @@ func _on_save_file_selected(path: String) -> void:
 func _on_open_file_selected(path: String) -> void:
 	_load_from_path(path)
 
-func _import_png() -> void:
-	import_dialog.popup_centered()
 
-func _on_import_file_selected(path: String) -> void:
-	var image := Image.new()
-	if image.load(path) != OK:
-		return
+# ─── Shape library ───
+# The predefined shapes are geometry now, so picking one is a direct choice of
+# shape plus orientation — no atlas, no import step.
 
-	if image.get_width() != grid_x or image.get_height() != grid_y:
-		image.resize(grid_x, grid_y, Image.INTERPOLATE_NEAREST)
+const _SHAPE_LIBRARY := ["cube", "ramp", "gable", "diagwall", "diamond",
+	"chamfered", "cross", "panel", "slab_quarter", "slab_half", "stairs_4",
+	"pipe_quarter", "octagon_full", "octagon_half"]
 
-	var has_alpha := CellTypes.image_has_alpha(image)
-	_push_undo()
-	for px in range(image.get_width()):
-		for py in range(image.get_height()):
-			var color := image.get_pixel(px, py)
-			if color.a < 0.5:
-				continue
-			var cell_x := px
-			var cell_y := grid_y - 1 - py
-			if cell_x >= 0 and cell_x < grid_x and cell_y >= 0 and cell_y < grid_y:
-				var encoded: int
-				if has_alpha:
-					encoded = CellTypes.encode_rgb5551(color)
-				else:
-					encoded = CellTypes.encode_rgb565(color)
-				cells[cell_x][cell_y][0] = CellTypes.make_cell(CellTypes.Type.SOLID, 0, encoded)
 
-	_mark_dirty()
-	_rebuild_mesh()
-
-func _import_block_texture() -> void:
-	if _unsaved_changes:
-		_pending_action = "import_block"
-		confirm_dialog.popup_centered()
-		return
-	_do_import_block_texture()
-
-# Strip a texture path down to the naming-convention base (block ID form):
-# drop the extension, then a trailing dimension token like "_64x32" / "_124x32".
-# e.g. "res://tex/wall_brick_new_64x32.png" -> "wall_brick_new".
-func _naming_basename(path: String) -> String:
-	var base := path.get_file().get_basename()
-	var re := RegEx.new()
-	re.compile("_\\d+x\\d+$")
-	var m := re.search(base)
-	if m:
-		base = base.substr(0, m.get_start())
-	return base
-
-func _do_import_block_texture() -> void:
-	import_block_dialog.popup_centered()
-
-func _on_block_texture_selected(path: String) -> void:
-	var image := Image.new()
-	if image.load(path) != OK:
-		return
-	_block_tex_basename = _naming_basename(path)
-
-	var w := image.get_width()
-	var h := image.get_height()
-	var layout := CellTypes.validate_block_texture(w, h, grid_x, grid_y)
-	if layout == "":
-		_show_texture_size_error(w, h)
-		return
-	_block_tex_source_img = image
-	_block_tex_layout = layout
-
-	if layout in ["ramp", "gable", "diagwall", "diamond", "chamfered", "cross",
-			"panel", "slab_quarter", "slab_half", "stairs_4", "pipe_quarter"]:
-		_setup_shape_import(image, layout)
-		return
-
-	# Slice via the shared importer so manual and batch paths never diverge.
-	var faces := BlockImporter.slice_faces(image, layout, grid_x, grid_y)
-	var is_octagon := layout == "octagon_full" or layout == "octagon_half"
-	var octagon_fp := BlockImporter.octagon_footprint(layout, grid_x) if is_octagon else 0
-	var format_name := _block_tex_format_name(layout, w, h)
-
-	_block_tex_shape = ""
-	_block_tex_faces = faces
-	_block_tex_has_alpha = CellTypes.image_has_alpha(image)
-	_block_tex_is_octagon = is_octagon
-	_block_tex_octagon_footprint = octagon_fp
-	var color_mode := "RGB5551" if _block_tex_has_alpha else "RGB565"
-	_block_tex_format_label.text = "Detected: " + format_name + "  |  Color: " + color_mode
-
-	_rebuild_block_tex_preview(is_octagon)
-	for key in faces:
-		if key in _block_tex_previews:
-			var tex := ImageTexture.create_from_image(faces[key])
-			_block_tex_previews[key].texture = tex
-
-	block_tex_wizard.popup_centered()
-
-func _show_texture_size_error(w: int, h: int) -> void:
-	var full_w := CellTypes.octagon_atlas_width(grid_x)
-	var half_w := CellTypes.octagon_atlas_width(grid_x / 2)
-	var msg := "Unsupported texture size: %d×%d\n\nLegal sizes:\n" % [w, h]
-	msg += "  %d×%d  — Uniform cube\n" % [grid_x, grid_y]
-	msg += "  %d×%d  — Capped cube (four sides | top+bottom cap)\n" % [grid_x * 2, grid_y]
-	msg += "  %d×%d  — 6-face net cube\n" % [grid_x * 3, grid_y * 2]
-	msg += "  %d×%d — Full octagon (F=%d)\n" % [full_w, grid_y, grid_x]
-	msg += "  %d×%d  — Half octagon (F=%d)\n" % [half_w, grid_y, grid_x / 2]
-	if grid_x == 32 and grid_y == 32:
-		msg += "\nPredefined shapes (block mode):\n"
-		msg += "  96×32 diamond · 144×32 chamfered · 160×32 cross\n"
-		msg += "  128×64 ramp · 128×48 gable · 112×32 diagonal wall\n"
-		msg += "  64×34 panel · 64×48 slab_quarter · 64×64 slab_half\n"
-		msg += "  80×64 stairs_4 · 120×32 pipe_quarter\n"
-	var dlg := AcceptDialog.new()
-	dlg.title = "Unsupported Texture Size"
-	dlg.dialog_text = msg
-	dlg.confirmed.connect(dlg.queue_free)
-	dlg.canceled.connect(dlg.queue_free)
-	add_child(dlg)
-	dlg.popup_centered()
-
-func _setup_block_tex_wizard() -> void:
-	block_tex_wizard = AcceptDialog.new()
-	block_tex_wizard.title = "Import Block Texture"
-	block_tex_wizard.ok_button_text = "Apply"
-	block_tex_wizard.confirmed.connect(_on_block_tex_apply)
-	add_child(block_tex_wizard)
+func _setup_shape_library() -> void:
+	shape_dialog = AcceptDialog.new()
+	shape_dialog.title = "Shape Library"
+	shape_dialog.ok_button_text = "Build"
+	shape_dialog.confirmed.connect(_on_shape_library_confirmed)
+	add_child(shape_dialog)
 
 	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 6)
-	block_tex_wizard.add_child(vbox)
+	vbox.add_theme_constant_override("separation", 8)
+	shape_dialog.add_child(vbox)
 
-	_block_tex_format_label = Label.new()
-	_block_tex_format_label.add_theme_font_size_override("font_size", 13)
-	vbox.add_child(_block_tex_format_label)
+	var hint := Label.new()
+	hint.text = "Replaces the current model with a library shape."
+	vbox.add_child(hint)
 
-	var orient_row := HBoxContainer.new()
-	var orient_lbl := Label.new()
-	orient_lbl.text = "Orientation:"
-	orient_row.add_child(orient_lbl)
-	_block_tex_orient_option = OptionButton.new()
-	orient_row.add_child(_block_tex_orient_option)
-	orient_row.visible = false
-	vbox.add_child(orient_row)
-	_block_tex_orient_row = orient_row
+	var srow := HBoxContainer.new()
+	srow.add_child(_label("Shape"))
+	_shape_pick = OptionButton.new()
+	for id in _SHAPE_LIBRARY:
+		_shape_pick.add_item(id.replace("_", "-"))
+	_shape_pick.item_selected.connect(func(_i: int): _refresh_shape_orients())
+	srow.add_child(_shape_pick)
+	vbox.add_child(srow)
 
-	vbox.add_child(HSeparator.new())
+	_shape_orient_row = HBoxContainer.new()
+	_shape_orient_row.add_child(_label("Orientation"))
+	_shape_orient_pick = OptionButton.new()
+	_shape_orient_row.add_child(_shape_orient_pick)
+	vbox.add_child(_shape_orient_row)
 
-	_block_tex_previews = {}
-	_block_tex_preview_grid = GridContainer.new()
-	_block_tex_preview_grid.columns = 3
-	_block_tex_preview_grid.add_theme_constant_override("h_separation", 12)
-	_block_tex_preview_grid.add_theme_constant_override("v_separation", 8)
-	vbox.add_child(_block_tex_preview_grid)
 
-	_rebuild_block_tex_preview(false)
+func _label(text: String) -> Label:
+	var l := Label.new()
+	l.text = text
+	l.custom_minimum_size = Vector2(90, 0)
+	return l
 
-	vbox.add_child(HSeparator.new())
-	_block_tex_hint_label = Label.new()
-	_block_tex_hint_label.text = "Cubes: 32, 64 (capped), 96 net · Octagon 124/60 · Shapes (block mode): 96 diamond, 144 chamfered, 160 cross, 128×64 ramp, 128×48 gable, 112 diagwall, 64×34/48/64 panel/slabs, 80×64 stairs_4, 120 pipe_quarter"
-	_block_tex_hint_label.add_theme_font_size_override("font_size", 11)
-	_block_tex_hint_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.7))
-	_block_tex_hint_label.autowrap_mode = TextServer.AUTOWRAP_WORD
-	vbox.add_child(_block_tex_hint_label)
 
-func _rebuild_block_tex_preview(octagon: bool) -> void:
-	for child in _block_tex_preview_grid.get_children():
-		_block_tex_preview_grid.remove_child(child)
-		child.queue_free()
-	_block_tex_previews.clear()
+func _selected_shape() -> String:
+	var i: int = _shape_pick.selected
+	return _SHAPE_LIBRARY[i if i >= 0 else 0]
 
-	var names: Array
-	var labels: Array
-	if octagon:
-		_block_tex_preview_grid.columns = 3
-		names = ["east", "ne", "north", "nw", "west", "sw", "south", "se", "cap"]
-		labels = ["East (+X)", "NE", "North (+Z)", "NW", "West (-X)", "SW", "South (-Z)", "SE", "Cap (Top/Bot)"]
-	else:
-		_block_tex_preview_grid.columns = 3
-		names = ["top", "front", "right", "bottom", "back", "left"]
-		labels = ["Top (+Y)", "Front (+Z)", "Right (+X)", "Bottom (-Y)", "Back (-Z)", "Left (-X)"]
 
-	for i in range(names.size()):
-		var col := VBoxContainer.new()
-		col.add_theme_constant_override("separation", 2)
-		_block_tex_preview_grid.add_child(col)
-
-		var lbl := Label.new()
-		lbl.text = labels[i]
-		lbl.add_theme_font_size_override("font_size", 11)
-		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		col.add_child(lbl)
-
-		var tex_rect := TextureRect.new()
-		tex_rect.custom_minimum_size = Vector2(80, 80) if octagon else Vector2(96, 96)
-		tex_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		tex_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		tex_rect.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-		col.add_child(tex_rect)
-
-		_block_tex_previews[names[i]] = tex_rect
-
-func _on_block_tex_apply() -> void:
-	# An imported block texture is a fresh document; suggest its naming-convention
-	# name for Save/Export and drop any previously-open file path.
-	if not _block_tex_basename.is_empty():
-		_suggested_name = _block_tex_basename
-		current_file_path = ""
-
-	# Remember the applied atlas so the Texture Editor can open on it.
-	if _block_tex_source_img != null:
-		_current_block_tex = _block_tex_source_img
-		_current_block_tex_layout = _block_tex_layout
-
-	if _block_tex_shape != "":
-		_apply_shape_block()
-		return
-
-	if _block_tex_faces.is_empty():
-		return
-
-	var faces := _block_tex_faces
-	_block_tex_faces = {}
-
-	_push_undo()
-	_init_cells()
-	if _block_tex_is_octagon:
-		cells = BlockImporter.build_octagon(faces, _block_tex_octagon_footprint, grid_x, grid_y, grid_z, _block_tex_has_alpha)
-	else:
-		cells = BlockImporter.build_cube(faces, _block_tex_has_alpha, grid_x, grid_y, grid_z)
-	_mark_dirty()
-	_rebuild_mesh()
-
-func _block_tex_format_name(layout: String, w: int, h: int) -> String:
-	match layout:
-		"octagon_full": return "Full Octagon (%d×%d)" % [w, h]
-		"octagon_half": return "Half Octagon (%d×%d)" % [w, h]
-		"net": return "6-Face Net (%d×%d)" % [w, h]
-		"capped": return "Capped (%d×%d)" % [w, h]
-		_: return "Uniform (%d×%d)" % [w, h]
-
-func _setup_shape_import(image: Image, shape: String) -> void:
-	_block_tex_shape = shape
-	_block_tex_shape_img = image
-	_block_tex_is_octagon = false
-	_block_tex_faces = {}
-	_block_tex_has_alpha = CellTypes.image_has_alpha(image)
-	var color_mode := "RGB5551" if _block_tex_has_alpha else "RGB565"
-	var pretty := shape.capitalize()
-	_block_tex_format_label.text = "Detected: %s (%d×%d)  |  Color: %s" % [pretty, image.get_width(), image.get_height(), color_mode]
-
-	# Populate / show the orientation dropdown for shapes that need it.
-	_block_tex_orient_option.clear()
+# Only some shapes have a meaningful orientation choice; hide the row for the
+# rest rather than showing an empty dropdown.
+func _refresh_shape_orients() -> void:
+	var shape := _selected_shape()
+	_shape_orient_pick.clear()
 	if _SHAPE_ORIENTS.has(shape):
 		for entry in _SHAPE_ORIENTS[shape]:
-			_block_tex_orient_option.add_item(entry[0])
-		_block_tex_orient_row.visible = true
+			_shape_orient_pick.add_item(entry[0])
+		_shape_orient_pick.select(0)
+		_shape_orient_row.visible = true
 	else:
-		_block_tex_orient_row.visible = false
+		_shape_orient_row.visible = false
 
-	# Single atlas preview (shapes don't use the 6-face grid).
-	_rebuild_block_tex_preview(false)
-	for key in _block_tex_previews:
-		_block_tex_previews[key].texture = null
-	if _block_tex_previews.has("front"):
-		_block_tex_previews["front"].texture = ImageTexture.create_from_image(image)
 
-	block_tex_wizard.popup_centered()
+func _open_shape_library() -> void:
+	_refresh_shape_orients()
+	shape_dialog.popup_centered()
 
-func _current_shape_orient_opt() -> Dictionary:
-	if not _SHAPE_ORIENTS.has(_block_tex_shape):
-		return {}
-	var idx: int = _block_tex_orient_option.selected
-	if idx < 0:
-		idx = 0
-	var entry: Array = _SHAPE_ORIENTS[_block_tex_shape][idx]
-	return entry[1]
 
-func _apply_shape_block() -> void:
-	var shape := _block_tex_shape
-	if shape == "" or _block_tex_shape_img == null:
-		_block_tex_shape = ""
-		return
-	var opt := _current_shape_orient_opt()
-	_block_tex_shape = ""
+func _on_shape_library_confirmed() -> void:
+	var shape := _selected_shape()
+	var opt := {}
+	if _SHAPE_ORIENTS.has(shape):
+		var idx: int = maxi(_shape_orient_pick.selected, 0)
+		opt = _SHAPE_ORIENTS[shape][idx][1]
 	_push_undo()
 	_init_cells()
 	cells = ShapeBuilder.build(shape, grid_x, grid_y, grid_z, opt)
+	# Record which shape this is, so save keeps it and export can name the file.
+	_shape_id = shape
+	_suggested_name = shape.replace("_", "-")
 	_mark_dirty()
 	_rebuild_mesh()
 
@@ -2957,8 +2708,7 @@ func _load_from_path(path: String) -> void:
 	cells = def.to_cells()
 	# Texture Editor derives its atlas from these cells; carry the stored shape
 	# (may be empty for older saves — it then guesses from geometry).
-	_current_block_tex = null
-	_current_block_tex_layout = def.block_shape
+	_shape_id = def.block_shape
 	_clear_chunks()
 	current_file_path = path
 	_suggested_name = ""
@@ -3038,7 +2788,6 @@ func _execute_pending_action() -> void:
 		"open":
 			open_dialog.current_dir = "res://definitions"
 			open_dialog.popup_centered()
-		"import_block": _do_import_block_texture()
 		"quit": get_tree().quit()
 
 func _notification(what: int) -> void:
