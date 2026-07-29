@@ -72,8 +72,8 @@ func _check(layout: String) -> bool:
 func _signed_volume(faces: Array) -> float:
 	var vol := 0.0
 	for f in faces:
-		var n: Vector3 = f[1]
-		var verts: Array = f[2]
+		var n: Vector3 = f[0]
+		var verts: Array = f[1]
 		var cross: Vector3 = (verts[1] - verts[0]).cross(verts[2] - verts[0])
 		var o: Array = verts
 		if cross.dot(n) <= 0:

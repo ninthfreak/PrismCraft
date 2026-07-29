@@ -19,7 +19,7 @@ class_name CoplanarMerge
 # non-rectangles, mismatched planes) is passed through untouched, so the pass is
 # never destructive; the worst case is that it merges nothing.
 #
-# Face format matches MeshExporter: [color_id, normal: Vector3, verts: Array].
+# Face format matches MeshExporter: [normal: Vector3, verts: Array].
 
 # Lattice for comparing positions within a plane. Coordinates are multiples of
 # the cell size (1/32, exact in binary) or that times sqrt(2) for 45deg planes,
@@ -32,9 +32,9 @@ static func merge(faces: Array) -> Array:
 	if faces.size() < 2:
 		return faces.duplicate()
 
-	# Group by colour + plane. Normals are NOT sign-canonicalised: two faces on
-	# the same plane pointing opposite ways are back-to-back surfaces and must
-	# stay separate.
+	# Group by plane. Normals are NOT sign-canonicalised: two faces on the same
+	# plane pointing opposite ways are back-to-back surfaces and must stay
+	# separate.
 	var groups := {}
 	var order: Array = []
 	for face in faces:
@@ -55,12 +55,10 @@ static func merge(faces: Array) -> Array:
 
 
 static func _plane_key(face: Array) -> String:
-	var color_id: int = face[0]
-	var n: Vector3 = (face[1] as Vector3).normalized()
-	var verts: Array = face[2]
+	var n: Vector3 = (face[0] as Vector3).normalized()
+	var verts: Array = face[1]
 	var d: float = n.dot(verts[0])
-	return "%d|%d|%d|%d|%d" % [
-		color_id,
+	return "%d|%d|%d|%d" % [
 		int(round(n.x / PLANE_QUANT)),
 		int(round(n.y / PLANE_QUANT)),
 		int(round(n.z / PLANE_QUANT)),
@@ -69,13 +67,12 @@ static func _plane_key(face: Array) -> String:
 
 
 static func _merge_group(group: Array) -> Array:
-	var color_id: int = group[0][0]
-	var n: Vector3 = (group[0][1] as Vector3).normalized()
+	var n: Vector3 = (group[0][0] as Vector3).normalized()
 
 	# Basis taken from the first quad's own edge, so the rectangles in this plane
 	# are axis-aligned in it. u x w = n, so (u, w) is right-handed seen from +n
 	# and CCW order in 2D reconstructs a correctly wound quad.
-	var first: Array = group[0][2]
+	var first: Array = group[0][1]
 	if first.size() != 4:
 		return group
 	var u: Vector3 = (first[1] - first[0])
@@ -94,7 +91,7 @@ static func _merge_group(group: Array) -> Array:
 	var xvals := {}
 	var yvals := {}
 	for face in group:
-		var verts: Array = face[2]
+		var verts: Array = face[1]
 		if verts.size() != 4:
 			return group
 		var qx: Array = []
@@ -132,7 +129,7 @@ static func _merge_group(group: Array) -> Array:
 		var bx: float = xvals[r[1]]
 		var ay: float = yvals[r[2]]
 		var by: float = yvals[r[3]]
-		out.append([color_id, n, [
+		out.append([n, [
 			origin + u * ax + w * ay,
 			origin + u * bx + w * ay,
 			origin + u * bx + w * by,

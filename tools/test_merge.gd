@@ -22,7 +22,6 @@ func _initialize() -> void:
 	_test_gap_is_respected()
 	_test_distinct_planes_never_merge()
 	_test_opposite_normals_never_merge()
-	_test_distinct_colors_never_merge()
 	_test_diagonal_plane_collapses()
 	_test_triangles_pass_through()
 	_test_single_face_untouched()
@@ -80,7 +79,7 @@ func _test_distinct_planes_never_merge() -> void:
 	_eq("planes 0.001 apart stay separate", out.size(), 2)
 
 	var c := _quad_xy(0.0, S, 0.0, S, 0.5)
-	var d: Array = [0, Vector3(0, 0, 1).rotated(Vector3(1, 0, 0), 0.02).normalized(),
+	var d: Array = [Vector3(0, 0, 1).rotated(Vector3(1, 0, 0), 0.02).normalized(),
 		[Vector3(S, 0, 0.5), Vector3(2.0 * S, 0, 0.5), Vector3(2.0 * S, S, 0.5), Vector3(S, S, 0.5)]]
 	var out2 := CoplanarMerge.merge([c, d])
 	_eq("tilted normals stay separate", out2.size(), 2)
@@ -90,17 +89,9 @@ func _test_distinct_planes_never_merge() -> void:
 func _test_opposite_normals_never_merge() -> void:
 	var a := _quad_xy(0.0, S, 0.0, S, 0.5)
 	var b := _quad_xy(S, 2.0 * S, 0.0, S, 0.5)
-	b[1] = Vector3(0, 0, -1)
+	b[0] = Vector3(0, 0, -1)
 	var out := CoplanarMerge.merge([a, b])
 	_eq("opposed normals stay separate", out.size(), 2)
-
-
-func _test_distinct_colors_never_merge() -> void:
-	var a := _quad_xy(0.0, S, 0.0, S, 0.5)
-	var b := _quad_xy(S, 2.0 * S, 0.0, S, 0.5)
-	b[0] = 999
-	var out := CoplanarMerge.merge([a, b])
-	_eq("distinct colours stay separate", out.size(), 2)
 
 
 # The real prize: a 45deg slope, which the greedy mesher can never touch.
@@ -110,7 +101,7 @@ func _test_diagonal_plane_collapses() -> void:
 	for i in range(32):
 		var y0 := i * S
 		var y1 := (i + 1) * S
-		faces.append([0, n, [
+		faces.append([n, [
 			Vector3(-0.5, y0, y0), Vector3(0.5, y0, y0),
 			Vector3(0.5, y1, y1), Vector3(-0.5, y1, y1)]])
 	var out := CoplanarMerge.merge(faces)
@@ -120,8 +111,8 @@ func _test_diagonal_plane_collapses() -> void:
 
 # Prism caps are triangles. The pass must not mangle them.
 func _test_triangles_pass_through() -> void:
-	var t1: Array = [0, Vector3(0, 0, 1), [Vector3(0, 0, 0.5), Vector3(S, 0, 0.5), Vector3(0, S, 0.5)]]
-	var t2: Array = [0, Vector3(0, 0, 1), [Vector3(S, S, 0.5), Vector3(0, S, 0.5), Vector3(S, 0, 0.5)]]
+	var t1: Array = [Vector3(0, 0, 1), [Vector3(0, 0, 0.5), Vector3(S, 0, 0.5), Vector3(0, S, 0.5)]]
+	var t2: Array = [Vector3(0, 0, 1), [Vector3(S, S, 0.5), Vector3(0, S, 0.5), Vector3(S, 0, 0.5)]]
 	var out := CoplanarMerge.merge([t1, t2])
 	_eq("coplanar triangles pass through", out.size(), 2)
 	_close("triangles keep their area", _total_area(out), _total_area([t1, t2]))
@@ -164,9 +155,9 @@ func _test_winding_survives() -> void:
 	var out := CoplanarMerge.merge(faces)
 	var ok := true
 	for f in out:
-		var v: Array = f[2]
+		var v: Array = f[1]
 		var cross: Vector3 = (v[1] - v[0]).cross(v[2] - v[0])
-		if cross.normalized().dot((f[1] as Vector3).normalized()) < 0.99:
+		if cross.normalized().dot((f[0] as Vector3).normalized()) < 0.99:
 			ok = false
 	_true("merged quads stay wound with their normal", ok)
 
@@ -181,7 +172,7 @@ func _test_no_degenerate_output() -> void:
 	_eq("two stacked strips collapse to 1", out.size(), 1)
 	var ok := true
 	for f in out:
-		if _area(f[2]) < 1e-9:
+		if _area(f[1]) < 1e-9:
 			ok = false
 	_true("merge emits no zero-area faces", ok)
 
@@ -190,7 +181,7 @@ func _test_no_degenerate_output() -> void:
 
 # Axis-aligned quad in the plane z = zpos, wound CCW seen from +Z.
 func _quad_xy(x0: float, x1: float, y0: float, y1: float, zpos: float) -> Array:
-	return [0, Vector3(0, 0, 1), [
+	return [Vector3(0, 0, 1), [
 		Vector3(x0, y0, zpos), Vector3(x1, y0, zpos),
 		Vector3(x1, y1, zpos), Vector3(x0, y1, zpos)]]
 
@@ -205,7 +196,7 @@ func _area(verts: Array) -> float:
 func _total_area(faces: Array) -> float:
 	var a := 0.0
 	for f in faces:
-		a += _area(f[2])
+		a += _area(f[1])
 	return a
 
 

@@ -1,6 +1,6 @@
 extends Node3D
 
-enum ToolType { PENCIL, BOX, ERASER, BOX_ERASE, EXTRUDE, LINE, RECT, OVAL, SMOOTH_EDGE, PAINT, BUCKET, EYEDROP, SHIFT }
+enum ToolType { PENCIL, BOX, ERASER, BOX_ERASE, EXTRUDE, LINE, RECT, OVAL, SMOOTH_EDGE, SHIFT }
 
 const BLOCK_RES := 32
 var CELL_SIZE := 1.0 / BLOCK_RES
@@ -14,7 +14,6 @@ var cells: Array = []
 var current_tool: int = ToolType.PENCIL
 var current_type: int = CellTypes.Type.SOLID
 var current_orientation: int = 0
-var current_color: int = CellTypes.encode_rgb565(CellTypes.FAVORITES[0])
 var current_file_path := ""
 # Naming-convention base name suggested by the last imported block texture
 # (filename minus the trailing dimension token), used as the Save/Export default.
@@ -78,7 +77,6 @@ var _chunk_meshes: Dictionary = {}
 var _dirty_chunks: Dictionary = {}
 var grid_mesh_instance: MeshInstance3D
 var _cached_opaque_mat: ShaderMaterial
-var _cached_cutout_mat: ShaderMaterial
 var cursor_mesh_instance: MeshInstance3D
 var box_preview_instance: MeshInstance3D
 
@@ -109,8 +107,6 @@ var ceiling_lock_btn: CheckButton
 
 var tool_group: ButtonGroup
 var type_group: ButtonGroup
-var color_group: ButtonGroup
-var _color_picker_btn: ColorPickerButton
 
 var menu_bar: MenuBar
 var file_menu: PopupMenu
@@ -343,8 +339,8 @@ func _setup_ui() -> void:
 	# Tool
 	_add_section_label(vbox, "Tool")
 	tool_group = ButtonGroup.new()
-	var tool_row1 := _add_button_row(vbox, ["Pencil", "Paint", "Bucket"], tool_group)
-	var tool_row2 := _add_button_row(vbox, ["Eraser", "Box Erase", "Eyedrop"], tool_group)
+	var tool_row1 := _add_button_row(vbox, ["Pencil"], tool_group)
+	var tool_row2 := _add_button_row(vbox, ["Eraser", "Box Erase"], tool_group)
 	var _tool_row_fill := _add_button_row(vbox, ["Box Fill"], tool_group)
 	var _tool_row3 := _add_button_row(vbox, ["Extrude", "Smooth"], tool_group)
 	var _tool_row_shift := _add_button_row(vbox, ["Shift"], tool_group)
@@ -386,43 +382,6 @@ func _setup_ui() -> void:
 
 	vbox.add_child(HSeparator.new())
 
-	# Color
-	_add_section_label(vbox, "Color")
-	_color_picker_btn = ColorPickerButton.new()
-	_color_picker_btn.custom_minimum_size = Vector2(0, 28)
-	_color_picker_btn.color = CellTypes.decode_color(current_color)
-	_color_picker_btn.edit_alpha = false
-	_color_picker_btn.color_changed.connect(_on_color_picker_changed)
-	vbox.add_child(_color_picker_btn)
-
-	color_group = ButtonGroup.new()
-	var fav_grid := GridContainer.new()
-	fav_grid.columns = 8
-	vbox.add_child(fav_grid)
-	for i in range(CellTypes.FAVORITES.size()):
-		var btn := Button.new()
-		btn.toggle_mode = true
-		btn.button_group = color_group
-		btn.custom_minimum_size = Vector2(20, 18)
-		var ns := StyleBoxFlat.new()
-		ns.bg_color = CellTypes.FAVORITES[i]
-		ns.border_color = Color(0.3, 0.3, 0.3)
-		ns.set_border_width_all(1)
-		ns.set_content_margin_all(0)
-		btn.add_theme_stylebox_override("normal", ns)
-		btn.add_theme_stylebox_override("hover", ns)
-		var ps := StyleBoxFlat.new()
-		ps.bg_color = CellTypes.FAVORITES[i]
-		ps.border_color = Color.WHITE
-		ps.set_border_width_all(2)
-		ps.set_content_margin_all(0)
-		btn.add_theme_stylebox_override("pressed", ps)
-		if i == 0:
-			btn.button_pressed = true
-		fav_grid.add_child(btn)
-	color_group.pressed.connect(_on_color_pressed)
-
-	vbox.add_child(HSeparator.new())
 
 	# Clamp / draw axis (which axis the floor/ceiling clamp + shape tools use)
 	_add_section_label(vbox, "Clamp / Draw Axis")
@@ -1040,26 +999,26 @@ func _mirror_orientation_z(orientation: int) -> int:
 		_: new_corner = 0
 	return axis * 4 + new_corner
 
-func _place_with_mirror(pos: Vector3i, cell_type: int, orientation: int, color: int) -> void:
+func _place_with_mirror(pos: Vector3i, cell_type: int, orientation: int) -> void:
 	if _in_bounds(pos):
-		cells[pos.x][pos.y][pos.z] = CellTypes.make_cell(cell_type, orientation, color)
+		cells[pos.x][pos.y][pos.z] = CellTypes.make_cell(cell_type, orientation)
 	if _mirror_x:
 		var mx := _mirror_pos_x(pos)
 		if _in_bounds(mx):
 			var mo := _mirror_orientation_x(orientation) if cell_type == CellTypes.Type.PRISM else orientation
-			cells[mx.x][mx.y][mx.z] = CellTypes.make_cell(cell_type, mo, color)
+			cells[mx.x][mx.y][mx.z] = CellTypes.make_cell(cell_type, mo)
 	if _mirror_z:
 		var mz := _mirror_pos_z(pos)
 		if _in_bounds(mz):
 			var mo := _mirror_orientation_z(orientation) if cell_type == CellTypes.Type.PRISM else orientation
-			cells[mz.x][mz.y][mz.z] = CellTypes.make_cell(cell_type, mo, color)
+			cells[mz.x][mz.y][mz.z] = CellTypes.make_cell(cell_type, mo)
 	if _mirror_x and _mirror_z:
 		var mxz := _mirror_pos_x(_mirror_pos_z(pos))
 		if _in_bounds(mxz):
 			var mo := orientation
 			if cell_type == CellTypes.Type.PRISM:
 				mo = _mirror_orientation_x(_mirror_orientation_z(orientation))
-			cells[mxz.x][mxz.y][mxz.z] = CellTypes.make_cell(cell_type, mo, color)
+			cells[mxz.x][mxz.y][mxz.z] = CellTypes.make_cell(cell_type, mo)
 
 func _erase_with_mirror(pos: Vector3i) -> void:
 	if _in_bounds(pos):
@@ -1080,61 +1039,12 @@ func _erase_with_mirror(pos: Vector3i) -> void:
 # Surface bucket: flood the connected run of same-coloured faces that share the
 # clicked face's orientation, staying on that plane. Only exposed faces fill,
 # and the colour is read from the clicked face (prism-aware), not the top.
-func _bucket_fill(start: Vector3i, normal: Vector3i) -> void:
-	if normal == Vector3i.ZERO:
-		return
-	var start_cell: Array = cells[start.x][start.y][start.z]
-	var target: int = start_cell[_face_color_slot(start_cell, normal)]
-	if target == current_color:
-		return
-	_push_undo()
-	var axes := _plane_axes(normal)     # the two in-plane axes, perpendicular to normal
-	var queue: Array[Vector3i] = [start]
-	var visited := {start: true}
-	while not queue.is_empty():
-		var pos: Vector3i = queue.pop_front()
-		var cell: Array = cells[pos.x][pos.y][pos.z]
-		cell[_face_color_slot(cell, normal)] = current_color
-		for a in axes:
-			for s in [1, -1]:
-				var np: Vector3i = pos + a * s
-				if not _in_bounds(np) or visited.has(np):
-					continue
-				var nc: Array = cells[np.x][np.y][np.z]
-				if nc[0] == CellTypes.Type.EMPTY:
-					continue
-				var front: Vector3i = np + normal
-				var exposed: bool = not _in_bounds(front) or cells[front.x][front.y][front.z][0] == CellTypes.Type.EMPTY
-				if exposed and nc[_face_color_slot(nc, normal)] == target:
-					visited[np] = true
-					queue.append(np)
-	_mark_dirty()
-	_rebuild_mesh()
-
-func _face_color_slot(cell: Array, normal: Vector3i) -> int:
-	if cell[0] == CellTypes.Type.PRISM:
-		return CellTypes.prism_paint_slot(cell[1], normal)
-	return CellTypes.face_index_from_normal(normal)
-
 func _plane_axes(normal: Vector3i) -> Array:
 	if absi(normal.x) == 1:
 		return [Vector3i(0, 1, 0), Vector3i(0, 0, 1)]
 	if absi(normal.y) == 1:
 		return [Vector3i(1, 0, 0), Vector3i(0, 0, 1)]
 	return [Vector3i(1, 0, 0), Vector3i(0, 1, 0)]
-
-func _eyedrop_color(target: Vector3i) -> void:
-	var cell: Array = cells[target.x][target.y][target.z]
-	var picked_color: int
-	var face_normal := _hit_normal
-	if face_normal == Vector3i.ZERO:
-		picked_color = cell[2]
-	elif cell[0] == CellTypes.Type.PRISM:
-		picked_color = cell[CellTypes.prism_paint_slot(cell[1], face_normal)]
-	else:
-		picked_color = cell[CellTypes.face_index_from_normal(face_normal)]
-	current_color = picked_color
-	_color_picker_btn.color = CellTypes.decode_color(picked_color)
 
 func _draw_mirror_cursors(cursor_pos: Vector3i) -> void:
 	if not _mirror_x and not _mirror_z:
@@ -1195,12 +1105,9 @@ func _on_tool_pressed(btn: BaseButton) -> void:
 		tool_name = tool_name.substr(0, tool_name.length() - 4)
 	match tool_name:
 		"Pencil": current_tool = ToolType.PENCIL
-		"Paint": current_tool = ToolType.PAINT
-		"Bucket": current_tool = ToolType.BUCKET
 		"Box Fill": current_tool = ToolType.BOX
 		"Eraser": current_tool = ToolType.ERASER
 		"Box Erase": current_tool = ToolType.BOX_ERASE
-		"Eyedrop": current_tool = ToolType.EYEDROP
 		"Extrude": current_tool = ToolType.EXTRUDE
 		"Line": current_tool = ToolType.LINE
 		"Rect": current_tool = ToolType.RECT
@@ -1221,16 +1128,6 @@ func _on_type_pressed(btn: BaseButton) -> void:
 		current_type = CellTypes.Type.PRISM
 		orient_container.visible = true
 	_update_raycast()
-
-func _on_color_pressed(btn: BaseButton) -> void:
-	var buttons := color_group.get_buttons()
-	for i in range(buttons.size()):
-		if buttons[i] == btn:
-			current_color = CellTypes.encode_rgb565(CellTypes.FAVORITES[i])
-			break
-
-func _on_color_picker_changed(color: Color) -> void:
-	current_color = CellTypes.encode_rgb565(color)
 
 func _cycle_orientation(delta: int) -> void:
 	current_orientation = (current_orientation + delta) % 12
@@ -1339,14 +1236,6 @@ func _unhandled_input(event: InputEvent) -> void:
 				_cancel_box()
 				_cancel_extrude()
 				_cancel_smooth()
-			KEY_1: _select_color(0)
-			KEY_2: _select_color(1)
-			KEY_3: _select_color(2)
-			KEY_4: _select_color(3)
-			KEY_5: _select_color(4)
-			KEY_6: _select_color(5)
-			KEY_7: _select_color(6)
-			KEY_8: _select_color(7)
 
 	if event is InputEventKey and event.keycode == KEY_SHIFT:
 		if box_active and current_tool in [ToolType.LINE, ToolType.RECT, ToolType.OVAL]:
@@ -1389,13 +1278,6 @@ func _toggle_type() -> void:
 	buttons[0].button_pressed = current_type == CellTypes.Type.SOLID
 	buttons[1].button_pressed = current_type == CellTypes.Type.PRISM
 	_update_raycast()
-
-func _select_color(idx: int) -> void:
-	if idx < CellTypes.FAVORITES.size():
-		current_color = CellTypes.encode_rgb565(CellTypes.FAVORITES[idx])
-		var buttons := color_group.get_buttons()
-		if idx < buttons.size():
-			buttons[idx].button_pressed = true
 
 # ─── Raycasting ───
 
@@ -1474,7 +1356,7 @@ func _update_raycast() -> void:
 
 	# Update cursor display
 	var cursor_pos: Vector3i
-	if current_tool == ToolType.ERASER or current_tool == ToolType.BOX_ERASE or current_tool == ToolType.EXTRUDE or current_tool == ToolType.SMOOTH_EDGE or current_tool == ToolType.PAINT:
+	if current_tool == ToolType.ERASER or current_tool == ToolType.BOX_ERASE or current_tool == ToolType.EXTRUDE or current_tool == ToolType.SMOOTH_EDGE:
 		cursor_pos = target_cell
 	else:
 		cursor_pos = place_cell
@@ -1670,7 +1552,7 @@ func _on_left_click() -> void:
 		ToolType.PENCIL:
 			if _in_bounds(place_cell):
 				_push_undo()
-				_place_with_mirror(place_cell, current_type, current_orientation, current_color)
+				_place_with_mirror(place_cell, current_type, current_orientation)
 				_mark_dirty()
 				_mark_mirror_chunks_dirty(place_cell)
 		ToolType.BOX:
@@ -1680,7 +1562,7 @@ func _on_left_click() -> void:
 					box_active = true
 			else:
 				if _in_bounds(place_cell):
-					_fill_region(box_start, place_cell, current_type, current_orientation, current_color)
+					_fill_region(box_start, place_cell, current_type, current_orientation)
 				_cancel_box()
 		ToolType.ERASER:
 			if _in_bounds(target_cell) and cells[target_cell.x][target_cell.y][target_cell.z][0] != CellTypes.Type.EMPTY:
@@ -1688,35 +1570,6 @@ func _on_left_click() -> void:
 				_erase_with_mirror(target_cell)
 				_mark_dirty()
 				_mark_mirror_chunks_dirty(target_cell)
-		ToolType.PAINT:
-			if _in_bounds(target_cell) and cells[target_cell.x][target_cell.y][target_cell.z][0] != CellTypes.Type.EMPTY:
-				var face_normal := _hit_normal
-				if face_normal == Vector3i.ZERO:
-					return
-				var _pcell: Array = cells[target_cell.x][target_cell.y][target_cell.z]
-				var fi := CellTypes.prism_paint_slot(_pcell[1], face_normal) if _pcell[0] == CellTypes.Type.PRISM else CellTypes.face_index_from_normal(face_normal)
-				_push_undo()
-				cells[target_cell.x][target_cell.y][target_cell.z][fi] = current_color
-				if _mirror_x:
-					var mx := _mirror_pos_x(target_cell)
-					if _in_bounds(mx):
-						cells[mx.x][mx.y][mx.z][fi] = current_color
-				if _mirror_z:
-					var mz := _mirror_pos_z(target_cell)
-					if _in_bounds(mz):
-						cells[mz.x][mz.y][mz.z][fi] = current_color
-				if _mirror_x and _mirror_z:
-					var mxz := _mirror_pos_x(_mirror_pos_z(target_cell))
-					if _in_bounds(mxz):
-						cells[mxz.x][mxz.y][mxz.z][fi] = current_color
-				_mark_dirty()
-				_mark_mirror_chunks_dirty(target_cell)
-		ToolType.BUCKET:
-			if _in_bounds(target_cell) and cells[target_cell.x][target_cell.y][target_cell.z][0] != CellTypes.Type.EMPTY:
-				_bucket_fill(target_cell, _hit_normal)
-		ToolType.EYEDROP:
-			if _in_bounds(target_cell) and cells[target_cell.x][target_cell.y][target_cell.z][0] != CellTypes.Type.EMPTY:
-				_eyedrop_color(target_cell)
 		ToolType.BOX_ERASE:
 			if not box_active:
 				if _in_bounds(target_cell):
@@ -1746,7 +1599,7 @@ func _on_left_click() -> void:
 						ToolType.RECT: shape_cells = _get_rect_cells(result[0], result[1], result[2])
 						ToolType.OVAL: shape_cells = _get_oval_cells(result[0], result[1], result[2])
 					for cell in shape_cells:
-						_place_with_mirror(cell, current_type, current_orientation, current_color)
+						_place_with_mirror(cell, current_type, current_orientation)
 					_mark_dirty()
 					_rebuild_mesh()
 				_cancel_box()
@@ -2008,8 +1861,7 @@ func _on_smooth_apply() -> void:
 			# Place prism at the chamfer surface
 			var prism_pos: Vector3i = ep - smooth_normal_a * i - smooth_normal_b * (depth - 1 - i)
 			if _in_bounds(prism_pos) and cells[prism_pos.x][prism_pos.y][prism_pos.z][0] != CellTypes.Type.EMPTY:
-				var old_color: int = cells[prism_pos.x][prism_pos.y][prism_pos.z][2]
-				cells[prism_pos.x][prism_pos.y][prism_pos.z] = CellTypes.make_cell(CellTypes.Type.PRISM, orientation, old_color)
+				cells[prism_pos.x][prism_pos.y][prism_pos.z] = CellTypes.make_cell(CellTypes.Type.PRISM, orientation)
 
 	smooth_path.clear()
 	box_preview_instance.visible = false
@@ -2112,8 +1964,6 @@ func _find_coplanar_surface(start: Vector3i, normal: Vector3i) -> Array:
 	var visited := {}
 	var queue: Array = [start]
 	visited[start] = true
-	var face_ci := CellTypes.face_index_from_normal(normal)
-	var start_color: int = cells[start.x][start.y][start.z][face_ci]
 
 	var dirs: Array = []
 	if normal.x != 0:
@@ -2128,8 +1978,6 @@ func _find_coplanar_surface(start: Vector3i, normal: Vector3i) -> Array:
 		if not _in_bounds(cell):
 			continue
 		if cells[cell.x][cell.y][cell.z][0] == CellTypes.Type.EMPTY:
-			continue
-		if cells[cell.x][cell.y][cell.z][face_ci] != start_color:
 			continue
 		var face_neighbor: Vector3i = cell + normal
 		if _in_bounds(face_neighbor) and cells[face_neighbor.x][face_neighbor.y][face_neighbor.z][0] != CellTypes.Type.EMPTY:
@@ -2198,14 +2046,14 @@ func _draw_extrude_preview() -> void:
 		mat.albedo_color = Color(1, 0, 0, 0.6)
 	box_preview_instance.visible = true
 
-func _fill_region(a: Vector3i, b: Vector3i, cell_type: int, orientation: int, color_idx: int) -> void:
+func _fill_region(a: Vector3i, b: Vector3i, cell_type: int, orientation: int) -> void:
 	_push_undo()
 	var mn := Vector3i(mini(a.x, b.x), mini(a.y, b.y), mini(a.z, b.z))
 	var mx := Vector3i(maxi(a.x, b.x), maxi(a.y, b.y), maxi(a.z, b.z))
 	for x in range(maxi(0, mn.x), mini(grid_x, mx.x + 1)):
 		for y in range(maxi(0, mn.y), mini(grid_y, mx.y + 1)):
 			for z in range(maxi(0, mn.z), mini(grid_z, mx.z + 1)):
-				_place_with_mirror(Vector3i(x, y, z), cell_type, orientation, color_idx)
+				_place_with_mirror(Vector3i(x, y, z), cell_type, orientation)
 	_mark_dirty()
 	_rebuild_mesh()
 
@@ -2890,30 +2738,23 @@ func _rebuild_chunk(key: Vector3i) -> void:
 	mi.mesh = new_mesh
 	if new_mesh and new_mesh.get_surface_count() > 0:
 		mi.set_surface_override_material(0, _cached_opaque_mat)
-		if new_mesh.get_surface_count() > 1:
-			mi.set_surface_override_material(1, _cached_cutout_mat)
 	_update_chunk_ceiling(mi)
 
 func _invalidate_materials() -> void:
-	_cached_opaque_mat = _make_ceiling_shader(false)
-	_cached_cutout_mat = _make_ceiling_shader(true)
+	_cached_opaque_mat = _make_ceiling_shader()
 	for mi: MeshInstance3D in _chunk_meshes.values():
 		var mesh: ArrayMesh = mi.mesh
 		if mesh and mesh.get_surface_count() > 0:
 			mi.set_surface_override_material(0, _cached_opaque_mat)
-			if mesh.get_surface_count() > 1:
-				mi.set_surface_override_material(1, _cached_cutout_mat)
 	_update_ceiling_uniforms()
 
-func _make_ceiling_shader(cutout: bool) -> ShaderMaterial:
+func _make_ceiling_shader() -> ShaderMaterial:
 	var shader := Shader.new()
 	var code := "shader_type spatial;\nrender_mode "
 	if _preview_mode:
 		code += "diffuse_lambert"
 	else:
 		code += "unshaded"
-	if cutout:
-		code += ", cull_disabled"
 	code += ";\nuniform float ceiling_clip = -1.0;\n"
 	code += "uniform int clip_axis = 1;\n"
 	code += "uniform float cell_size = 0.015625;\n"
@@ -2960,8 +2801,6 @@ func _make_ceiling_shader(cutout: bool) -> ShaderMaterial:
 	code += "\t\tfloat line = 1.0 - smoothstep(0.05, 0.05 + aa, d);\n"
 	code += "\t\tALBEDO *= 1.0 - grid_lines * line;\n"
 	code += "\t}\n"
-	if cutout:
-		code += "\tALPHA = COLOR.a;\n\tALPHA_SCISSOR_THRESHOLD = %.1f;\n" % CellTypes.ALPHA_THRESHOLD
 	code += "}\n"
 	shader.code = code
 	var mat := ShaderMaterial.new()

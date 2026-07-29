@@ -14,13 +14,13 @@ func set_from_cells(p_cells: Array, gx: int, gy: int, gz: int) -> void:
 	grid_x = gx
 	grid_y = gy
 	grid_z = gz
-	cell_data.resize(gx * gy * gz * 8)
+	cell_data.resize(gx * gy * gz * 2)
 	for x in range(gx):
 		for y in range(gy):
 			for z in range(gz):
-				var idx := (x * gy * gz + y * gz + z) * 8
+				var idx := (x * gy * gz + y * gz + z) * 2
 				var cell: Array = p_cells[x][y][z]
-				for i in range(8):
+				for i in range(2):
 					cell_data[idx + i] = cell[i]
 
 func to_cells() -> Array:
@@ -33,11 +33,11 @@ func to_cells() -> Array:
 			p_cells[x][y] = []
 			p_cells[x][y].resize(grid_z)
 			for z in range(grid_z):
-				var idx := (x * grid_y * grid_z + y * grid_z + z) * 8
-				if idx + 7 < cell_data.size():
+				var idx := (x * grid_y * grid_z + y * grid_z + z) * 2
+				if idx + 1 < cell_data.size():
 					var cell: Array = []
 					cell.resize(8)
-					for i in range(8):
+					for i in range(2):
 						cell[i] = cell_data[idx + i]
 					p_cells[x][y][z] = cell
 				else:

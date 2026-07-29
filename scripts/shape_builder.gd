@@ -1,8 +1,4 @@
 class_name ShapeBuilder
-
-# Shapes carry no texture. A single flat value fills every cell so the editor
-# viewport has something to draw; it never reaches the exporter.
-const FLAT := 0
 # Builds predefined prism shapes (ramp, gable, diagonal wall, diamond, chamfered
 # cube, cross) from an exact-size 1:1 atlas into a cell grid.
 #
@@ -22,14 +18,8 @@ const DIAGWALL_T := 8
 # Y-rotation 90 CCW: source(x,z) -> dest(z, N-1-x). Faces: +X->-Z, +Z->+X, etc.
 const ROT_ORIENT := [3, 0, 1, 2, 8, 11, 10, 9, 7, 4, 5, 6]
 # face index (2..7) remap under one CCW turn
-const ROT_FACE := {2: 2, 3: 3, 4: 7, 5: 6, 6: 4, 7: 5}
-# Vertical flip (y -> N-1-y): top<->bottom, prism corners mirror.
 const FLIP_ORIENT := [0, 1, 2, 3, 5, 4, 7, 6, 11, 10, 9, 8]
-const FLIP_FACE := {2: 3, 3: 2, 4: 4, 5: 5, 6: 6, 7: 7}
-# X-rotation 90: grid dest(x, z, gy-1-y). Faces: +Y->-Z, +Z->+Y, X unchanged.
 const ROTX_ORIENT := [8, 9, 10, 11, 7, 4, 5, 6, 3, 2, 1, 0]
-const ROTX_FACE := {2: 7, 3: 6, 4: 4, 5: 5, 6: 2, 7: 3}
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Public entry. opt = {"facing": int 0..3, "inverted": bool} (shape-dependent).
 static func build(shape: String, gx: int, gy: int, gz: int, opt: Dictionary = {}) -> Array:
@@ -80,22 +70,12 @@ static func _new_cells(gx: int, gy: int, gz: int) -> Array:
 		cells[x] = col
 	return cells
 # ─── transforms ──────────────────────────────────────────────────────────────
-# Remap one cell's orientation + face-slot colors under a transform. Face slots
-# are normal-based (CellTypes.slot_for_normal), so the solid tables move caps and
-# legs correctly for prisms too. The HYPOTENUSE is the exception: its diagonal
-# normal collapses under the Y>X>Z slot precedence, so its slot does NOT follow
-# the axis-face table (e.g. ori 0's hyp (+X+Z) and ori 3's hyp (+X-Z) both live
-# in FACE_RIGHT, while the table sends RIGHT to BACK under rotate_y). Move it
-# explicitly from prism_hyp_slot(old ori) to prism_hyp_slot(new ori) — verified
-# exact for all 12 orientations x 3 transforms, rot^4 == identity incl. slots
-# (scratchpad/verify_remap.py).
-static func _remap_cell(c: Array, orient_tab: Array, face_tab: Dictionary) -> Array:
-	var nc := [c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]]
-	for f in range(CellTypes.FACE_TOP, CellTypes.FACE_BACK + 1):
-		nc[face_tab[f]] = c[f]
+# Remap one cell's orientation under a transform. Only a prism has a meaningful
+# orientation; solids pass through.
+static func _remap_cell(c: Array, orient_tab: Array) -> Array:
+	var nc := [c[0], c[1]]
 	if c[0] == CellTypes.Type.PRISM:
 		nc[1] = orient_tab[c[1]]
-		nc[CellTypes.prism_hyp_slot(nc[1])] = c[CellTypes.prism_hyp_slot(c[1])]
 	return nc
 
 # 90 CCW about Y. Requires a square footprint (gx == gz).
@@ -109,7 +89,7 @@ static func rotate_y(cells: Array, gx: int, gy: int, gz: int) -> Array:
 					continue
 				var nx := z
 				var nz := gx - 1 - x
-				var nc := _remap_cell(c, ROT_ORIENT, ROT_FACE)
+				var nc := _remap_cell(c, ROT_ORIENT)
 				out[nx][y][nz] = nc
 	return out
 
@@ -124,7 +104,7 @@ static func rotate_x(cells: Array, gx: int, gy: int, gz: int) -> Array:
 					continue
 				var ny := z
 				var nz := gy - 1 - y
-				var nc := _remap_cell(c, ROTX_ORIENT, ROTX_FACE)
+				var nc := _remap_cell(c, ROTX_ORIENT)
 				out[x][ny][nz] = nc
 	return out
 
@@ -137,7 +117,7 @@ static func flip_vertical(cells: Array, gx: int, gy: int, gz: int) -> Array:
 				if c[0] == CellTypes.Type.EMPTY:
 					continue
 				var ny := gy - 1 - y
-				var nc := _remap_cell(c, FLIP_ORIENT, FLIP_FACE)
+				var nc := _remap_cell(c, FLIP_ORIENT)
 				out[x][ny][z] = nc
 	return out
 
@@ -153,9 +133,9 @@ static func _build_ramp(gx: int, gy: int, gz: int) -> Array:
 				continue
 			for z in range(gz):
 				if y < x:
-					cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.SOLID, 0, FLAT)
+					cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.SOLID, 0)
 				else:
-					cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.PRISM, 9, FLAT)
+					cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.PRISM, 9)
 	# paint flat faces 1:1
 	for y in range(F):
 		for z in range(gz):
@@ -181,9 +161,9 @@ static func _build_gable(gx: int, gy: int, gz: int) -> Array:
 				continue
 			for z in range(gz):
 				if y < d:
-					cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.SOLID, 0, FLAT)
+					cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.SOLID, 0)
 				else:
-					cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.PRISM, ori, FLAT)
+					cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.PRISM, ori)
 	return cells
 
 # ─── DIAGONAL WALL 112x32 ────────────────────────────────────────────────────
@@ -208,11 +188,11 @@ static func _build_diagwall(gx: int, gy: int, gz: int) -> Array:
 			var va := (dif + t - 1) >> 1
 			for y in range(gy):
 				if ori < 0:
-					cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.SOLID, 0, FLAT)
+					cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.SOLID, 0)
 				else:
 					# step index along the diagonal
 					var step: int = mini(x, z)
-					cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.PRISM, ori, FLAT)
+					cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.PRISM, ori)
 				# end faces where the band meets the footprint borders; u across
 				# thickness, mirrored on the NE end so both read facing outward.
 				# Guarded so a boundary prism's hyp slot (its wall sample) is
@@ -252,7 +232,7 @@ static func _build_chamfered_box(c: int, gx: int, gy: int, gz: int) -> Array:
 				if lx + (F - 1 - lz) == c - 1: corner = 3
 			for y in range(gy):
 				if inside:
-					cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.SOLID, 0, FLAT)
+					cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.SOLID, 0)
 				elif corner >= 0:
 					var ori: int
 					match corner:      # footprint corner -> solid points to center
@@ -260,7 +240,7 @@ static func _build_chamfered_box(c: int, gx: int, gy: int, gz: int) -> Array:
 						1: ori = 3
 						2: ori = 0
 						_: ori = 1
-					cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.PRISM, ori, FLAT)
+					cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.PRISM, ori)
 	# caps — corner prisms included: their top/bottom triangles show the cap
 	# design (same indexing as the neighboring solids), lateral slots keep the
 	for lx in range(F):
@@ -279,7 +259,7 @@ static func _build_cross(gx: int, gy: int, gz: int) -> Array:
 		for z in range(F):
 			if (x >= lo and x < hi) or (z >= lo and z < hi):
 				for y in range(gy):
-					cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.SOLID, 0, FLAT)
+					cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.SOLID, 0)
 	# caps
 	# Vertical sides: the atlas's leading strip (cols 0..127) is the perimeter of
 	# the plus unrolled CCW from the +X arm end: 16,8,8,16,8,8,16,8,8,16,8,8. Each
@@ -295,7 +275,7 @@ static func _build_slab(t: int, gx: int, gy: int, gz: int) -> Array:
 	for x in range(F):
 		for y in range(t):
 			for z in range(F):
-				cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.SOLID, 0, FLAT)
+				cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.SOLID, 0)
 	return cells
 
 # ─── STAIRS (n equal steps climbing +X, extruded along Z) ────────────────────
@@ -308,7 +288,7 @@ static func _build_stairs(nsteps: int, gx: int, gy: int, gz: int) -> Array:
 		var top_h := (i + 1) * ss
 		for y in range(top_h):
 			for z in range(gz):
-				cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.SOLID, 0, FLAT)
+				cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.SOLID, 0)
 	# paint faces
 	for x in range(F):
 		for y in range(gy):
@@ -383,7 +363,7 @@ static func _build_pipe_quarter(gx: int, gy: int, gz: int) -> Array:
 						orient = ie   # bore: solid points outward -> corner itself
 			if cell_type != CellTypes.Type.EMPTY:
 				for y in range(gy):
-					cells[lx][y][lz] = CellTypes.make_cell(cell_type, orient, FLAT)
+					cells[lx][y][lz] = CellTypes.make_cell(cell_type, orient)
 	return cells
 
 # ─── CUBE ────────────────────────────────────────────────────────────────────
@@ -395,7 +375,7 @@ static func _build_cube(gx: int, gy: int, gz: int) -> Array:
 	for x in range(gx):
 		for y in range(gy):
 			for z in range(gz):
-				cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.SOLID, 0, FLAT)
+				cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.SOLID, 0)
 	return cells
 
 # ─── OCTAGON ─────────────────────────────────────────────────────────────────
@@ -436,7 +416,7 @@ static func _build_octagon(footprint: int, gx: int, gy: int, gz: int) -> Array:
 							1: orientation = 3
 							2: orientation = 0
 							_: orientation = 1
-						cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.PRISM, orientation, FLAT)
+						cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.PRISM, orientation)
 				else:
-					cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.SOLID, 0, FLAT)
+					cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.SOLID, 0)
 	return cells
