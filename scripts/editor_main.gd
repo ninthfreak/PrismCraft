@@ -305,7 +305,7 @@ func _setup_ui() -> void:
 	file_menu.add_item("Import PNG...", 3, KEY_MASK_CTRL | KEY_I)
 	file_menu.add_item("Import Block Texture...", 5)
 	file_menu.add_separator()
-	file_menu.add_item("Export Model (.glb / .obj)...", 6)
+	file_menu.add_item("Export Model (.glb)...", 6)
 	file_menu.add_item("Export Slab as Part (.glb)...", 9)
 	file_menu.id_pressed.connect(_on_file_menu)
 
@@ -685,10 +685,9 @@ func _setup_ui() -> void:
 	export_dialog.file_mode = FileDialog.FILE_MODE_SAVE_FILE
 	export_dialog.access = FileDialog.ACCESS_FILESYSTEM
 	export_dialog.add_filter("*.glb ; glTF Binary (recommended)")
-	export_dialog.add_filter("*.obj ; Wavefront OBJ")
 	export_dialog.title = "Export Model"
 	export_dialog.size = Vector2i(700, 500)
-	export_dialog.file_selected.connect(_on_export_obj_selected)
+	export_dialog.file_selected.connect(_on_export_selected)
 	add_child(export_dialog)
 
 	_setup_block_tex_wizard()
@@ -1231,7 +1230,7 @@ func _on_file_menu(id: int) -> void:
 		2: _save()
 		3: _import_png()
 		5: _import_block_texture()
-		6: _export_obj()
+		6: _export_model()
 		7: _save_as()
 		9: _export_slab_part()
 
@@ -2894,7 +2893,7 @@ func _apply_shape_block() -> void:
 	_mark_dirty()
 	_rebuild_mesh()
 
-func _export_obj() -> void:
+func _export_model() -> void:
 	export_dialog.current_dir = "res://definitions"
 	var base := _export_default_base()
 	if not base.is_empty():
@@ -2916,7 +2915,7 @@ func _export_default_base() -> String:
 		return current_file_path.get_file().get_basename()
 	return _suggested_name
 
-func _on_export_obj_selected(path: String) -> void:
+func _on_export_selected(path: String) -> void:
 	var slab := _export_slab_mode
 	_export_slab_mode = false
 	if slab:
@@ -2933,21 +2932,17 @@ func _on_export_obj_selected(path: String) -> void:
 		var tris := MeshExporter.export_glb_region(path, cells, grid_x, grid_y, grid_z, CELL_SIZE, bmin, bmax)
 		dims_label.text = "Exported part: %d triangles" % tris if tris > 0 else "Export failed (empty slab?)"
 		return
-	if path.get_extension().to_lower() == "obj":
-		var face_count := MeshExporter.export_obj(path, cells, grid_x, grid_y, grid_z, CELL_SIZE)
-		dims_label.text = "Exported %d faces (OBJ)" % face_count if face_count > 0 else "Export failed"
+	if path.get_extension() == "":
+		path += ".glb"
+	var tris := MeshExporter.export_glb(path, cells, grid_x, grid_y, grid_z, CELL_SIZE)
+	if tris > 0:
+		dims_label.text = "Exported %d triangles (glb)" % tris
+	elif tris < 0:
+		# Say which rule failed, not just that it failed — a bad export the
+		# user cannot diagnose is barely better than a silent one.
+		dims_label.text = "Export refused: %s" % MeshExporter.last_export_errors[0]
 	else:
-		if path.get_extension() == "":
-			path += ".glb"
-		var tris := MeshExporter.export_glb(path, cells, grid_x, grid_y, grid_z, CELL_SIZE)
-		if tris > 0:
-			dims_label.text = "Exported %d triangles (glb)" % tris
-		elif tris < 0:
-			# Say which rule failed, not just that it failed — a bad export the
-			# user cannot diagnose is barely better than a silent one.
-			dims_label.text = "Export refused: %s" % MeshExporter.last_export_errors[0]
-		else:
-			dims_label.text = "Export failed"
+		dims_label.text = "Export failed"
 
 func _load_from_path(path: String) -> void:
 	if not ResourceLoader.exists(path):
