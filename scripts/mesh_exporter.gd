@@ -14,7 +14,10 @@ static func _collect_faces(cells: Array, gx: int, gy: int, gz: int, s: float, ox
 	for dir in range(6):
 		_greedy_mesh_dir(cells, gx, gy, gz, s, ox, oz, dir, faces, bmin, bmax)
 	_emit_prisms(cells, gx, gy, gz, s, ox, oz, faces, bmin, bmax)
-	return faces
+	# The greedy pass works one axis-aligned slice at a time, so it can never
+	# merge a prism's hypotenuse. Those all lie in a handful of planes, and this
+	# collapses each of them.
+	return CoplanarMerge.merge(faces)
 
 static func _in_box(x: int, y: int, z: int, bmin: Vector3i, bmax: Vector3i) -> bool:
 	return x >= bmin.x and x <= bmax.x and y >= bmin.y and y <= bmax.y and z >= bmin.z and z <= bmax.z
