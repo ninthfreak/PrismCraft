@@ -2890,7 +2890,7 @@ func _apply_shape_block() -> void:
 	_block_tex_shape = ""
 	_push_undo()
 	_init_cells()
-	cells = ShapeBuilder.build(shape, _block_tex_shape_img, _block_tex_has_alpha, grid_x, grid_y, grid_z, opt)
+	cells = ShapeBuilder.build(shape, grid_x, grid_y, grid_z, opt)
 	_mark_dirty()
 	_rebuild_mesh()
 

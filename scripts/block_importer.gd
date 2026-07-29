@@ -15,7 +15,7 @@ const SHAPE_LAYOUTS := ["ramp", "gable", "diagwall", "diamond", "chamfered",
 static func build_cells(layout: String, image: Image, gx: int, gy: int, gz: int, opt: Dictionary = {}) -> Array:
 	var use_alpha := CellTypes.image_has_alpha(image)
 	if layout in SHAPE_LAYOUTS:
-		return ShapeBuilder.build(layout, image, use_alpha, gx, gy, gz, opt)
+		return ShapeBuilder.build(layout, gx, gy, gz, opt)
 	if layout == "octagon_full" or layout == "octagon_half":
 		var fp := octagon_footprint(layout, gx)
 		return build_octagon(slice_faces(image, layout, gx, gy), fp, gx, gy, gz, use_alpha)
