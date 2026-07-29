@@ -1,19 +1,11 @@
 extends Node3D
 
-enum EditMode { BLOCK, CHARACTER }
 enum ToolType { PENCIL, BOX, ERASER, BOX_ERASE, EXTRUDE, LINE, RECT, OVAL, SMOOTH_EDGE, PAINT, BUCKET, EYEDROP, SHIFT }
 
 const BLOCK_RES := 32
-const CHAR_RES := 64
-# Character models are now as wide as they are tall (room for a T-pose).
-# Depth stays 64. Legacy 64-wide models are re-centered into this on load.
-const CHAR_GX := 128
-const CHAR_GY := 128
-const CHAR_GZ := 64
 var CELL_SIZE := 1.0 / BLOCK_RES
 const PANEL_WIDTH := 180
 
-var edit_mode: int = EditMode.BLOCK
 var grid_x := 32
 var grid_y := 32
 var grid_z := 32
@@ -116,7 +108,6 @@ var ceiling_slider: HSlider
 var ceiling_value_label: Label
 var ceiling_lock_btn: CheckButton
 
-var mode_group: ButtonGroup
 var tool_group: ButtonGroup
 var type_group: ButtonGroup
 var color_group: ButtonGroup
@@ -135,12 +126,9 @@ var import_dialog: FileDialog
 var import_block_dialog: FileDialog
 var export_dialog: FileDialog
 var _export_slab_mode := false
-var import_front_dialog: FileDialog
-var import_side_dialog: FileDialog
 var confirm_dialog: ConfirmationDialog
 var smooth_dialog: ConfirmationDialog
 var smooth_depth_spin: SpinBox
-var sprite_wizard: AcceptDialog
 var block_tex_wizard: AcceptDialog
 var _block_tex_faces: Dictionary
 var _block_tex_has_alpha: bool
@@ -194,16 +182,6 @@ var _block_tex_format_label: Label
 var _block_tex_previews: Dictionary
 var _block_tex_preview_grid: GridContainer
 var _block_tex_hint_label: Label
-var _front_image: Image
-var _side_image: Image
-var _wizard_flip_front: CheckButton
-var _wizard_flip_side: CheckButton
-var _wizard_front_label: Label
-var _wizard_side_label: Label
-var _wizard_front_preview: TextureRect
-var _wizard_side_preview: TextureRect
-var _wizard_front_size_label: Label
-var _wizard_side_size_label: Label
 
 @onready var camera: Camera3D = $Camera3D
 
@@ -217,7 +195,6 @@ func _ready() -> void:
 	_rebuild_grid()
 	_rebuild_axis_overlay()
 	_center_camera()
-	_generate_presets()
 
 func _process(_delta: float) -> void:
 	if _mesh_dirty:
@@ -225,11 +202,6 @@ func _process(_delta: float) -> void:
 		_rebuild_mesh_now()
 	if camera and view_cube:
 		view_cube.set_orientation(camera.yaw, camera.pitch)
-
-func _generate_presets() -> void:
-	DirAccess.make_dir_recursive_absolute("res://definitions")
-	ResourceSaver.save(VoxelDefinition.create_male(), "res://definitions/male.res", ResourceSaver.FLAG_COMPRESS)
-	ResourceSaver.save(VoxelDefinition.create_female(), "res://definitions/female.res", ResourceSaver.FLAG_COMPRESS)
 
 func _center_camera() -> void:
 	camera.pivot = Vector3(grid_x, grid_y, grid_z) * CELL_SIZE * 0.5
@@ -254,44 +226,6 @@ func _init_cells() -> void:
 
 # Re-embed the current cells into a larger grid, centered on X and Z and
 # bottom-aligned on Y (feet stay on the floor). Updates grid_x/y/z and cells.
-func _embed_cells_centered(tgx: int, tgy: int, tgz: int) -> void:
-	if tgx == grid_x and tgy == grid_y and tgz == grid_z:
-		return
-	var ox := (tgx - grid_x) / 2
-	var oz := (tgz - grid_z) / 2
-	var src := cells
-	var sgx := grid_x
-	var sgy := grid_y
-	var sgz := grid_z
-	var dst: Array = []
-	dst.resize(tgx)
-	for x in range(tgx):
-		dst[x] = []
-		dst[x].resize(tgy)
-		for y in range(tgy):
-			dst[x][y] = []
-			dst[x][y].resize(tgz)
-			for z in range(tgz):
-				dst[x][y][z] = CellTypes.empty_cell()
-	for x in range(sgx):
-		var tx := x + ox
-		if tx < 0 or tx >= tgx:
-			continue
-		for y in range(sgy):
-			if y >= tgy:
-				break
-			for z in range(sgz):
-				var tz := z + oz
-				if tz < 0 or tz >= tgz:
-					continue
-				dst[tx][y][tz] = src[x][y][z]
-	grid_x = tgx
-	grid_y = tgy
-	grid_z = tgz
-	cells = dst
-
-# ─── Scene Setup ───
-
 func _setup_scene() -> void:
 	_chunk_container = Node3D.new()
 	add_child(_chunk_container)
@@ -370,7 +304,6 @@ func _setup_ui() -> void:
 	file_menu.add_separator()
 	file_menu.add_item("Import PNG...", 3, KEY_MASK_CTRL | KEY_I)
 	file_menu.add_item("Import Block Texture...", 5)
-	file_menu.add_item("Import Character Sprites...", 4)
 	file_menu.add_separator()
 	file_menu.add_item("Export Model (.glb / .obj)...", 6)
 	file_menu.add_item("Export Slab as Part (.glb)...", 9)
@@ -424,15 +357,6 @@ func _setup_ui() -> void:
 	title.text = "PrismCraft Editor"
 	title.add_theme_font_size_override("font_size", 15)
 	vbox.add_child(title)
-	vbox.add_child(HSeparator.new())
-
-	# Mode
-	_add_section_label(vbox, "Mode")
-	mode_group = ButtonGroup.new()
-	var mode_row := _add_button_row(vbox, ["Block", "Character"], mode_group)
-	mode_row[0].button_pressed = true
-	mode_group.pressed.connect(_on_mode_pressed)
-
 	vbox.add_child(HSeparator.new())
 
 	# Tool
@@ -769,25 +693,6 @@ func _setup_ui() -> void:
 	export_dialog.file_selected.connect(_on_export_obj_selected)
 	add_child(export_dialog)
 
-	import_front_dialog = FileDialog.new()
-	import_front_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
-	import_front_dialog.access = FileDialog.ACCESS_FILESYSTEM
-	import_front_dialog.add_filter("*.png ; PNG Image")
-	import_front_dialog.title = "Step 1: Select Front Sprite"
-	import_front_dialog.size = Vector2i(700, 500)
-	import_front_dialog.file_selected.connect(_on_front_sprite_selected)
-	add_child(import_front_dialog)
-
-	import_side_dialog = FileDialog.new()
-	import_side_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
-	import_side_dialog.access = FileDialog.ACCESS_FILESYSTEM
-	import_side_dialog.add_filter("*.png ; PNG Image")
-	import_side_dialog.title = "Step 2: Select Side Sprite"
-	import_side_dialog.size = Vector2i(700, 500)
-	import_side_dialog.file_selected.connect(_on_side_sprite_selected)
-	add_child(import_side_dialog)
-
-	_setup_sprite_wizard()
 	_setup_block_tex_wizard()
 	_setup_smooth_dialog()
 
@@ -1344,24 +1249,10 @@ func _on_file_menu(id: int) -> void:
 		1: _open()
 		2: _save()
 		3: _import_png()
-		4: _import_character_sprites()
 		5: _import_block_texture()
 		6: _export_obj()
 		7: _save_as()
 		9: _export_slab_part()
-
-func _on_mode_pressed(btn: BaseButton) -> void:
-	var target_mode := EditMode.BLOCK if btn.text == "Block" else EditMode.CHARACTER
-	if target_mode == edit_mode:
-		return
-	if _unsaved_changes:
-		_pending_action = "mode_block" if target_mode == EditMode.BLOCK else "mode_character"
-		var buttons := mode_group.get_buttons()
-		buttons[0].button_pressed = edit_mode == EditMode.BLOCK
-		buttons[1].button_pressed = edit_mode == EditMode.CHARACTER
-		confirm_dialog.popup_centered()
-		return
-	_do_set_edit_mode(target_mode)
 
 func _on_tool_pressed(btn: BaseButton) -> void:
 	# Rect/Oval buttons append a center-draw suffix (" (C)"/" (J)") to their
@@ -1478,50 +1369,6 @@ func _set_edit_axis(axis: int) -> void:
 	_update_ceiling_uniforms()
 	_rebuild_grid()
 	_update_raycast()
-
-func _set_edit_mode(mode: int) -> void:
-	if mode == edit_mode:
-		return
-	if _unsaved_changes:
-		_pending_action = "mode_block" if mode == EditMode.BLOCK else "mode_character"
-		confirm_dialog.popup_centered()
-		return
-	_do_set_edit_mode(mode)
-
-func _do_set_edit_mode(mode: int) -> void:
-	if _has_ghost:
-		_clear_ghost()   # grid size changes; a stale ghost would misalign
-	edit_mode = mode
-	_undo_stack.clear()
-	if edit_mode == EditMode.BLOCK:
-		grid_x = 32; grid_y = 32; grid_z = 32
-		CELL_SIZE = 1.0 / BLOCK_RES
-	else:
-		grid_x = CHAR_GX; grid_y = CHAR_GY; grid_z = CHAR_GZ
-		CELL_SIZE = 1.0 / CHAR_RES
-	current_file_path = ""
-	_suggested_name = ""
-	_unsaved_changes = false
-	place_cell = Vector3i(-1, -1, -1)
-	target_cell = Vector3i(-1, -1, -1)
-	cursor_mesh_instance.visible = false
-	_cancel_box()
-	floor_y = 0
-	floor_slider.max_value = _axis_size(edit_axis) - 1
-	floor_slider.set_value_no_signal(0)
-	floor_value_label.text = "%s = 0" % _axis_letter()
-	ceiling_y = -1
-	ceiling_slider.max_value = _axis_size(edit_axis) - 1
-	ceiling_slider.set_value_no_signal(-1)
-	ceiling_value_label.text = "Off"
-	_ceiling_locked = false
-	ceiling_lock_btn.set_pressed_no_signal(false)
-	_init_cells()
-	_rebuild_mesh()
-	_rebuild_grid()
-	_rebuild_axis_overlay()
-	_center_camera()
-	_update_file_label()
 
 # ─── Input ───
 
@@ -2759,7 +2606,7 @@ func _do_new() -> void:
 func _save_to_path(path: String) -> void:
 	DirAccess.make_dir_recursive_absolute(path.get_base_dir())
 	var def := VoxelDefinition.new()
-	def.set_from_cells(cells, grid_x, grid_y, grid_z, edit_mode)
+	def.set_from_cells(cells, grid_x, grid_y, grid_z)
 	def.block_shape = _current_block_tex_layout
 	# Binary .res honours FLAG_COMPRESS (lossless); the mostly-empty cell grid
 	# shrinks from ~14 MB to ~30 KB. Text .tres ignores the flag but still works.
@@ -2829,10 +2676,6 @@ func _naming_basename(path: String) -> String:
 	return base
 
 func _do_import_block_texture() -> void:
-	if edit_mode != EditMode.BLOCK:
-		_do_set_edit_mode(EditMode.BLOCK)
-		var buttons := mode_group.get_buttons()
-		buttons[0].button_pressed = true
 	import_block_dialog.popup_centered()
 
 func _on_block_texture_selected(path: String) -> void:
@@ -3125,267 +2968,21 @@ func _on_export_obj_selected(path: String) -> void:
 		else:
 			dims_label.text = "Export failed"
 
-func _import_character_sprites() -> void:
-	if _unsaved_changes:
-		_pending_action = "import_sprites"
-		confirm_dialog.popup_centered()
-		return
-	_do_import_character_sprites()
-
-func _do_import_character_sprites() -> void:
-	if edit_mode != EditMode.CHARACTER:
-		_do_set_edit_mode(EditMode.CHARACTER)
-		var buttons := mode_group.get_buttons()
-		buttons[1].button_pressed = true
-	_front_image = null
-	import_front_dialog.popup_centered()
-
-func _on_front_sprite_selected(path: String) -> void:
-	_front_image = Image.new()
-	if _front_image.load(path) != OK:
-		_front_image = null
-		return
-	_wizard_front_label.text = "Front: " + path.get_file()
-	import_side_dialog.popup_centered()
-
-func _on_side_sprite_selected(path: String) -> void:
-	if _front_image == null:
-		return
-	_side_image = Image.new()
-	if _side_image.load(path) != OK:
-		_side_image = null
-		return
-	_wizard_front_label.text = "Front"
-	_wizard_side_label.text = "Side"
-	_wizard_front_preview.texture = ImageTexture.create_from_image(_front_image)
-	_wizard_front_preview.flip_h = false
-	_wizard_front_preview.custom_minimum_size = Vector2(_front_image.get_width() * 2, _front_image.get_height() * 2)
-	_wizard_side_preview.texture = ImageTexture.create_from_image(_side_image)
-	_wizard_side_preview.flip_h = false
-	_wizard_side_preview.custom_minimum_size = Vector2(_side_image.get_width() * 2, _side_image.get_height() * 2)
-	var front_perfect := _front_image.get_width() == grid_x and _front_image.get_height() == grid_y
-	var side_perfect := _side_image.get_width() == grid_z and _side_image.get_height() == grid_y
-	_wizard_front_size_label.text = "%dx%d" % [_front_image.get_width(), _front_image.get_height()]
-	if front_perfect:
-		_wizard_front_size_label.add_theme_color_override("font_color", Color(0.5, 0.8, 0.5))
-	else:
-		_wizard_front_size_label.text += " (will scale to %dx%d)" % [grid_x, grid_y]
-		_wizard_front_size_label.add_theme_color_override("font_color", Color(0.9, 0.7, 0.3))
-	_wizard_side_size_label.text = "%dx%d" % [_side_image.get_width(), _side_image.get_height()]
-	if side_perfect:
-		_wizard_side_size_label.add_theme_color_override("font_color", Color(0.5, 0.8, 0.5))
-	else:
-		_wizard_side_size_label.text += " (will scale to %dx%d)" % [grid_z, grid_y]
-		_wizard_side_size_label.add_theme_color_override("font_color", Color(0.9, 0.7, 0.3))
-	_wizard_flip_side.button_pressed = false
-	sprite_wizard.popup_centered()
-
-func _setup_sprite_wizard() -> void:
-	sprite_wizard = AcceptDialog.new()
-	sprite_wizard.title = "Character Sprite Import"
-	sprite_wizard.ok_button_text = "Generate"
-	sprite_wizard.confirmed.connect(_on_wizard_generate)
-	add_child(sprite_wizard)
-
-	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 6)
-	sprite_wizard.add_child(vbox)
-
-	# Image previews side by side
-	var preview_row := HBoxContainer.new()
-	preview_row.add_theme_constant_override("separation", 12)
-	preview_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	vbox.add_child(preview_row)
-
-	# Front column
-	var front_col := VBoxContainer.new()
-	front_col.add_theme_constant_override("separation", 2)
-	preview_row.add_child(front_col)
-	_wizard_front_label = Label.new()
-	_wizard_front_label.text = "Front"
-	_wizard_front_label.add_theme_font_size_override("font_size", 13)
-	_wizard_front_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	front_col.add_child(_wizard_front_label)
-	_wizard_front_preview = TextureRect.new()
-	_wizard_front_preview.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	_wizard_front_preview.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	_wizard_front_preview.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	front_col.add_child(_wizard_front_preview)
-	_wizard_front_size_label = Label.new()
-	_wizard_front_size_label.add_theme_font_size_override("font_size", 10)
-	_wizard_front_size_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	front_col.add_child(_wizard_front_size_label)
-
-	# Side column with Front/Back edge labels
-	var side_col := VBoxContainer.new()
-	side_col.add_theme_constant_override("separation", 2)
-	preview_row.add_child(side_col)
-	_wizard_side_label = Label.new()
-	_wizard_side_label.text = "Side"
-	_wizard_side_label.add_theme_font_size_override("font_size", 13)
-	_wizard_side_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	side_col.add_child(_wizard_side_label)
-	var side_outer := HBoxContainer.new()
-	side_outer.add_theme_constant_override("separation", 4)
-	side_col.add_child(side_outer)
-	var side_left_lbl := Label.new()
-	side_left_lbl.text = "F\nr\no\nn\nt"
-	side_left_lbl.add_theme_font_size_override("font_size", 10)
-	side_left_lbl.add_theme_color_override("font_color", Color(0.5, 0.8, 0.5))
-	side_left_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	side_outer.add_child(side_left_lbl)
-	_wizard_side_preview = TextureRect.new()
-	_wizard_side_preview.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	_wizard_side_preview.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	_wizard_side_preview.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	side_outer.add_child(_wizard_side_preview)
-	var side_right_lbl := Label.new()
-	side_right_lbl.text = "B\na\nc\nk"
-	side_right_lbl.add_theme_font_size_override("font_size", 10)
-	side_right_lbl.add_theme_color_override("font_color", Color(0.8, 0.5, 0.5))
-	side_right_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	side_outer.add_child(side_right_lbl)
-	_wizard_side_size_label = Label.new()
-	_wizard_side_size_label.add_theme_font_size_override("font_size", 10)
-	_wizard_side_size_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	side_col.add_child(_wizard_side_size_label)
-
-	vbox.add_child(HSeparator.new())
-
-	# Flip control for side sprite only
-	_wizard_flip_front = CheckButton.new()
-	_wizard_flip_side = CheckButton.new()
-	_wizard_flip_side.text = "Flip side sprite"
-	_wizard_flip_side.toggled.connect(func(_on: bool): _wizard_side_preview.flip_h = _wizard_flip_side.button_pressed)
-	vbox.add_child(_wizard_flip_side)
-
-	var hint := Label.new()
-	hint.text = "Flip so the character's face points toward the \"Front\" label. Front sprite determines colors."
-	hint.add_theme_font_size_override("font_size", 11)
-	hint.add_theme_color_override("font_color", Color(0.6, 0.6, 0.7))
-	hint.autowrap_mode = TextServer.AUTOWRAP_WORD
-	vbox.add_child(hint)
-
-func _on_wizard_generate() -> void:
-	if _front_image == null or _side_image == null:
-		return
-
-	var front := _front_image
-	var side := _side_image
-	_front_image = null
-	_side_image = null
-
-	# The grid follows the sprite's own dimensions, so both the wide T-pose
-	# format and the original narrow format import correctly (their pixel sizes
-	# distinguish them). Depth comes from the side sprite's width.
-	edit_mode = EditMode.CHARACTER
-	CELL_SIZE = 1.0 / CHAR_RES
-	grid_x = clampi(front.get_width(), 1, 256)
-	grid_y = clampi(front.get_height(), 1, 256)
-	grid_z = clampi(side.get_width(), 1, 256)
-	if side.get_height() != grid_y:
-		side.resize(grid_z, grid_y, Image.INTERPOLATE_NEAREST)
-
-	var flip_side := _wizard_flip_side.button_pressed
-
-	_undo_stack.clear()   # fresh model (grid may change); import isn't undoable
-	_init_cells()
-
-	var front_has_alpha := CellTypes.image_has_alpha(front)
-	var side_has_alpha := CellTypes.image_has_alpha(side)
-	for x in range(grid_x):
-		for y in range(grid_y):
-			var front_pixel := front.get_pixel(grid_x - 1 - x, grid_y - 1 - y)
-			if front_pixel.a < 0.5:
-				continue
-			var color_idx: int
-			if front_has_alpha:
-				color_idx = CellTypes.encode_rgb5551(front_pixel)
-			else:
-				color_idx = CellTypes.encode_rgb565(front_pixel)
-			for z in range(grid_z):
-				var sz := z if flip_side else (grid_z - 1 - z)
-				var side_pixel := side.get_pixel(sz, grid_y - 1 - y)
-				if side_pixel.a >= 0.5:
-					cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.SOLID, 0, color_idx)
-
-	# Recolor left/right surfaces from side sprite
-	for y in range(grid_y):
-		for z in range(grid_z):
-			var sz := z if flip_side else (grid_z - 1 - z)
-			var side_pixel := side.get_pixel(sz, grid_y - 1 - y)
-			if side_pixel.a < 0.5:
-				continue
-			var side_color: int
-			if side_has_alpha:
-				side_color = CellTypes.encode_rgb5551(side_pixel)
-			else:
-				side_color = CellTypes.encode_rgb565(side_pixel)
-			for x in range(grid_x):
-				if cells[x][y][z][0] != CellTypes.Type.EMPTY:
-					cells[x][y][z][CellTypes.FACE_LEFT] = side_color
-					break
-			for x in range(grid_x - 1, -1, -1):
-				if cells[x][y][z][0] != CellTypes.Type.EMPTY:
-					cells[x][y][z][CellTypes.FACE_RIGHT] = side_color
-					break
-
-	_ground_cells()
-	# Center narrower (original-format) imports into the standard character grid.
-	if grid_x < CHAR_GX or grid_y < CHAR_GY or grid_z < CHAR_GZ:
-		_embed_cells_centered(maxi(grid_x, CHAR_GX), maxi(grid_y, CHAR_GY), maxi(grid_z, CHAR_GZ))
-	var mbtns := mode_group.get_buttons()
-	mbtns[0].button_pressed = false
-	mbtns[1].button_pressed = true
-	floor_slider.max_value = _axis_size(edit_axis) - 1
-	ceiling_slider.max_value = _axis_size(edit_axis) - 1
-	_clear_chunks()
-	_mark_dirty()
-	_rebuild_mesh()
-	_rebuild_grid()
-	_center_camera()
-
-func _ground_cells() -> void:
-	var min_y := grid_y
-	for x in range(grid_x):
-		for y in range(grid_y):
-			if y >= min_y:
-				break
-			for z in range(grid_z):
-				if cells[x][y][z][0] != CellTypes.Type.EMPTY:
-					min_y = y
-					break
-	if min_y <= 0 or min_y >= grid_y:
-		return
-	for y in range(grid_y):
-		var src_y := y + min_y
-		for x in range(grid_x):
-			for z in range(grid_z):
-				if src_y < grid_y:
-					cells[x][y][z] = cells[x][src_y][z].duplicate()
-				else:
-					cells[x][y][z] = CellTypes.empty_cell()
-
-
 func _load_from_path(path: String) -> void:
 	if not ResourceLoader.exists(path):
 		return
 	var def := ResourceLoader.load(path) as VoxelDefinition
 	if not def:
 		return
-	edit_mode = def.edit_mode
 	grid_x = def.grid_x
 	grid_y = def.grid_y
 	grid_z = def.grid_z
-	CELL_SIZE = 1.0 / CHAR_RES if edit_mode == EditMode.CHARACTER else 1.0 / BLOCK_RES
+	CELL_SIZE = 1.0 / BLOCK_RES
 	cells = def.to_cells()
 	# Texture Editor derives its atlas from these cells; carry the stored shape
 	# (may be empty for older saves — it then guesses from geometry).
 	_current_block_tex = null
 	_current_block_tex_layout = def.block_shape
-	# Legacy (narrower) character models are re-centered into the standard grid.
-	if edit_mode == EditMode.CHARACTER and (grid_x < CHAR_GX or grid_y < CHAR_GY or grid_z < CHAR_GZ):
-		_embed_cells_centered(maxi(grid_x, CHAR_GX), maxi(grid_y, CHAR_GY), maxi(grid_z, CHAR_GZ))
 	_clear_chunks()
 	current_file_path = path
 	_suggested_name = ""
@@ -3405,9 +3002,6 @@ func _load_from_path(path: String) -> void:
 	ceiling_value_label.text = "Off"
 	_ceiling_locked = false
 	ceiling_lock_btn.set_pressed_no_signal(false)
-	var buttons := mode_group.get_buttons()
-	buttons[0].button_pressed = edit_mode == EditMode.BLOCK
-	buttons[1].button_pressed = edit_mode == EditMode.CHARACTER
 	_rebuild_mesh()
 	_rebuild_grid()
 	_rebuild_axis_overlay()
@@ -3468,15 +3062,6 @@ func _execute_pending_action() -> void:
 		"open":
 			open_dialog.current_dir = "res://definitions"
 			open_dialog.popup_centered()
-		"mode_block":
-			_do_set_edit_mode(EditMode.BLOCK)
-			var buttons := mode_group.get_buttons()
-			buttons[0].button_pressed = true
-		"mode_character":
-			_do_set_edit_mode(EditMode.CHARACTER)
-			var buttons := mode_group.get_buttons()
-			buttons[1].button_pressed = true
-		"import_sprites": _do_import_character_sprites()
 		"import_block": _do_import_block_texture()
 		"quit": get_tree().quit()
 
