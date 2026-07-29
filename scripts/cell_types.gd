@@ -225,6 +225,37 @@ static func prism_paint_slot(orientation: int, n: Vector3i) -> int:
 		return face_index_from_normal(n)  # leg
 	return prism_hyp_slot(orientation)
 
+# True if a prism of this orientation fully covers the cube face with outward
+# normal n — that is, n is one of its two legs.
+#
+# A prism covers exactly two of its cell's six faces. The two caps it covers
+# only halfway (a triangle), and the two "open" sides not at all, since the
+# hypotenuse cuts across them. Only a leg can hide a neighbour's face, and only
+# a leg can itself be hidden. This is the same leg/cap test prism_paint_slot
+# makes, factored out so occlusion and painting cannot drift apart.
+static func prism_covers_face(orientation: int, n: Vector3i) -> bool:
+	var axis := orientation / 4
+	var corner := orientation % 4
+	var axis_n: Vector3i = [Vector3i(0, 1, 0), Vector3i(1, 0, 0), Vector3i(0, 0, 1)][axis]
+	if n.x * axis_n.x + n.y * axis_n.y + n.z * axis_n.z != 0:
+		return false  # a cap face: only half covered, so it occludes nothing
+	var cu: int = [0, 1, 1, 0][corner]
+	var cv: int = [0, 0, 1, 1][corner]
+	var uax: Vector3i
+	var vax: Vector3i
+	match axis:
+		0: uax = Vector3i(1, 0, 0); vax = Vector3i(0, 0, 1)
+		1: uax = Vector3i(0, 1, 0); vax = Vector3i(0, 0, 1)
+		_: uax = Vector3i(1, 0, 0); vax = Vector3i(0, 1, 0)
+	var du := n.x * uax.x + n.y * uax.y + n.z * uax.z
+	var dv := n.x * vax.x + n.y * vax.y + n.z * vax.z
+	if du != 0:
+		return (1 if du > 0 else 0) == cu
+	if dv != 0:
+		return (1 if dv > 0 else 0) == cv
+	return false
+
+
 # True if two cells carry identical face colors (used to merge prism runs).
 static func same_face_colors(a: Array, b: Array) -> bool:
 	for fi in range(FACE_TOP, FACE_BACK + 1):

@@ -293,10 +293,17 @@ static func _greedy_mesh_dir(cells: Array, gx: int, gy: int, gz: int, s: float, 
 					grid[u][v] = face_color
 				else:
 					var ncell: Array = cells[nx][ny][nz]
-					if ncell[0] != CellTypes.Type.SOLID or CellTypes.is_cutout_cell(ncell):
-						# empty, prism, or cutout neighbor never fully occludes this
-						# face — a cutout block has see-through holes, so faces behind
-						# and beside it must survive.
+					if ncell[0] == CellTypes.Type.PRISM and not CellTypes.is_cutout_cell(ncell):
+						# A prism hides this face only where one of its legs covers
+						# it outright. Against a cap or an open side the face stays,
+						# because the prism leaves part of it exposed.
+						var dn := _dir_normal(dir)
+						var facing := Vector3i(int(round(-dn.x)), int(round(-dn.y)), int(round(-dn.z)))
+						grid[u][v] = -1 if CellTypes.prism_covers_face(ncell[1], facing) else face_color
+					elif ncell[0] != CellTypes.Type.SOLID or CellTypes.is_cutout_cell(ncell):
+						# empty or cutout neighbor never fully occludes this face — a
+						# cutout block has see-through holes, so faces behind and
+						# beside it must survive.
 						grid[u][v] = face_color
 					else:
 						# A face between two solid cells is hidden when the neighbor's
@@ -462,6 +469,8 @@ static func _emit_prisms(cells: Array, gx: int, gy: int, gz: int, s: float, ox: 
 					var nc: Array = cells[nnx][nny][nnz]
 					if nc[0] == CellTypes.Type.PRISM and nc[1] == orientation:
 						near_capped = false
+					elif nc[0] == CellTypes.Type.SOLID and not CellTypes.is_cutout_cell(nc):
+						near_capped = false  # buried against solid material
 				var fnx: int = x; var fny: int = y; var fnz: int = z
 				match axis:
 					0: fny = y + run
@@ -471,9 +480,46 @@ static func _emit_prisms(cells: Array, gx: int, gy: int, gz: int, s: float, ox: 
 					var nc: Array = cells[fnx][fny][fnz]
 					if nc[0] == CellTypes.Type.PRISM and nc[1] == orientation:
 						far_capped = false
+					elif nc[0] == CellTypes.Type.SOLID and not CellTypes.is_cutout_cell(nc):
+						far_capped = false
+
+				# Per-cell visibility of the two legs along the run. A leg buried
+				# against solid material, or against another prism's leg, is
+				# interior and must not be exported; the run can be partly buried,
+				# so this is resolved cell by cell and emitted as maximal segments.
+				var leg_vis := {}
+				for ln in [Vector3i(1, 0, 0), Vector3i(-1, 0, 0), Vector3i(0, 1, 0),
+						Vector3i(0, -1, 0), Vector3i(0, 0, 1), Vector3i(0, 0, -1)]:
+					if not CellTypes.prism_covers_face(orientation, ln):
+						continue
+					var vis: Array = []
+					for r in range(run):
+						var mx: int = x; var my: int = y; var mz: int = z
+						match axis:
+							0: my = y + r
+							1: mx = x + r
+							_: mz = z + r
+						vis.append(_leg_visible(cells, gx, gy, gz, mx + ln.x, my + ln.y, mz + ln.z, ln, bmin, bmax))
+					leg_vis[ln] = vis
 
 				var o := Vector3(x * s - ox, y * s, z * s - oz)
-				_emit_merged_prism(o, s, orientation, cell, run, near_capped, far_capped, faces)
+				_emit_merged_prism(o, s, orientation, cell, run, near_capped, far_capped, faces, leg_vis)
+
+# A prism leg is hidden when the cell it faces is opaque solid, or a prism whose
+# own leg covers the shared face.
+static func _leg_visible(cells: Array, gx: int, gy: int, gz: int, qx: int, qy: int, qz: int, n: Vector3i, bmin: Vector3i, bmax: Vector3i) -> bool:
+	if qx < 0 or qx >= gx or qy < 0 or qy >= gy or qz < 0 or qz >= gz:
+		return true
+	if not _in_box(qx, qy, qz, bmin, bmax):
+		return true
+	var q: Array = cells[qx][qy][qz]
+	if CellTypes.is_cutout_cell(q):
+		return true
+	if q[0] == CellTypes.Type.SOLID:
+		return false
+	if q[0] == CellTypes.Type.PRISM:
+		return not CellTypes.prism_covers_face(q[1], -n)
+	return true
 
 # Face color id for a prism face normal, or -1 to skip (cutout hole).
 static func _prism_face_id(cell: Array, normal: Vector3) -> int:
@@ -483,7 +529,7 @@ static func _prism_face_id(cell: Array, normal: Vector3) -> int:
 		return -1
 	return cv
 
-static func _emit_merged_prism(o: Vector3, s: float, orientation: int, cell: Array, run: int, near_cap: bool, far_cap: bool, faces: Array) -> void:
+static func _emit_merged_prism(o: Vector3, s: float, orientation: int, cell: Array, run: int, near_cap: bool, far_cap: bool, faces: Array, leg_vis: Dictionary = {}) -> void:
 	var axis: int = orientation / 4
 	var corner: int = orientation % 4
 
@@ -533,8 +579,6 @@ static func _emit_merged_prism(o: Vector3, s: float, orientation: int, cell: Arr
 		var j := (i + 1) % 3
 		var a := p_near[i]
 		var b := p_near[j]
-		var c := p_far[j]
-		var d := p_far[i]
 
 		var edge := (b - a).normalized()
 		var side_normal := edge.cross(axis_dir).normalized()
@@ -544,5 +588,27 @@ static func _emit_merged_prism(o: Vector3, s: float, orientation: int, cell: Arr
 			side_normal = -side_normal
 
 		var sid := _prism_face_id(cell, side_normal)
-		if sid >= 0:
-			faces.append([sid, side_normal, [a, b, c, d]])
+		if sid < 0:
+			continue
+
+		# A leg has an axis-aligned normal and an entry in leg_vis; the
+		# hypotenuse's normal is diagonal, faces no single cell, and so is never
+		# occluded by a face neighbour.
+		var key := Vector3i(int(round(side_normal.x)), int(round(side_normal.y)), int(round(side_normal.z)))
+		if not leg_vis.has(key):
+			faces.append([sid, side_normal, [a, b, p_far[j], p_far[i]]])
+			continue
+
+		var vis: Array = leg_vis[key]
+		var r := 0
+		while r < run:
+			if not vis[r]:
+				r += 1
+				continue
+			var r2 := r
+			while r2 < run and vis[r2]:
+				r2 += 1
+			var near_off: Vector3 = axis_dir * (r * s)
+			var far_off: Vector3 = axis_dir * (r2 * s)
+			faces.append([sid, side_normal, [a + near_off, b + near_off, b + far_off, a + far_off]])
+			r = r2
