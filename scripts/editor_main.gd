@@ -3324,7 +3324,14 @@ func _on_export_obj_selected(path: String) -> void:
 		if path.get_extension() == "":
 			path += ".glb"
 		var tris := MeshExporter.export_glb(path, cells, grid_x, grid_y, grid_z, CELL_SIZE)
-		dims_label.text = "Exported %d triangles (glb)" % tris if tris > 0 else "Export failed"
+		if tris > 0:
+			dims_label.text = "Exported %d triangles (glb)" % tris
+		elif tris < 0:
+			# Say which rule failed, not just that it failed — a bad export the
+			# user cannot diagnose is barely better than a silent one.
+			dims_label.text = "Export refused: %s" % MeshExporter.last_export_errors[0]
+		else:
+			dims_label.text = "Export failed"
 
 func _import_character_sprites() -> void:
 	if _unsaved_changes:

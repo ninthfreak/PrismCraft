@@ -74,7 +74,9 @@ func _measure(layout: String, out_dir: String, mode: String) -> Dictionary:
 
 	var name := _export_name(layout)
 	var path: String = out_dir.path_join(name + ".glb")
-	var written: int = MeshExporter.export_glb(path, cells_to_write, GX, GY, GZ, CELL)
+	# strict=false: this harness exists to measure pipelines that are known not
+	# to comply yet, so it must be able to write them.
+	var written: int = MeshExporter.export_glb(path, cells_to_write, GX, GY, GZ, CELL, false)
 
 	return {
 		"shape": name,

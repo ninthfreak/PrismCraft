@@ -1,5 +1,10 @@
 class_name MeshExporter
 
+# Why the last export was refused, or empty if it was written. A silently
+# non-compliant export is the exact failure that produced the v1 situation: the
+# spec was never enforced anywhere, so nothing ever reported it was violated.
+static var last_export_errors: Array = []
+
 # Greedy-mesh the model (or a box region of it) into a flat list of faces:
 # [color_id, normal, quad_verts]. bmax = (-1,-1,-1) means the whole grid.
 static func _collect_faces(cells: Array, gx: int, gy: int, gz: int, s: float, ox: float, oz: float, bmin := Vector3i.ZERO, bmax := Vector3i(-1, -1, -1)) -> Array:
@@ -102,38 +107,36 @@ static func export_obj(path: String, cells: Array, gx: int, gy: int, gz: int, ce
 
 # Binary glTF (.glb): one mesh, indexed, welded, baked vertex colors, single
 # material — designed for one draw call at runtime. Returns triangle count.
-static func export_glb(path: String, cells: Array, gx: int, gy: int, gz: int, cell_size: float) -> int:
+static func export_glb(path: String, cells: Array, gx: int, gy: int, gz: int, cell_size: float, strict := true) -> int:
 	var s := cell_size
-	return _write_glb(path, _collect_faces(cells, gx, gy, gz, s, gx * s / 2.0, gz * s / 2.0))
+	return _write_glb(path, _collect_faces(cells, gx, gy, gz, s, gx * s / 2.0, gz * s / 2.0), strict)
 
 # Export only the voxels inside [bmin, bmax] as a .glb, keeping full-model world
-# coordinates so exported parts reassemble in place. Used for segmented rigs.
+# coordinates so exported parts reassemble in place. A region is a fragment of
+# the model, so it is not expected to fill the unit cell — it is written
+# unchecked.
 static func export_glb_region(path: String, cells: Array, gx: int, gy: int, gz: int, cell_size: float, bmin: Vector3i, bmax: Vector3i) -> int:
 	var s := cell_size
-	return _write_glb(path, _collect_faces(cells, gx, gy, gz, s, gx * s / 2.0, gz * s / 2.0, bmin, bmax))
+	return _write_glb(path, _collect_faces(cells, gx, gy, gz, s, gx * s / 2.0, gz * s / 2.0, bmin, bmax), false)
 
-static func _write_glb(path: String, faces: Array) -> int:
+# strict: validate against the export contract and refuse to write on a
+# violation, returning -1 with the reasons in last_export_errors. Pass false
+# only to measure a pipeline that is known not to comply yet.
+static func _write_glb(path: String, faces: Array, strict := true) -> int:
 	if faces.is_empty():
 		return 0
 
 	var vmap := {}
 	var positions := PackedFloat32Array()
 	var normals := PackedFloat32Array()
-	var colors := PackedByteArray()
 	var indices := PackedInt32Array()
 	var minp := Vector3(INF, INF, INF)
 	var maxp := Vector3(-INF, -INF, -INF)
 	var tri_count := 0
 
 	for face in faces:
-		var color_id: int = face[0]
 		var n: Vector3 = face[1]
 		var quad: Array = face[2]
-		var col := CellTypes.decode_color(color_id)
-		var cr := clampi(int(round(col.r * 255.0)), 0, 255)
-		var cg := clampi(int(round(col.g * 255.0)), 0, 255)
-		var cb := clampi(int(round(col.b * 255.0)), 0, 255)
-		var ca := clampi(int(round(col.a * 255.0)), 0, 255)
 
 		# order verts so the front face (CCW) agrees with the normal
 		var cross: Vector3 = (quad[1] - quad[0]).cross(quad[2] - quad[0])
@@ -141,10 +144,13 @@ static func _write_glb(path: String, faces: Array) -> int:
 
 		var idx: Array = []
 		for vp in ordered:
-			# weld by position + normal + color to preserve flat shading
-			var key := "%d_%d_%d_%d_%d_%d_%d" % [
+			# Weld by position + normal only. Splitting on normal is what keeps
+			# shading flat, and flat normals are load-bearing: the consumer picks
+			# a texture projection plane from the normal, so a normal shared
+			# across a face boundary would flip the projection mid-face and seam.
+			var key := "%d_%d_%d_%d_%d_%d" % [
 				int(round(vp.x * 1024.0)), int(round(vp.y * 1024.0)), int(round(vp.z * 1024.0)),
-				int(round(n.x)), int(round(n.y)), int(round(n.z)), color_id]
+				int(round(n.x)), int(round(n.y)), int(round(n.z))]
 			var vi: int
 			if vmap.has(key):
 				vi = vmap[key]
@@ -153,7 +159,6 @@ static func _write_glb(path: String, faces: Array) -> int:
 				vmap[key] = vi
 				positions.push_back(vp.x); positions.push_back(vp.y); positions.push_back(vp.z)
 				normals.push_back(n.x); normals.push_back(n.y); normals.push_back(n.z)
-				colors.push_back(cr); colors.push_back(cg); colors.push_back(cb); colors.push_back(ca)
 				minp.x = minf(minp.x, vp.x); minp.y = minf(minp.y, vp.y); minp.z = minf(minp.z, vp.z)
 				maxp.x = maxf(maxp.x, vp.x); maxp.y = maxf(maxp.y, vp.y); maxp.z = maxf(maxp.z, vp.z)
 			idx.append(vi)
@@ -169,35 +174,30 @@ static func _write_glb(path: String, faces: Array) -> int:
 	var bin := PackedByteArray()
 	var pos_off := bin.size(); bin.append_array(pos_bytes)
 	var norm_off := bin.size(); bin.append_array(norm_bytes)
-	var col_off := bin.size(); bin.append_array(colors)
 	var idx_off := bin.size(); bin.append_array(idx_bytes)
 	while bin.size() % 4 != 0:
 		bin.push_back(0)
 
+	# No material, no COLOR_0, no UVs: the consumer textures purely from world
+	# position in-shader, and discards anything else the file carries.
 	var gltf := {
 		"asset": {"version": "2.0", "generator": "PrismCraft"},
 		"scene": 0,
 		"scenes": [{"nodes": [0]}],
 		"nodes": [{"mesh": 0}],
 		"meshes": [{"primitives": [{
-			"attributes": {"POSITION": 0, "NORMAL": 1, "COLOR_0": 2},
-			"indices": 3, "material": 0, "mode": 4}]}],
-		"materials": [{
-			"name": "voxel",
-			"pbrMetallicRoughness": {"baseColorFactor": [1, 1, 1, 1], "metallicFactor": 0.0, "roughnessFactor": 1.0},
-			"doubleSided": false}],
+			"attributes": {"POSITION": 0, "NORMAL": 1},
+			"indices": 2, "mode": 4}]}],
 		"buffers": [{"byteLength": bin.size()}],
 		"bufferViews": [
 			{"buffer": 0, "byteOffset": pos_off, "byteLength": pos_bytes.size(), "target": 34962},
 			{"buffer": 0, "byteOffset": norm_off, "byteLength": norm_bytes.size(), "target": 34962},
-			{"buffer": 0, "byteOffset": col_off, "byteLength": colors.size(), "target": 34962},
 			{"buffer": 0, "byteOffset": idx_off, "byteLength": idx_bytes.size(), "target": 34963}],
 		"accessors": [
 			{"bufferView": 0, "componentType": 5126, "count": nverts, "type": "VEC3",
 				"min": [minp.x, minp.y, minp.z], "max": [maxp.x, maxp.y, maxp.z]},
 			{"bufferView": 1, "componentType": 5126, "count": nverts, "type": "VEC3"},
-			{"bufferView": 2, "componentType": 5121, "normalized": true, "count": nverts, "type": "VEC4"},
-			{"bufferView": 3, "componentType": 5125, "count": indices.size(), "type": "SCALAR"}]
+			{"bufferView": 2, "componentType": 5125, "count": indices.size(), "type": "SCALAR"}]
 	}
 
 	var json_bytes := JSON.stringify(gltf).to_utf8_buffer()
@@ -215,6 +215,15 @@ static func _write_glb(path: String, faces: Array) -> int:
 	out.append_array(_u32(bin.size()))
 	out.append_array(_u32(0x004E4942))   # "BIN\0"
 	out.append_array(bin)
+
+	last_export_errors = []
+	var report := GlbValidator.validate_bytes(out)
+	if not report["ok"]:
+		last_export_errors = report["errors"]
+		if strict:
+			for e in last_export_errors:
+				printerr("[export] refused %s: %s" % [path.get_file(), e])
+			return -1
 
 	var file := FileAccess.open(path, FileAccess.WRITE)
 	if not file:
