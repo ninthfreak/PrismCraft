@@ -51,44 +51,6 @@ const OCTAGON_CHAMFER := 9
 
 static func octagon_chamfer(footprint: int) -> int:
 	return roundi((2.0 - sqrt(2.0)) / 2.0 * footprint)
-
-static func octagon_strip_width(footprint: int) -> int:
-	var c := octagon_chamfer(footprint)
-	var aw := footprint - 2 * c
-	return 4 * aw + 4 * c
-
-static func octagon_atlas_width(footprint: int) -> int:
-	return octagon_strip_width(footprint) + footprint
-
-static func validate_block_texture(w: int, h: int, grid_x: int, grid_y: int) -> String:
-	if w == grid_x and h == grid_y:
-		return "uniform"
-	if w == grid_x * 2 and h == grid_y:
-		return "capped"
-	if w == grid_x * 3 and h == grid_y * 2:
-		return "net"
-	if h == grid_y:
-		var full_fp := grid_x
-		if w == octagon_atlas_width(full_fp):
-			return "octagon_full"
-		var half_fp := grid_x / 2
-		if w == octagon_atlas_width(half_fp):
-			return "octagon_half"
-	# Predefined prism shapes — fixed 32-based atlas sizes, block mode only.
-	if grid_x == 32 and grid_y == 32:
-		if w == 128 and h == 64: return "ramp"
-		if w == 128 and h == 48: return "gable"
-		if w == 112 and h == 32: return "diagwall"
-		if w == 96 and h == 32: return "diamond"
-		if w == 144 and h == 32: return "chamfered"
-		if w == 160 and h == 32: return "cross"
-		if w == 120 and h == 32: return "pipe_quarter"
-		if w == 80 and h == 64: return "stairs_4"
-		if w == 64 and h == 34: return "panel"
-		if w == 64 and h == 48: return "slab_quarter"
-		if w == 64 and h == 64: return "slab_half"
-	return ""
-
 const RGB5551_FLAG := 0x10000
 const ALPHA_THRESHOLD := 0.5  # import: alpha >= 0.5 → opaque (1); shader/discard: alpha < 0.5 → clip
 
@@ -103,14 +65,6 @@ static func decode_rgb565(v: int) -> Color:
 	var g := ((v >> 5) & 0x3F) / 63.0
 	var b := (v & 0x1F) / 31.0
 	return Color(r, g, b)
-
-static func encode_rgb5551(c: Color) -> int:
-	var r := clampi(int(c.r * 31.0 + 0.5), 0, 31)
-	var g := clampi(int(c.g * 31.0 + 0.5), 0, 31)
-	var b := clampi(int(c.b * 31.0 + 0.5), 0, 31)
-	var a := 1 if c.a >= ALPHA_THRESHOLD else 0
-	return ((r << 11) | (g << 6) | (b << 1) | a) | RGB5551_FLAG
-
 static func decode_rgb5551(v: int) -> Color:
 	var raw := v & 0xFFFF
 	var r := ((raw >> 11) & 0x1F) / 31.0
@@ -126,24 +80,6 @@ static func decode_color(v: int) -> Color:
 	if (v & RGB5551_FLAG) != 0:
 		return decode_rgb5551(v)
 	return decode_rgb565(v)
-
-static func color_name(v: int) -> String:
-	var c := decode_color(v)
-	return "C_%02X%02X%02X" % [int(c.r * 255), int(c.g * 255), int(c.b * 255)]
-
-static func color_name_rgb565(v: int) -> String:
-	var r := (v >> 11) & 0x1F
-	var g := (v >> 5) & 0x3F
-	var b := v & 0x1F
-	return "C_%02X%02X%02X" % [r * 255 / 31, g * 255 / 63, b * 255 / 31]
-
-static func image_has_alpha(image: Image) -> bool:
-	for x in range(image.get_width()):
-		for y in range(image.get_height()):
-			if image.get_pixel(x, y).a < 1.0:
-				return true
-	return false
-
 static func is_cutout_cell(cell: Array) -> bool:
 	if cell[0] == Type.EMPTY:
 		return false
