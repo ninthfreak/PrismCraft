@@ -1,0 +1,12 @@
+# Godot engine artifacts
+.godot/
+*.import
+
+# Generated at startup by editor_main.gd, not source
+definitions/
+
+# Local export output
+exports/
+*.glb
+*.obj
+*.mtl

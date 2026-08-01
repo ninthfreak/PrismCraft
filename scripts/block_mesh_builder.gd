@@ -1,5 +1,9 @@
 class_name BlockMeshBuilder
 
+# Viewport-only display colour. Models carry no colour of their own; this exists
+# purely so the editor is not black-on-black, and it never reaches the exporter.
+const DISPLAY := Color(0.62, 0.64, 0.68)
+
 static func _add_tri(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, normal: Vector3, color: Color) -> void:
 	st.set_normal(normal)
 	st.set_color(color)
@@ -23,9 +27,6 @@ static func build_mesh(cells: Array, gx: int, gy: int, gz: int, cell_size: float
 static func build_chunk_mesh(cells: Array, gx: int, gy: int, gz: int, x0: int, y0: int, z0: int, x1: int, y1: int, z1: int, cell_size: float, ceiling_y: int = -1, ceil_axis: int = 1) -> ArrayMesh:
 	var st_opaque := SurfaceTool.new()
 	st_opaque.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var st_cutout := SurfaceTool.new()
-	st_cutout.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var has_cutout := false
 
 	for x in range(x0, x1):
 		for y in range(y0, y1):
@@ -38,11 +39,7 @@ static func build_chunk_mesh(cells: Array, gx: int, gy: int, gz: int, x0: int, y
 				var origin := Vector3(x, y, z) * cell_size
 
 				if cell_type == CellTypes.Type.SOLID:
-					if CellTypes.is_cutout_cell(cell):
-						_build_cube(st_cutout, cells, gx, gy, gz, x, y, z, origin, cell_size, cell, true, ceiling_y, ceil_axis)
-						has_cutout = true
-					else:
-						_build_cube(st_opaque, cells, gx, gy, gz, x, y, z, origin, cell_size, cell, false, ceiling_y, ceil_axis)
+					_build_cube(st_opaque, cells, gx, gy, gz, x, y, z, origin, cell_size, ceiling_y, ceil_axis)
 				elif cell_type == CellTypes.Type.PRISM:
 					var ori: int = cell[1]
 					var pax: int = ori / 4
@@ -62,27 +59,21 @@ static func build_chunk_mesh(cells: Array, gx: int, gy: int, gz: int, x0: int, y
 						var nc: Array = cells[fnx][fny][fnz]
 						if nc[0] == CellTypes.Type.PRISM and nc[1] == ori:
 							far_cap = false
-					if CellTypes.is_cutout_cell(cell):
-						_build_prism(st_cutout, origin, cell_size, ori, cell, near_cap, far_cap)
-						has_cutout = true
-					else:
-						_build_prism(st_opaque, origin, cell_size, ori, cell, near_cap, far_cap)
+					_build_prism(st_opaque, origin, cell_size, ori, near_cap, far_cap)
 
 	var mesh := st_opaque.commit()
 
-	if has_cutout:
-		st_cutout.commit(mesh)
 
 	return mesh
 
-static func _build_cube(st: SurfaceTool, cells: Array, gx: int, gy: int, gz: int, cx: int, cy: int, cz: int, o: Vector3, s: float, cell: Array, is_cutout: bool, ceiling_y: int = -1, ceil_axis: int = 1) -> void:
+static func _build_cube(st: SurfaceTool, cells: Array, gx: int, gy: int, gz: int, cx: int, cy: int, cz: int, o: Vector3, s: float, ceiling_y: int = -1, ceil_axis: int = 1) -> void:
 	var dirs := [
-		[0, 1, 0, CellTypes.FACE_TOP, Vector3.UP],
-		[0, -1, 0, CellTypes.FACE_BOTTOM, Vector3.DOWN],
-		[1, 0, 0, CellTypes.FACE_RIGHT, Vector3.RIGHT],
-		[-1, 0, 0, CellTypes.FACE_LEFT, Vector3.LEFT],
-		[0, 0, 1, CellTypes.FACE_FRONT, Vector3.BACK],
-		[0, 0, -1, CellTypes.FACE_BACK, Vector3.FORWARD],
+		[0, 1, 0, Vector3.UP],
+		[0, -1, 0, Vector3.DOWN],
+		[1, 0, 0, Vector3.RIGHT],
+		[-1, 0, 0, Vector3.LEFT],
+		[0, 0, 1, Vector3.BACK],
+		[0, 0, -1, Vector3.FORWARD],
 	]
 	var quads := [
 		[Vector3(0, s, 0), Vector3(s, s, 0), Vector3(s, s, s), Vector3(0, s, s)],
@@ -95,10 +86,6 @@ static func _build_cube(st: SurfaceTool, cells: Array, gx: int, gy: int, gz: int
 
 	for i in range(6):
 		var d: Array = dirs[i]
-		var face_color_val: int = cell[d[3]]
-		var color := CellTypes.decode_color(face_color_val)
-		if CellTypes.is_rgb5551(face_color_val) and color.a < CellTypes.ALPHA_THRESHOLD:
-			continue
 		# The +ceil_axis face at the ceiling layer is always exposed: everything
 		# past the ceiling is clipped away by the shader, so the neighbor on that
 		# side can't occlude it. Without this cap the revealed voxel shows a hole.
@@ -111,32 +98,14 @@ static func _build_cube(st: SurfaceTool, cells: Array, gx: int, gy: int, gz: int
 			var nz: int = cz + d[2]
 			if nx >= 0 and nx < gx and ny >= 0 and ny < gy and nz >= 0 and nz < gz:
 				var ncell: Array = cells[nx][ny][nz]
-				# A face between two opaque solid cells is hidden when the
-				# neighbor's facing side is opaque. A cutout (5551) neighbor is
-				# NOT solid geometry — it must never occlude this face, or you see
-				# straight through its holes to the void behind. This also keeps
-				# adjacent cutout↔cutout faces from culling each other, so a canopy
-				# shows its internal layers.
-				if ncell[0] == CellTypes.Type.SOLID and not CellTypes.is_cutout_cell(ncell):
-					var opp_fv: int = ncell[dirs[i ^ 1][3]]
-					if CellTypes.decode_color(opp_fv).a >= CellTypes.ALPHA_THRESHOLD:
-						continue
+				# A face between two solid cells is interior.
+				if ncell[0] == CellTypes.Type.SOLID:
+					continue
 		var q: Array = quads[i]
-		var normal: Vector3 = d[4]
-		_add_quad(st, o + q[0], o + q[1], o + q[2], o + q[3], normal, color)
+		var normal: Vector3 = d[3]
+		_add_quad(st, o + q[0], o + q[1], o + q[2], o + q[3], normal, DISPLAY)
 
-# Look up a prism face's color from the cell slot its normal maps to. Returns
-# false (skip the face) when that slot is a cutout hole (alpha < threshold).
-static func _prism_face_color(cell: Array, normal: Vector3, out: Array) -> bool:
-	var slot := CellTypes.slot_for_normal(normal)
-	var cv: int = cell[slot]
-	var col := CellTypes.decode_color(cv)
-	if CellTypes.is_rgb5551(cv) and col.a < CellTypes.ALPHA_THRESHOLD:
-		return false
-	out[0] = col
-	return true
-
-static func _build_prism(st: SurfaceTool, o: Vector3, s: float, orientation: int, cell: Array, near_cap: bool = true, far_cap: bool = true) -> void:
+static func _build_prism(st: SurfaceTool, o: Vector3, s: float, orientation: int, near_cap: bool = true, far_cap: bool = true) -> void:
 	var axis: int = orientation / 4
 	var corner: int = orientation % 4
 
@@ -172,13 +141,12 @@ static func _build_prism(st: SurfaceTool, o: Vector3, s: float, orientation: int
 		1: axis_dir = Vector3.RIGHT
 		_: axis_dir = Vector3.BACK
 
-	var col := [Color.WHITE]
 
-	if near_cap and _prism_face_color(cell, -axis_dir, col):
-		_add_tri(st, p_near[0], p_near[1], p_near[2], -axis_dir, col[0])
+	if near_cap:
+		_add_tri(st, p_near[0], p_near[1], p_near[2], -axis_dir, DISPLAY)
 
-	if far_cap and _prism_face_color(cell, axis_dir, col):
-		_add_tri(st, p_far[0], p_far[1], p_far[2], axis_dir, col[0])
+	if far_cap:
+		_add_tri(st, p_far[0], p_far[1], p_far[2], axis_dir, DISPLAY)
 
 	for i in range(3):
 		var j := (i + 1) % 3
@@ -194,5 +162,4 @@ static func _build_prism(st: SurfaceTool, o: Vector3, s: float, orientation: int
 		if side_normal.dot(third - a) > 0:
 			side_normal = -side_normal
 
-		if _prism_face_color(cell, side_normal, col):
-			_add_quad(st, a, b, c, d, side_normal, col[0])
+		_add_quad(st, a, b, c, d, side_normal, DISPLAY)

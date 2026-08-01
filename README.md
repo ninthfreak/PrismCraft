@@ -1,28 +1,74 @@
 # PrismCraft
 
-A 3D voxel editor built in Godot 4 for designing block definitions and character models. Supports solid cubes and right-isosceles prism cells with RGB565 high color (65,536 colors) plus RGB5551 1-bit-alpha **cutout** cells for see-through textures (leaves, grates, lantern frames). Includes a library of predefined prism shapes (ramp, octagon, stairs, pipe, and more) imported from exact-size 1:1 texture atlases.
+A voxel editor built in Godot 4 for authoring **block shapes** and exporting them
+as clean, low-poly `.glb` meshes.
 
-See [`docs/block_formats.md`](docs/block_formats.md) and [`docs/block_formats.json`](docs/block_formats.json) for the full block-format manifest: cell encoding, color packing, and every texture atlas layout.
+PrismCraft is a shape tool, not a texture tool. A model is pure geometry —
+solid cells and 45° prism cells on a 32³ grid — and the exported mesh carries
+positions and flat normals and nothing else. Texturing is the consumer's job:
+it computes UVs in-shader from world position, so anything the file might say
+about colour or materials would be discarded.
 
 ## Requirements
 
 - Godot 4.3+
 
-## Getting Started
+## Getting started
 
-Open the project in Godot and run it (F5).
+Open the project in Godot and run it (F5), or work headlessly:
 
-## Editor Modes
+```
+godot --headless --script res://scripts/batch_export.gd -- exports/
+```
 
-- **Block** (32x32x32) -- for designing individual block definitions. Each voxel is 1/32 of a unit, so one block = 1x1x1 unit in-game.
-- **Character** (64x128x64) -- for designing character models at double resolution. The grid is 2x4x2 blocks worth of space but at 1/64 unit per voxel, so a character stands exactly **2 blocks tall** (2 units) despite the finer detail.
+## The export contract
+
+Every exported shape must satisfy all of the following. The exporter checks the
+bytes it is about to write and **refuses to write a file that fails**, naming
+the rule that broke — a silently non-compliant export is the failure this
+version exists to remove.
+
+- Unit cell: `x, z ∈ [-0.5, 0.5]`, `y ∈ [0, 1]`, origin bottom-centre, Y-up
+- One mesh, one primitive, one node, no transform, no skin, no animation
+- Indexed triangles, **flat per-face normals**, wound to agree with the normal
+- No UVs, no vertex colours, no materials, no embedded images
+- At most 500 triangles
+
+Flat normals are load-bearing rather than stylistic: the consumer picks a
+texture projection plane from the normal, so a normal shared across a face
+boundary would flip the projection mid-face and leave a visible seam.
+
+## Shape library
+
+Fourteen shapes, chosen from **File → Shape Library** (Ctrl+L). Shapes with more
+than one sensible placement offer an orientation alongside.
+
+`cube`, `ramp`, `gable`, `diagwall`, `diamond`, `chamfered`, `cross`, `panel`,
+`slab_quarter`, `slab_half`, `stairs_4`, `pipe_quarter`, `octagon_full`,
+`octagon_half`
+
+Every one is 90°/45° geometry, which a voxel grid plus prism cells expresses
+exactly — the octagon is a true regular octagon (its chamfer is sized so all
+eight sides come out equal) and `pipe_quarter` is a quarter of an octagonal
+ring. Nothing in the library is a stairstepped approximation of a curve.
+
+Current triangle counts, all inside the 500 budget:
+
+| shape | tris | shape | tris |
+|---|---|---|---|
+| cube | 12 | diamond | 252 |
+| panel | 12 | diagwall | 240 |
+| slab-quarter | 12 | ramp | 194 |
+| slab-half | 12 | pipe-quarter | 176 |
+| cross | 36 | octagon-full | 164 |
+| stairs-4 | 36 | gable | 130 |
+| chamfered | 84 | octagon-half | 100 |
 
 ## Tools
 
 | Tool | Description |
 |------|-------------|
 | Pencil | Place a single voxel |
-| Paint | Recolor an existing voxel without changing its shape |
 | Box Fill | Fill a rectangular region (two clicks) |
 | Eraser | Remove a single voxel |
 | Box Erase | Clear a rectangular region (two clicks) |
@@ -31,11 +77,12 @@ Open the project in Godot and run it (F5).
 | Rectangle | Draw a rectangle outline on the current floor layer |
 | Oval | Draw an ellipse outline on the current floor layer |
 | Smooth | Click-drag along a sharp edge to select it, then choose chamfer depth |
-| Rig Paint | Paint per-voxel bone ownership and overlap regions for the skeleton rig |
+| Shift | Move the whole model along an axis |
 
-Hold **Shift** with Line to lock to an axis, with Rectangle to force a square, or with Oval to force a circle.
-
-**Right-click** the Rect or Oval tool button to toggle **Center-out** mode (indicated by "(C)" on the button). In this mode, the first click sets the center point and dragging defines the extent outward.
+Hold **Shift** with Line to lock to an axis, with Rectangle to force a square, or
+with Oval to force a circle. **Right-click** the Rect or Oval tool button to
+toggle **Center-out** mode ("(C)" on the button): the first click sets the
+centre and dragging defines the extent outward.
 
 ## Controls
 
@@ -49,94 +96,72 @@ Hold **Shift** with Line to lock to an axis, with Rectangle to force a square, o
 | Shift+Up / Shift+Down | Change ceiling layer (-1 = off) |
 | Tab | Toggle Solid / Prism cell type |
 | Q / E | Rotate prism orientation |
+| Ctrl+N / Ctrl+O / Ctrl+S | New / Open / Save |
 | Ctrl+Shift+S | Save As |
-| 1-8 | Quick-select favorite color |
-| Escape | Cancel current operation |
-| Ctrl+N | New |
-| Ctrl+O | Open |
-| Ctrl+S | Save |
+| Ctrl+L | Shape Library |
 | Ctrl+Z | Undo |
-| Ctrl+I | Import PNG |
+| Escape | Cancel current operation |
 
-## Features
+## File format
 
-- **RGB565 color** (opaque) and **RGB5551 cutout** (1-bit alpha) with full color picker and 16 favorite color shortcuts. Any imported pixel with alpha < 255 routes that cell to the cutout path; cutout faces alpha-test in the shader and never occlude neighbors, so holes show what's behind.
-- **Prism cells** with 12 orientations (3 axes x 4 corners) for diagonal geometry, each with a separate color per face (2 caps, 2 legs, 1 diagonal) editable with Paint/Eyedropper
-- **3D view cube** in the top-right corner for quick camera orientation -- click a face to snap to that view, or drag to orbit
-- **Import PNG** to place a flat image as voxels (RGB565, or RGB5551 cutout when the PNG has transparency)
-- **Import Block Texture** with strict 1:1 texel-to-voxel mapping, auto-detected by exact dimensions. Every shape slices its atlas 1:1 onto its faces; where a shape has orientation options (facing / inverted / ridge axis / wall side / quadrant) they are chosen in the import preview, so one atlas serves all rotations. Any other size is rejected with a warning listing the legal sizes. The default Save/Export name is derived from the texture's filename per the naming convention (dimensions stripped, e.g. `wall_brick_new_64x32.png` -> `wall_brick_new`). See [`docs/block_formats.md`](docs/block_formats.md) for full atlas layouts.
-  - *Cubes:*
-  - **32x32** (uniform) -- same texture on all 6 faces
-  - **64x32** (capped) -- left half for 4 sides, right half for top and bottom
-  - **96x64** (6-face net) -- 3x2 grid: top/front/right on row 1, bottom/back/left on row 2
-  - *Octagons:*
-  - **124x32** (full octagon, F=32) -- variable-width strip (14,9,14,9,14,9,14,9) + 32x32 cap
-  - **60x32** (half octagon, F=16) -- variable-width strip (6,5,6,5,6,5,6,5) + 16x16 cap; centered post/pillar
-  - *Predefined shapes (block mode):*
-  - **96x32** (diamond) -- diamond column, four 45 degree faces
-  - **144x32** (chamfered) -- cube with four vertical edges chamfered
-  - **160x32** (cross) -- plus/girder column
-  - **128x64** (ramp) -- 45 degree wedge, facing + inverted
-  - **128x48** (gable) -- twin slopes at a centered ridge, ridge along X or Z
-  - **112x32** (diagonal wall) -- corner-to-corner wall, NE-SW or NW-SE
-  - **64x34** (panel) -- flat 32x32x1, floor/ceiling/wall
-  - **64x48** (slab_quarter) -- flat 32x32x8, floor/ceiling/wall
-  - **64x64** (slab_half) -- flat 32x32x16, floor/ceiling/wall
-  - **80x64** (stairs_4) -- solid stair, four 8-voxel steps
-  - **120x32** (pipe_quarter) -- hollow octagonal pipe; four rotations close a ring
-- **Import Character Sprites** to generate a rough 3D model from a front and side PNG using silhouette intersection
-- **Export Model** (File menu) writes an optimized mesh as glTF binary (`.glb`, recommended) or Wavefront `.obj`, using greedy face merging with materials per unique color
-- **Rig Paint tool** and **Rig / Skeleton** window (View menu) for painting per-voxel bone ownership and overlap regions, then bend-testing a rigid segmented skeleton
-- **Texture Editor** (View menu) -- atlas-aware canvas for authoring block textures. Pick a shape and the canvas opens at the exact required size with every atlas region outlined and labeled; paint (pencil / region-bounded fill / erase-to-cutout / eyedropper, single-level undo) and the block rebuilds through the real import path into a live 3D preview beside the canvas. If you've imported a texture onto the current block, the editor opens on that atlas. Saves/loads plain PNGs (default filename follows the naming convention), so external pixel editors round-trip cleanly.
-- **Tiling Preview** (View menu) repeats the current block edge-to-edge in a grid so you can see how it reads when tiled. Set independent tile counts along X / Y / Z, and rotate the block in 90° steps (all tiles share the rotation) to check seams in any orientation. A single MultiMesh instances one block mesh, so large tile counts stay cheap; "Refresh from Editor" re-pulls the working model after edits. View only -- no editing.
-- **Compare Two Models** (View menu) shows two definitions side by side
-- **Unsaved changes protection** on New, Open, mode switch, and quit
-- **Extrude tool** with flood-fill surface detection for pushing/pulling connected faces
-- **Axis Overlay** toggle (View menu) shows semi-transparent planes at the grid center along X and Z axes
-- **Mirror mode** (View menu: Mirror X / Mirror Z) mirrors all drawing operations across the center plane, with a cyan cursor showing the mirrored position
-- **Voxel Grid on Model** toggle (View menu) draws per-cell grid lines on the model for readability
-- **Center-out drawing** for Rect and Oval tools (right-click the tool button to toggle)
-- **Character presets** (male/female) generated on startup in `res://definitions/`
+Working models are saved as Godot resources (`VoxelDefinition`): grid
+dimensions, cell data, and `block_shape` — the id of the library shape the model
+came from, if any. Save as compressed `.res` or text `.tres`.
 
-## Model Dimensions
+**File → Export Model (.glb)** writes the mesh. Export naming uses the shape id,
+lowercase and hyphen-separated (`slab-quarter`, `stairs-4`); the builders use
+underscores internally and the conversion happens at export.
 
-| Mode | Grid | Voxel Size | World Size | Notes |
-|------|------|-----------|------------|-------|
-| Block | 32x32x32 | 1/32 unit | 1x1x1 | Standard building block |
-| Character | 64x128x64 | 1/64 unit | 1x2x1 | Same height as 2 stacked blocks |
+## How the mesh gets small
 
-Characters have double the voxel resolution of blocks in every axis, giving 4x the surface detail while occupying the same physical footprint as a 1x2x1 column of blocks.
+Three passes, in order, take a solid cube from 12,288 triangles to 12:
 
-## File Format
+1. **Greedy meshing** merges adjacent coplanar faces per axis-aligned slice.
+   With no per-voxel colour to split them, a cube collapses to 6 quads.
+2. **Hidden-face culling** drops prism faces buried against solid material. A
+   prism covers exactly two of its cell's six faces — its legs — so only a leg
+   can hide a neighbour or be hidden. Roughly half of every prism shape's
+   triangles were interior surfaces before this.
+3. **Coplanar merge** fuses faces the greedy pass cannot reach, because it works
+   one axis-aligned slice at a time and a prism's hypotenuse is never in one. A
+   32-cell ramp slope becomes a single quad.
 
-Working definitions are saved as Godot resources using the `VoxelDefinition` class, which stores grid dimensions, edit mode, and cell data. Save as compressed `.res` (recommended) or text `.tres`. Use **Export Model** (File menu) to generate an optimized mesh for game use as `.glb` or `.obj` -- greedy meshing merges coplanar same-color faces into larger quads, dramatically reducing triangle count.
+## Verification
 
-The full block-format spec -- cell encoding, color packing, and every texture atlas layout -- lives in [`docs/block_formats.md`](docs/block_formats.md) (human-readable) and [`docs/block_formats.json`](docs/block_formats.json) (machine-readable registry).
-
-## Batch Export
-
-Build and export an entire texture library to `.glb` in one headless pass -- no clicking through the editor:
+The tool cannot be eyeballed for correctness — a hole, a sliver or a
+zero-area triangle all look fine in a viewport — so the checks are explicit and
+runnable:
 
 ```
-godot --headless --script res://scripts/batch_export.gd -- <textures_dir> [exports_dir]
+godot --headless --script res://tools/test_merge.gd            # coplanar merge unit tests
+godot --headless --script res://tools/check_volume.gd          # surfaces enclose their voxel solid
+godot --headless --script res://tools/shape_fingerprint.gd     # shape geometry hashes
+godot --headless --script res://tools/export_shapes.gd -- out/ # build + export the library
+godot --headless --script res://tools/validate_shapes.gd -- out/
 ```
 
-For every `.png` whose dimensions match a legal format, it builds the block (using the same `BlockImporter` code path as manual import, so the two can't drift) and exports a `.glb` named from the file per the naming convention v3.6 (`steel-corrugated_cube_32x32.png` -> `steel-corrugated.cube.glb`; `oak_octagon-half_60x32.png` -> `oak.octagon-half.glb`). Unsupported sizes are logged and skipped; re-running overwrites same-ID files. Prints a summary of built/exported/skipped/failed grouped by shape. `exports_dir` defaults to `<textures_dir>/exports`.
+`check_volume` is the one that catches a bad cull. Counting shared edges cannot:
+greedy meshing leaves T-junctions that read as open edges on a closed surface.
+Signed volume is immune to that — by the divergence theorem a closed surface
+integrates to the volume it bounds, two coincident interior faces cancel, and a
+genuinely missing face does not. The voxel grid supplies the expected answer
+independently.
+
+`shape_fingerprint` hashes cell type and orientation with colour excluded. It
+exists because passing validation is not evidence that geometry survived a
+refactor: a builder that quietly places different cells produces a
+different-but-consistent model, and every other check would agree with it.
 
 ## Architecture
 
-- `scripts/editor_main.gd` -- main editor logic, UI, input handling, and tools
-- `scripts/cell_types.gd` -- cell type enum, RGB565/RGB5551 color encoding, block-texture size validation, favorite colors, and orientation names
-- `scripts/block_mesh_builder.gd` -- generates meshes from cell arrays with face culling (cutout cells never occlude neighbors)
-- `scripts/shape_builder.gd` -- builds every predefined shape (ramp, gable, diagonal wall, diamond, chamfered cube, cross, panel/slabs, stairs, pipe-quarter) from exact-size 1:1 atlases, with canonical build + rotate-Y / rotate-X / vertical-flip orientation transforms
-- `scripts/block_importer.gd` -- static, UI-free block build (atlas slicing + cube/octagon geometry; shapes delegate to shape_builder); shared by manual import and batch export
-- `scripts/batch_export.gd` -- headless batch: build + GLB-export a whole texture folder in one pass
-- `scripts/mesh_exporter.gd` -- exports optimized `.glb` / `.obj` with greedy meshing and materials per color
-- `scripts/voxel_definition.gd` -- resource class for saving/loading definitions
-- `scripts/rig_data.gd` -- rigid segmented skeleton: per-voxel bone ownership/overlap, auto-fit, nearest-segment partition
-- `scripts/rig_view.gd` -- Rig / Skeleton window: bend-test the painted rig and export a posed scene
-- `scripts/compare_view.gd` -- side-by-side comparison of two definitions
-- `scripts/tile_view.gd` -- tiling preview: MultiMesh-instanced grid of the current block with per-axis tile counts and 90° block rotation
-- `scripts/texture_editor.gd` -- atlas-aware texture editor: exact-size canvas with labeled atlas regions per shape, paint tools, and a live 3D preview built via BlockImporter
-- `scripts/orbit_camera.gd` -- orbit camera with right-click drag, pan, and zoom
-- `scripts/view_cube.gd` -- 3D orientation widget with face clicking and drag rotation
+- `scripts/editor_main.gd` — editor logic, UI, input, tools
+- `scripts/cell_types.gd` — cell type enum, prism orientation and occlusion helpers
+- `scripts/shape_builder.gd` — every library shape, built as geometry, with
+  rotate-Y / rotate-X / vertical-flip orientation transforms
+- `scripts/mesh_exporter.gd` — greedy meshing, prism emission and culling, GLB writing
+- `scripts/coplanar_merge.gd` — merges coplanar quads into maximal rectangles
+- `scripts/glb_validator.gd` — the export contract, shared by the exporter and the CLI
+- `scripts/block_mesh_builder.gd` — viewport meshes from cell arrays
+- `scripts/voxel_definition.gd` — save/load resource
+- `scripts/batch_export.gd` — headless build + export of the whole library
+- `scripts/orbit_camera.gd`, `scripts/view_cube.gd` — camera and orientation widget

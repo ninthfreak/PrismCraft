@@ -6,206 +6,45 @@ enum Type {
 	PRISM = 2,
 }
 
-const FAVORITES = [
-	Color(0.36, 0.63, 0.21),  # 0  Green
-	Color(0.55, 0.38, 0.22),  # 1  Brown
-	Color(0.58, 0.58, 0.58),  # 2  Gray
-	Color(0.89, 0.73, 0.58),  # 3  Skin
-	Color(0.72, 0.54, 0.40),  # 4  Skin Shadow
-	Color(0.22, 0.52, 0.18),  # 5  Dark Green
-	Color(0.93, 0.93, 0.93),  # 6  White
-	Color(0.75, 0.30, 0.30),  # 7  Red
-	Color(0.12, 0.10, 0.08),  # 8  Black
-	Color(0.80, 0.52, 0.50),  # 9  Pink
-	Color(0.86, 0.76, 0.42),  # 10 Blonde
-	Color(0.28, 0.47, 0.75),  # 11 Blue
-	Color(0.30, 0.18, 0.08),  # 12 Dark Brown
-	Color(0.95, 0.82, 0.70),  # 13 Skin Light
-	Color(0.80, 0.64, 0.48),  # 14 Tan
-	Color(0.56, 0.20, 0.10),  # 15 Auburn
-	Color(0.90, 0.85, 0.20),  # 16 Yellow
-	Color(0.90, 0.50, 0.15),  # 17 Orange
-	Color(0.55, 0.25, 0.70),  # 18 Purple
-	Color(0.20, 0.75, 0.75),  # 19 Cyan
-	Color(0.50, 0.70, 0.90),  # 20 Light Blue
-	Color(0.55, 0.80, 0.45),  # 21 Light Green
-	Color(0.35, 0.35, 0.38),  # 22 Dark Gray
-	Color(0.85, 0.80, 0.70),  # 23 Beige
-	Color(0.15, 0.20, 0.50),  # 24 Navy
-	Color(0.85, 0.30, 0.60),  # 25 Magenta
-	Color(0.45, 0.50, 0.20),  # 26 Olive
-	Color(0.20, 0.50, 0.45),  # 27 Teal
-	Color(0.90, 0.55, 0.45),  # 28 Coral
-	Color(0.70, 0.60, 0.85),  # 29 Lavender
-	Color(0.85, 0.70, 0.20),  # 30 Gold
-	Color(0.50, 0.10, 0.15),  # 31 Maroon
-]
+# Cell format: [type, orientation].
+#
+# A cell is geometry and nothing else. There is no colour, no per-face data and
+# no alpha: the exported mesh carries positions and flat normals, and the
+# consumer textures from world position in-shader. Orientation is meaningful
+# only for PRISM (12 values: 3 axes x 4 corners); SOLID and EMPTY carry 0.
 
-# ─── Color encoding ───
-# RGB565 (opaque):  bits [15..11] R, [10..5] G, [4..0] B   — 65536 colors, no alpha
-# RGB5551 (cutout): bits [15..11] R, [10..6] G, [5..1] B, [0] A  — 32768 colors + 1-bit alpha
-# Stored values use bit 16 (RGB5551_FLAG) to distinguish format at decode time.
-# Both formats fit in a 32-bit int alongside the flag.
+static func make_cell(cell_type: int, orientation: int) -> Array:
+	return [cell_type, orientation]
 
+
+static func empty_cell() -> Array:
+	return [Type.EMPTY, 0]
+
+
+# ─── Octagon geometry ────────────────────────────────────────────────────────
+# Inset that makes all eight sides of the octagon equal, i.e. a regular octagon
+# whose diagonal faces land on exactly 45 degrees and so are expressible as
+# prism cells.
 const OCTAGON_CHAMFER := 9
 
 static func octagon_chamfer(footprint: int) -> int:
 	return roundi((2.0 - sqrt(2.0)) / 2.0 * footprint)
 
-static func octagon_strip_width(footprint: int) -> int:
-	var c := octagon_chamfer(footprint)
-	var aw := footprint - 2 * c
-	return 4 * aw + 4 * c
 
-static func octagon_atlas_width(footprint: int) -> int:
-	return octagon_strip_width(footprint) + footprint
-
-static func validate_block_texture(w: int, h: int, grid_x: int, grid_y: int) -> String:
-	if w == grid_x and h == grid_y:
-		return "uniform"
-	if w == grid_x * 2 and h == grid_y:
-		return "capped"
-	if w == grid_x * 3 and h == grid_y * 2:
-		return "net"
-	if h == grid_y:
-		var full_fp := grid_x
-		if w == octagon_atlas_width(full_fp):
-			return "octagon_full"
-		var half_fp := grid_x / 2
-		if w == octagon_atlas_width(half_fp):
-			return "octagon_half"
-	# Predefined prism shapes — fixed 32-based atlas sizes, block mode only.
-	if grid_x == 32 and grid_y == 32:
-		if w == 128 and h == 64: return "ramp"
-		if w == 128 and h == 48: return "gable"
-		if w == 112 and h == 32: return "diagwall"
-		if w == 96 and h == 32: return "diamond"
-		if w == 144 and h == 32: return "chamfered"
-		if w == 160 and h == 32: return "cross"
-		if w == 120 and h == 32: return "pipe_quarter"
-		if w == 80 and h == 64: return "stairs_4"
-		if w == 64 and h == 34: return "panel"
-		if w == 64 and h == 48: return "slab_quarter"
-		if w == 64 and h == 64: return "slab_half"
-	return ""
-
-const RGB5551_FLAG := 0x10000
-const ALPHA_THRESHOLD := 0.5  # import: alpha >= 0.5 → opaque (1); shader/discard: alpha < 0.5 → clip
-
-static func encode_rgb565(c: Color) -> int:
-	var r := clampi(int(c.r * 31.0 + 0.5), 0, 31)
-	var g := clampi(int(c.g * 63.0 + 0.5), 0, 63)
-	var b := clampi(int(c.b * 31.0 + 0.5), 0, 31)
-	return (r << 11) | (g << 5) | b
-
-static func decode_rgb565(v: int) -> Color:
-	var r := ((v >> 11) & 0x1F) / 31.0
-	var g := ((v >> 5) & 0x3F) / 63.0
-	var b := (v & 0x1F) / 31.0
-	return Color(r, g, b)
-
-static func encode_rgb5551(c: Color) -> int:
-	var r := clampi(int(c.r * 31.0 + 0.5), 0, 31)
-	var g := clampi(int(c.g * 31.0 + 0.5), 0, 31)
-	var b := clampi(int(c.b * 31.0 + 0.5), 0, 31)
-	var a := 1 if c.a >= ALPHA_THRESHOLD else 0
-	return ((r << 11) | (g << 6) | (b << 1) | a) | RGB5551_FLAG
-
-static func decode_rgb5551(v: int) -> Color:
-	var raw := v & 0xFFFF
-	var r := ((raw >> 11) & 0x1F) / 31.0
-	var g := ((raw >> 6) & 0x1F) / 31.0
-	var b := ((raw >> 1) & 0x1F) / 31.0
-	var a := float(raw & 1)
-	return Color(r, g, b, a)
-
-static func is_rgb5551(v: int) -> bool:
-	return (v & RGB5551_FLAG) != 0
-
-static func decode_color(v: int) -> Color:
-	if (v & RGB5551_FLAG) != 0:
-		return decode_rgb5551(v)
-	return decode_rgb565(v)
-
-static func color_name(v: int) -> String:
-	var c := decode_color(v)
-	return "C_%02X%02X%02X" % [int(c.r * 255), int(c.g * 255), int(c.b * 255)]
-
-static func color_name_rgb565(v: int) -> String:
-	var r := (v >> 11) & 0x1F
-	var g := (v >> 5) & 0x3F
-	var b := v & 0x1F
-	return "C_%02X%02X%02X" % [r * 255 / 31, g * 255 / 63, b * 255 / 31]
-
-static func image_has_alpha(image: Image) -> bool:
-	for x in range(image.get_width()):
-		for y in range(image.get_height()):
-			if image.get_pixel(x, y).a < 1.0:
-				return true
-	return false
-
-static func is_cutout_cell(cell: Array) -> bool:
-	if cell[0] == Type.EMPTY:
-		return false
-	for fi in range(FACE_TOP, FACE_BACK + 1):
-		if is_rgb5551(cell[fi]):
-			return true
-	return false
-
-# Cell format: [type, orientation, c_top(+Y), c_bottom(-Y), c_right(+X), c_left(-X), c_front(+Z), c_back(-Z)]
-# Face indices within cell array:
-const FACE_TOP := 2     # +Y
-const FACE_BOTTOM := 3  # -Y
-const FACE_RIGHT := 4   # +X
-const FACE_LEFT := 5    # -X
-const FACE_FRONT := 6   # +Z
-const FACE_BACK := 7    # -Z
-
-static func make_cell(cell_type: int, orientation: int, color: int) -> Array:
-	return [cell_type, orientation, color, color, color, color, color, color]
-
-static func empty_cell() -> Array:
-	return [Type.EMPTY, 0, 0, 0, 0, 0, 0, 0]
-
-# ─── Prism per-face color mapping ───
-# A prism has up to 5 faces (2 caps + 2 legs + 1 hypotenuse). Each maps to a
-# distinct cell face slot so prisms can carry a separate color per side. The
-# hypotenuse (a diagonal normal) resolves via the same Y>X>Z precedence as
-# face_index_from_normal, which is collision-free with the legs/caps for all 12
-# orientations. Uniform-color prisms (all slots equal) render exactly as before.
-
-# Slot for a face normal (float, possibly diagonal). Components under 0.4 ignored.
-static func slot_for_normal(n: Vector3) -> int:
-	var ix := 1 if n.x > 0.4 else (-1 if n.x < -0.4 else 0)
-	var iy := 1 if n.y > 0.4 else (-1 if n.y < -0.4 else 0)
-	var iz := 1 if n.z > 0.4 else (-1 if n.z < -0.4 else 0)
-	return face_index_from_normal(Vector3i(ix, iy, iz))
-
-# The slot the hypotenuse (diagonal) face of a prism orientation uses.
-static func prism_hyp_slot(orientation: int) -> int:
-	var axis := orientation / 4
-	var corner := orientation % 4
-	var cu: int = [0, 1, 1, 0][corner]
-	var cv: int = [0, 0, 1, 1][corner]
-	var hu := 1 - 2 * cu
-	var hv := 1 - 2 * cv
-	var uax: Vector3
-	var vax: Vector3
-	match axis:
-		0: uax = Vector3(1, 0, 0); vax = Vector3(0, 0, 1)
-		1: uax = Vector3(0, 1, 0); vax = Vector3(0, 0, 1)
-		_: uax = Vector3(1, 0, 0); vax = Vector3(0, 1, 0)
-	return slot_for_normal(uax * hu + vax * hv)
-
-# Which slot a click on cube-face `n` should paint for a prism: cap and leg
-# clicks hit their own slot; a click on either "open" side (where the diagonal
-# is exposed) paints the hypotenuse slot.
-static func prism_paint_slot(orientation: int, n: Vector3i) -> int:
+# ─── Prism occlusion ─────────────────────────────────────────────────────────
+# True if a prism of this orientation fully covers the cube face with outward
+# normal n — that is, n is one of its two legs.
+#
+# A prism covers exactly two of its cell's six faces. The two caps it covers
+# only halfway (a triangle), and the two "open" sides not at all, since the
+# hypotenuse cuts across them. Only a leg can hide a neighbour's face, and only
+# a leg can itself be hidden.
+static func prism_covers_face(orientation: int, n: Vector3i) -> bool:
 	var axis := orientation / 4
 	var corner := orientation % 4
 	var axis_n: Vector3i = [Vector3i(0, 1, 0), Vector3i(1, 0, 0), Vector3i(0, 0, 1)][axis]
 	if n.x * axis_n.x + n.y * axis_n.y + n.z * axis_n.z != 0:
-		return face_index_from_normal(n)  # cap
+		return false  # a cap face: only half covered, so it occludes nothing
 	var cu: int = [0, 1, 1, 0][corner]
 	var cv: int = [0, 0, 1, 1][corner]
 	var uax: Vector3i
@@ -216,29 +55,12 @@ static func prism_paint_slot(orientation: int, n: Vector3i) -> int:
 		_: uax = Vector3i(1, 0, 0); vax = Vector3i(0, 1, 0)
 	var du := n.x * uax.x + n.y * uax.y + n.z * uax.z
 	var dv := n.x * vax.x + n.y * vax.y + n.z * vax.z
-	var is_leg := false
 	if du != 0:
-		is_leg = (1 if du > 0 else 0) == cu
-	elif dv != 0:
-		is_leg = (1 if dv > 0 else 0) == cv
-	if is_leg:
-		return face_index_from_normal(n)  # leg
-	return prism_hyp_slot(orientation)
+		return (1 if du > 0 else 0) == cu
+	if dv != 0:
+		return (1 if dv > 0 else 0) == cv
+	return false
 
-# True if two cells carry identical face colors (used to merge prism runs).
-static func same_face_colors(a: Array, b: Array) -> bool:
-	for fi in range(FACE_TOP, FACE_BACK + 1):
-		if a[fi] != b[fi]:
-			return false
-	return true
-
-static func face_index_from_normal(normal: Vector3i) -> int:
-	if normal.y > 0: return FACE_TOP
-	if normal.y < 0: return FACE_BOTTOM
-	if normal.x > 0: return FACE_RIGHT
-	if normal.x < 0: return FACE_LEFT
-	if normal.z > 0: return FACE_FRONT
-	return FACE_BACK
 
 static func get_orientation_name(orientation: int) -> String:
 	var axis_names := ["Y", "X", "Z"]

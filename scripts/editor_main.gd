@@ -1,19 +1,11 @@
 extends Node3D
 
-enum EditMode { BLOCK, CHARACTER }
-enum ToolType { PENCIL, BOX, ERASER, BOX_ERASE, EXTRUDE, LINE, RECT, OVAL, SMOOTH_EDGE, PAINT, BUCKET, EYEDROP, SHIFT, RIG_PAINT }
+enum ToolType { PENCIL, BOX, ERASER, BOX_ERASE, EXTRUDE, LINE, RECT, OVAL, SMOOTH_EDGE, SHIFT }
 
 const BLOCK_RES := 32
-const CHAR_RES := 64
-# Character models are now as wide as they are tall (room for a T-pose).
-# Depth stays 64. Legacy 64-wide models are re-centered into this on load.
-const CHAR_GX := 128
-const CHAR_GY := 128
-const CHAR_GZ := 64
 var CELL_SIZE := 1.0 / BLOCK_RES
 const PANEL_WIDTH := 180
 
-var edit_mode: int = EditMode.BLOCK
 var grid_x := 32
 var grid_y := 32
 var grid_z := 32
@@ -22,12 +14,10 @@ var cells: Array = []
 var current_tool: int = ToolType.PENCIL
 var current_type: int = CellTypes.Type.SOLID
 var current_orientation: int = 0
-var current_color: int = CellTypes.encode_rgb565(CellTypes.FAVORITES[0])
 var current_file_path := ""
 # Naming-convention base name suggested by the last imported block texture
 # (filename minus the trailing dimension token), used as the Save/Export default.
 var _suggested_name := ""
-var _block_tex_basename := ""
 var floor_y: int = 0      # clamp lower bound, measured along edit_axis
 var ceiling_y: int = -1   # clamp upper bound along edit_axis (-1 = off)
 var edit_axis: int = 1    # 0 = X, 1 = Y, 2 = Z. The floor/ceiling clamp and
@@ -87,7 +77,6 @@ var _chunk_meshes: Dictionary = {}
 var _dirty_chunks: Dictionary = {}
 var grid_mesh_instance: MeshInstance3D
 var _cached_opaque_mat: ShaderMaterial
-var _cached_cutout_mat: ShaderMaterial
 var cursor_mesh_instance: MeshInstance3D
 var box_preview_instance: MeshInstance3D
 
@@ -105,15 +94,6 @@ var ghost_clear_btn: Button
 
 var shift_panel: PanelContainer   # Shift Voxels arrow control (shown when Shift tool active)
 
-# ─── Rig Paint tool ───
-var _rig: RigData = null
-var _rig_active_bone := 0
-var _rig_brush := 0               # 0 = Limb (owner), 1 = Not-limb, 2 = Overlap
-var _rig_overlay: MeshInstance3D = null
-var _rig_overlay_mat: ShaderMaterial = null
-var rig_panel: PanelContainer     # shown when Rig Paint tool active
-var _rig_bone_pick: OptionButton
-
 var coord_label: Label
 var dims_label: Label
 var file_label: Label
@@ -125,11 +105,8 @@ var ceiling_slider: HSlider
 var ceiling_value_label: Label
 var ceiling_lock_btn: CheckButton
 
-var mode_group: ButtonGroup
 var tool_group: ButtonGroup
 var type_group: ButtonGroup
-var color_group: ButtonGroup
-var _color_picker_btn: ColorPickerButton
 
 var menu_bar: MenuBar
 var file_menu: PopupMenu
@@ -140,31 +117,18 @@ var preview_light_container: VBoxContainer
 
 var save_dialog: FileDialog
 var open_dialog: FileDialog
-var import_dialog: FileDialog
-var import_block_dialog: FileDialog
 var export_dialog: FileDialog
 var _export_slab_mode := false
-var import_front_dialog: FileDialog
-var import_side_dialog: FileDialog
 var confirm_dialog: ConfirmationDialog
 var smooth_dialog: ConfirmationDialog
 var smooth_depth_spin: SpinBox
-var sprite_wizard: AcceptDialog
-var block_tex_wizard: AcceptDialog
-var _block_tex_faces: Dictionary
-var _block_tex_has_alpha: bool
-var _block_tex_is_octagon: bool
-var _block_tex_octagon_footprint: int = 0
-var _block_tex_shape: String = ""
-var _block_tex_shape_img: Image
+var shape_dialog: AcceptDialog
+var _shape_pick: OptionButton
+var _shape_orient_pick: OptionButton
+var _shape_orient_row: HBoxContainer
 # The atlas of the last block texture applied, so the Texture Editor can open
 # on it. Carried from selection (source + layout) and committed on apply.
-var _block_tex_source_img: Image = null
-var _block_tex_layout: String = ""
-var _current_block_tex: Image = null
-var _current_block_tex_layout: String = ""
-var _block_tex_orient_option: OptionButton
-var _block_tex_orient_row: HBoxContainer
+var _shape_id: String = ""
 # Per-shape orientation menu entries -> [label, opt-dict for ShapeBuilder.build]
 const _SHAPE_ORIENTS := {
 	"ramp": [
@@ -199,20 +163,6 @@ const _SHAPE_ORIENTS := {
 		["Quadrant 180°", {"facing": 2}], ["Quadrant 270°", {"facing": 3}],
 	],
 }
-var _block_tex_format_label: Label
-var _block_tex_previews: Dictionary
-var _block_tex_preview_grid: GridContainer
-var _block_tex_hint_label: Label
-var _front_image: Image
-var _side_image: Image
-var _wizard_flip_front: CheckButton
-var _wizard_flip_side: CheckButton
-var _wizard_front_label: Label
-var _wizard_side_label: Label
-var _wizard_front_preview: TextureRect
-var _wizard_side_preview: TextureRect
-var _wizard_front_size_label: Label
-var _wizard_side_size_label: Label
 
 @onready var camera: Camera3D = $Camera3D
 
@@ -226,7 +176,6 @@ func _ready() -> void:
 	_rebuild_grid()
 	_rebuild_axis_overlay()
 	_center_camera()
-	_generate_presets()
 
 func _process(_delta: float) -> void:
 	if _mesh_dirty:
@@ -234,11 +183,6 @@ func _process(_delta: float) -> void:
 		_rebuild_mesh_now()
 	if camera and view_cube:
 		view_cube.set_orientation(camera.yaw, camera.pitch)
-
-func _generate_presets() -> void:
-	DirAccess.make_dir_recursive_absolute("res://definitions")
-	ResourceSaver.save(VoxelDefinition.create_male(), "res://definitions/male.res", ResourceSaver.FLAG_COMPRESS)
-	ResourceSaver.save(VoxelDefinition.create_female(), "res://definitions/female.res", ResourceSaver.FLAG_COMPRESS)
 
 func _center_camera() -> void:
 	camera.pivot = Vector3(grid_x, grid_y, grid_z) * CELL_SIZE * 0.5
@@ -263,44 +207,6 @@ func _init_cells() -> void:
 
 # Re-embed the current cells into a larger grid, centered on X and Z and
 # bottom-aligned on Y (feet stay on the floor). Updates grid_x/y/z and cells.
-func _embed_cells_centered(tgx: int, tgy: int, tgz: int) -> void:
-	if tgx == grid_x and tgy == grid_y and tgz == grid_z:
-		return
-	var ox := (tgx - grid_x) / 2
-	var oz := (tgz - grid_z) / 2
-	var src := cells
-	var sgx := grid_x
-	var sgy := grid_y
-	var sgz := grid_z
-	var dst: Array = []
-	dst.resize(tgx)
-	for x in range(tgx):
-		dst[x] = []
-		dst[x].resize(tgy)
-		for y in range(tgy):
-			dst[x][y] = []
-			dst[x][y].resize(tgz)
-			for z in range(tgz):
-				dst[x][y][z] = CellTypes.empty_cell()
-	for x in range(sgx):
-		var tx := x + ox
-		if tx < 0 or tx >= tgx:
-			continue
-		for y in range(sgy):
-			if y >= tgy:
-				break
-			for z in range(sgz):
-				var tz := z + oz
-				if tz < 0 or tz >= tgz:
-					continue
-				dst[tx][y][tz] = src[x][y][z]
-	grid_x = tgx
-	grid_y = tgy
-	grid_z = tgz
-	cells = dst
-
-# ─── Scene Setup ───
-
 func _setup_scene() -> void:
 	_chunk_container = Node3D.new()
 	add_child(_chunk_container)
@@ -377,11 +283,9 @@ func _setup_ui() -> void:
 	file_menu.add_item("Save", 2, KEY_MASK_CTRL | KEY_S)
 	file_menu.add_item("Save As...", 7, KEY_MASK_CTRL | KEY_MASK_SHIFT | KEY_S)
 	file_menu.add_separator()
-	file_menu.add_item("Import PNG...", 3, KEY_MASK_CTRL | KEY_I)
-	file_menu.add_item("Import Block Texture...", 5)
-	file_menu.add_item("Import Character Sprites...", 4)
+	file_menu.add_item("Shape Library...", 5, KEY_MASK_CTRL | KEY_L)
 	file_menu.add_separator()
-	file_menu.add_item("Export Model (.glb / .obj)...", 6)
+	file_menu.add_item("Export Model (.glb)...", 6)
 	file_menu.add_item("Export Slab as Part (.glb)...", 9)
 	file_menu.id_pressed.connect(_on_file_menu)
 
@@ -403,10 +307,6 @@ func _setup_ui() -> void:
 	view_menu.add_check_item("Mirror X", 3)
 	view_menu.add_check_item("Mirror Z", 4)
 	view_menu.add_separator()
-	view_menu.add_item("Compare Two Models…", 5)
-	view_menu.add_item("Tiling Preview…", 8)
-	view_menu.add_item("Texture Editor…", 9)
-	view_menu.add_item("Rig / Skeleton (prototype)…", 6)
 	view_menu.add_check_item("Voxel Grid on Model", 7)
 	view_menu.set_item_checked(view_menu.get_item_index(7), _voxel_grid_lines)
 	view_menu.id_pressed.connect(_on_view_menu)
@@ -436,24 +336,14 @@ func _setup_ui() -> void:
 	vbox.add_child(title)
 	vbox.add_child(HSeparator.new())
 
-	# Mode
-	_add_section_label(vbox, "Mode")
-	mode_group = ButtonGroup.new()
-	var mode_row := _add_button_row(vbox, ["Block", "Character"], mode_group)
-	mode_row[0].button_pressed = true
-	mode_group.pressed.connect(_on_mode_pressed)
-
-	vbox.add_child(HSeparator.new())
-
 	# Tool
 	_add_section_label(vbox, "Tool")
 	tool_group = ButtonGroup.new()
-	var tool_row1 := _add_button_row(vbox, ["Pencil", "Paint", "Bucket"], tool_group)
-	var tool_row2 := _add_button_row(vbox, ["Eraser", "Box Erase", "Eyedrop"], tool_group)
+	var tool_row1 := _add_button_row(vbox, ["Pencil"], tool_group)
+	var tool_row2 := _add_button_row(vbox, ["Eraser", "Box Erase"], tool_group)
 	var _tool_row_fill := _add_button_row(vbox, ["Box Fill"], tool_group)
 	var _tool_row3 := _add_button_row(vbox, ["Extrude", "Smooth"], tool_group)
 	var _tool_row_shift := _add_button_row(vbox, ["Shift"], tool_group)
-	var _tool_row_rig := _add_button_row(vbox, ["Rig Paint"], tool_group)
 	var tool_row4 := _add_button_row(vbox, ["Line", "Rect", "Oval"], tool_group)
 	_rect_btn = tool_row4[1]
 	_oval_btn = tool_row4[2]
@@ -492,43 +382,6 @@ func _setup_ui() -> void:
 
 	vbox.add_child(HSeparator.new())
 
-	# Color
-	_add_section_label(vbox, "Color")
-	_color_picker_btn = ColorPickerButton.new()
-	_color_picker_btn.custom_minimum_size = Vector2(0, 28)
-	_color_picker_btn.color = CellTypes.decode_color(current_color)
-	_color_picker_btn.edit_alpha = false
-	_color_picker_btn.color_changed.connect(_on_color_picker_changed)
-	vbox.add_child(_color_picker_btn)
-
-	color_group = ButtonGroup.new()
-	var fav_grid := GridContainer.new()
-	fav_grid.columns = 8
-	vbox.add_child(fav_grid)
-	for i in range(CellTypes.FAVORITES.size()):
-		var btn := Button.new()
-		btn.toggle_mode = true
-		btn.button_group = color_group
-		btn.custom_minimum_size = Vector2(20, 18)
-		var ns := StyleBoxFlat.new()
-		ns.bg_color = CellTypes.FAVORITES[i]
-		ns.border_color = Color(0.3, 0.3, 0.3)
-		ns.set_border_width_all(1)
-		ns.set_content_margin_all(0)
-		btn.add_theme_stylebox_override("normal", ns)
-		btn.add_theme_stylebox_override("hover", ns)
-		var ps := StyleBoxFlat.new()
-		ps.bg_color = CellTypes.FAVORITES[i]
-		ps.border_color = Color.WHITE
-		ps.set_border_width_all(2)
-		ps.set_content_margin_all(0)
-		btn.add_theme_stylebox_override("pressed", ps)
-		if i == 0:
-			btn.button_pressed = true
-		fav_grid.add_child(btn)
-	color_group.pressed.connect(_on_color_pressed)
-
-	vbox.add_child(HSeparator.new())
 
 	# Clamp / draw axis (which axis the floor/ceiling clamp + shape tools use)
 	_add_section_label(vbox, "Clamp / Draw Axis")
@@ -732,51 +585,6 @@ func _setup_ui() -> void:
 		sv.add_child(hb)
 	ui_layer.add_child(shift_panel)
 
-	# Rig Paint control (shown only when the Rig Paint tool is active)
-	rig_panel = PanelContainer.new()
-	rig_panel.position = Vector2(200, 60)
-	rig_panel.visible = false
-	var rv := VBoxContainer.new()
-	rv.add_theme_constant_override("separation", 4)
-	rig_panel.add_child(rv)
-	var rtitle := Label.new()
-	rtitle.text = "Rig Paint — active bone"
-	rv.add_child(rtitle)
-	_rig_bone_pick = OptionButton.new()
-	for n in RigData.JOINT_NAMES:
-		_rig_bone_pick.add_item(n)
-	_rig_bone_pick.item_selected.connect(_on_rig_bone_selected)
-	rv.add_child(_rig_bone_pick)
-	var rfit := Button.new()
-	rfit.text = "Auto-Fit Skeleton (re-seed)"
-	rfit.pressed.connect(_on_rig_autofit)
-	rv.add_child(rfit)
-	rv.add_child(Label.new())  # spacer
-	var brush_lbl := Label.new(); brush_lbl.text = "Brush:"
-	rv.add_child(brush_lbl)
-	var brush_group := ButtonGroup.new()
-	var brow := HBoxContainer.new()
-	brow.add_theme_constant_override("separation", 4)
-	for entry in [["Limb", 0], ["Not limb", 1], ["Overlap", 2]]:
-		var b := Button.new()
-		b.toggle_mode = true
-		b.button_group = brush_group
-		b.text = entry[0]
-		var bval: int = entry[1]
-		b.pressed.connect(func(): _rig_brush = bval)
-		if bval == 0:
-			b.button_pressed = true
-		brow.add_child(b)
-	rv.add_child(brow)
-	var rhint := Label.new()
-	rhint.text = "Slice with floor/ceiling clamp + edit axis,\nthen click voxels. Active bone = solid,\nothers dim, overlap = orange."
-	rv.add_child(rhint)
-	var ropen := Button.new()
-	ropen.text = "Open Rig Window (pose / export)"
-	ropen.pressed.connect(_open_rig_view)
-	rv.add_child(ropen)
-	ui_layer.add_child(rig_panel)
-
 	# File dialogs
 	save_dialog = FileDialog.new()
 	save_dialog.file_mode = FileDialog.FILE_MODE_SAVE_FILE
@@ -797,54 +605,16 @@ func _setup_ui() -> void:
 	open_dialog.file_selected.connect(_on_open_file_selected)
 	add_child(open_dialog)
 
-	import_dialog = FileDialog.new()
-	import_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
-	import_dialog.access = FileDialog.ACCESS_FILESYSTEM
-	import_dialog.add_filter("*.png ; PNG Image")
-	import_dialog.title = "Import PNG as Face"
-	import_dialog.size = Vector2i(700, 500)
-	import_dialog.file_selected.connect(_on_import_file_selected)
-	add_child(import_dialog)
-
-	import_block_dialog = FileDialog.new()
-	import_block_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
-	import_block_dialog.access = FileDialog.ACCESS_FILESYSTEM
-	import_block_dialog.add_filter("*.png ; PNG Image")
-	import_block_dialog.title = "Import Block Texture"
-	import_block_dialog.size = Vector2i(700, 500)
-	import_block_dialog.file_selected.connect(_on_block_texture_selected)
-	add_child(import_block_dialog)
-
 	export_dialog = FileDialog.new()
 	export_dialog.file_mode = FileDialog.FILE_MODE_SAVE_FILE
 	export_dialog.access = FileDialog.ACCESS_FILESYSTEM
 	export_dialog.add_filter("*.glb ; glTF Binary (recommended)")
-	export_dialog.add_filter("*.obj ; Wavefront OBJ")
 	export_dialog.title = "Export Model"
 	export_dialog.size = Vector2i(700, 500)
-	export_dialog.file_selected.connect(_on_export_obj_selected)
+	export_dialog.file_selected.connect(_on_export_selected)
 	add_child(export_dialog)
 
-	import_front_dialog = FileDialog.new()
-	import_front_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
-	import_front_dialog.access = FileDialog.ACCESS_FILESYSTEM
-	import_front_dialog.add_filter("*.png ; PNG Image")
-	import_front_dialog.title = "Step 1: Select Front Sprite"
-	import_front_dialog.size = Vector2i(700, 500)
-	import_front_dialog.file_selected.connect(_on_front_sprite_selected)
-	add_child(import_front_dialog)
-
-	import_side_dialog = FileDialog.new()
-	import_side_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
-	import_side_dialog.access = FileDialog.ACCESS_FILESYSTEM
-	import_side_dialog.add_filter("*.png ; PNG Image")
-	import_side_dialog.title = "Step 2: Select Side Sprite"
-	import_side_dialog.size = Vector2i(700, 500)
-	import_side_dialog.file_selected.connect(_on_side_sprite_selected)
-	add_child(import_side_dialog)
-
-	_setup_sprite_wizard()
-	_setup_block_tex_wizard()
+	_setup_shape_library()
 	_setup_smooth_dialog()
 
 	confirm_dialog = ConfirmationDialog.new()
@@ -899,180 +669,7 @@ func _on_view_menu(id: int) -> void:
 		2: _toggle_axis_overlay()
 		3: _toggle_mirror_x()
 		4: _toggle_mirror_z()
-		5: _open_compare_view()
-		6: _open_rig_view()
 		7: _toggle_voxel_grid_lines()
-		8: _open_tile_view()
-		9: _open_texture_editor()
-
-func _open_compare_view() -> void:
-	var cv := CompareView.new()
-	add_child(cv)
-	# Seed the left view with the current working model for convenience.
-	var disp := current_file_path.get_file() if not current_file_path.is_empty() else "(current)"
-	cv.load_cells(1, cells, grid_x, grid_y, grid_z, disp)
-	cv.popup_centered(Vector2i(1400, 820))
-
-func _open_tile_view() -> void:
-	var tv := TileView.new()
-	add_child(tv)
-	tv.refresh_requested.connect(func(): tv.set_model(cells, grid_x, grid_y, grid_z))
-	tv.set_model(cells, grid_x, grid_y, grid_z)
-	tv.popup_centered(Vector2i(1200, 820))
-
-func _open_texture_editor() -> void:
-	var te := TextureEditor.new()
-	add_child(te)
-	# Always derive the canvas from the current model, so the editor reflects
-	# whatever voxels are on screen (imported, loaded, or hand-edited).
-	# Remember a shape the user picks (correcting a wrong guess) so save keeps it.
-	te.layout_chosen.connect(func(l: String): _current_block_tex_layout = l)
-	te.load_from_model(cells, grid_x, grid_y, grid_z, _current_block_tex_layout)
-	te.popup_centered(Vector2i(1500, 860))
-
-func _open_rig_view() -> void:
-	var rv := RigView.new()
-	add_child(rv)
-	# Seed with the current working model so Auto-Fit can run immediately.
-	rv.set_model(cells, grid_x, grid_y, grid_z)
-	# Hand over the painted bone assignment + overlap (Rig Paint tool), if any.
-	if _rig != null and _rig.fitted and _rig.gx == grid_x and _rig.gy == grid_y and _rig.gz == grid_z:
-		rv.set_painted(_rig.owner, _rig.overlap, _rig.joint_pos)
-	rv.popup_centered(Vector2i(1500, 860))
-
-# ─── Rig Paint tool ───
-
-func _enter_rig_paint() -> void:
-	var n := grid_x * grid_y * grid_z
-	if _rig == null or _rig.gx != grid_x or _rig.gy != grid_y or _rig.gz != grid_z:
-		_rig = RigData.new()
-		_rig.set_grid(cells, grid_x, grid_y, grid_z)
-		_rig.auto_fit()
-	else:
-		_rig.set_grid(cells, grid_x, grid_y, grid_z)
-		if not _rig.fitted or _rig.owner.size() != n:
-			_rig.auto_fit()
-	rig_panel.visible = true
-	_rig_bone_pick.select(_rig_active_bone)
-	if _rig_overlay == null:
-		_rig_overlay = MeshInstance3D.new()
-		_chunk_container.get_parent().add_child(_rig_overlay)
-		_rig_overlay_mat = _make_ceiling_shader(false)
-	_rig_overlay.visible = true
-	_chunk_container.visible = false
-	_refresh_rig_overlay()
-
-func _exit_rig_paint() -> void:
-	if rig_panel:
-		rig_panel.visible = false
-	if _rig_overlay:
-		_rig_overlay.visible = false
-	if _chunk_container:
-		_chunk_container.visible = true
-
-func _on_rig_bone_selected(idx: int) -> void:
-	_rig_active_bone = idx
-	_refresh_rig_overlay()
-
-func _on_rig_autofit() -> void:
-	if _rig == null:
-		return
-	_rig.set_grid(cells, grid_x, grid_y, grid_z)
-	_rig.auto_fit()
-	_refresh_rig_overlay()
-
-func _rig_paint_cell(cell: Vector3i) -> void:
-	if _rig == null or not _in_bounds(cell):
-		return
-	if not _rig.is_solid(cell.x, cell.y, cell.z):
-		return
-	match _rig_brush:
-		0: _rig.paint_owner(cell.x, cell.y, cell.z, _rig_active_bone)
-		1: _rig.reassign_excluding(cell.x, cell.y, cell.z, _rig_active_bone)
-		2: _rig.paint_overlap(cell.x, cell.y, cell.z, _rig_active_bone)
-	_refresh_rig_overlay()
-
-func _refresh_rig_overlay() -> void:
-	if _rig_overlay == null or _rig == null:
-		return
-	_rig_overlay.mesh = _build_rig_overlay_mesh()
-	if _rig_overlay.mesh and _rig_overlay.mesh.get_surface_count() > 0:
-		_rig_overlay.set_surface_override_material(0, _rig_overlay_mat)
-	var clip_val: float = -1.0
-	if ceiling_y >= 0:
-		clip_val = (ceiling_y + 1) * CELL_SIZE
-	if _rig_overlay_mat:
-		_rig_overlay_mat.set_shader_parameter("ceiling_clip", clip_val)
-		_rig_overlay_mat.set_shader_parameter("clip_axis", edit_axis)
-		_rig_overlay_mat.set_shader_parameter("cell_size", CELL_SIZE)
-		_rig_overlay_mat.set_shader_parameter("grid_lines", _grid_line_strength())
-
-# Overlay mesh coloured by paint state relative to the active bone. Uses the same
-# clamp cap-face rule as the normal mesh so floor/ceiling slicing reveals interior.
-func _build_rig_overlay_mesh() -> ArrayMesh:
-	var active := _rig_active_bone
-	var dirs := [
-		[Vector3i(0, 1, 0), Vector3(0, 1, 0)],
-		[Vector3i(0, -1, 0), Vector3(0, -1, 0)],
-		[Vector3i(1, 0, 0), Vector3(1, 0, 0)],
-		[Vector3i(-1, 0, 0), Vector3(-1, 0, 0)],
-		[Vector3i(0, 0, 1), Vector3(0, 0, 1)],
-		[Vector3i(0, 0, -1), Vector3(0, 0, -1)],
-	]
-	var s := CELL_SIZE
-	var quads := [
-		[Vector3(0, s, 0), Vector3(s, s, 0), Vector3(s, s, s), Vector3(0, s, s)],
-		[Vector3(0, 0, s), Vector3(s, 0, s), Vector3(s, 0, 0), Vector3(0, 0, 0)],
-		[Vector3(s, 0, 0), Vector3(s, s, 0), Vector3(s, s, s), Vector3(s, 0, s)],
-		[Vector3(0, 0, s), Vector3(0, s, s), Vector3(0, s, 0), Vector3(0, 0, 0)],
-		[Vector3(0, 0, s), Vector3(0, s, s), Vector3(s, s, s), Vector3(s, 0, s)],
-		[Vector3(s, 0, 0), Vector3(s, s, 0), Vector3(0, s, 0), Vector3(0, 0, 0)],
-	]
-	var c_dim := Color(0.30, 0.30, 0.33)
-	var c_act := Color(0.98, 0.86, 0.30)
-	var c_ov := Color(0.95, 0.52, 0.12)
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var solid := _rig.solid
-	var owner := _rig.owner
-	var ovl := _rig.overlap
-	for x in range(grid_x):
-		for y in range(grid_y):
-			var base := (x * grid_y + y) * grid_z
-			for z in range(grid_z):
-				var i := base + z
-				if solid[i] == 0:
-					continue
-				var col := c_dim
-				if ovl[i] == active:
-					col = c_ov
-				elif owner[i] == active:
-					col = c_act
-				var cell_depth: int = x if edit_axis == 0 else (y if edit_axis == 1 else z)
-				var origin := Vector3(x, y, z) * s
-				for fi in range(6):
-					var dv: Vector3i = dirs[fi][0]
-					var is_cap: bool = dv[edit_axis] == 1
-					var force_face: bool = is_cap and ceiling_y >= 0 and cell_depth == ceiling_y
-					if not force_face and _rig.is_solid(x + dv.x, y + dv.y, z + dv.z):
-						continue
-					var q: Array = quads[fi]
-					var nrm: Vector3 = dirs[fi][1]
-					_rig_add_quad(st, origin + q[0], origin + q[1], origin + q[2], origin + q[3], nrm, col)
-	return st.commit()
-
-func _rig_add_quad(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Vector3, normal: Vector3, color: Color) -> void:
-	_rig_add_tri(st, a, b, c, normal, color)
-	_rig_add_tri(st, a, c, d, normal, color)
-
-func _rig_add_tri(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, normal: Vector3, color: Color) -> void:
-	st.set_normal(normal)
-	st.set_color(color)
-	var cp := (b - a).cross(c - a)
-	if cp.dot(normal) < 0:
-		st.add_vertex(a); st.add_vertex(b); st.add_vertex(c)
-	else:
-		st.add_vertex(a); st.add_vertex(c); st.add_vertex(b)
 
 # ─── Ghost layer ───
 
@@ -1402,26 +999,26 @@ func _mirror_orientation_z(orientation: int) -> int:
 		_: new_corner = 0
 	return axis * 4 + new_corner
 
-func _place_with_mirror(pos: Vector3i, cell_type: int, orientation: int, color: int) -> void:
+func _place_with_mirror(pos: Vector3i, cell_type: int, orientation: int) -> void:
 	if _in_bounds(pos):
-		cells[pos.x][pos.y][pos.z] = CellTypes.make_cell(cell_type, orientation, color)
+		cells[pos.x][pos.y][pos.z] = CellTypes.make_cell(cell_type, orientation)
 	if _mirror_x:
 		var mx := _mirror_pos_x(pos)
 		if _in_bounds(mx):
 			var mo := _mirror_orientation_x(orientation) if cell_type == CellTypes.Type.PRISM else orientation
-			cells[mx.x][mx.y][mx.z] = CellTypes.make_cell(cell_type, mo, color)
+			cells[mx.x][mx.y][mx.z] = CellTypes.make_cell(cell_type, mo)
 	if _mirror_z:
 		var mz := _mirror_pos_z(pos)
 		if _in_bounds(mz):
 			var mo := _mirror_orientation_z(orientation) if cell_type == CellTypes.Type.PRISM else orientation
-			cells[mz.x][mz.y][mz.z] = CellTypes.make_cell(cell_type, mo, color)
+			cells[mz.x][mz.y][mz.z] = CellTypes.make_cell(cell_type, mo)
 	if _mirror_x and _mirror_z:
 		var mxz := _mirror_pos_x(_mirror_pos_z(pos))
 		if _in_bounds(mxz):
 			var mo := orientation
 			if cell_type == CellTypes.Type.PRISM:
 				mo = _mirror_orientation_x(_mirror_orientation_z(orientation))
-			cells[mxz.x][mxz.y][mxz.z] = CellTypes.make_cell(cell_type, mo, color)
+			cells[mxz.x][mxz.y][mxz.z] = CellTypes.make_cell(cell_type, mo)
 
 func _erase_with_mirror(pos: Vector3i) -> void:
 	if _in_bounds(pos):
@@ -1442,61 +1039,12 @@ func _erase_with_mirror(pos: Vector3i) -> void:
 # Surface bucket: flood the connected run of same-coloured faces that share the
 # clicked face's orientation, staying on that plane. Only exposed faces fill,
 # and the colour is read from the clicked face (prism-aware), not the top.
-func _bucket_fill(start: Vector3i, normal: Vector3i) -> void:
-	if normal == Vector3i.ZERO:
-		return
-	var start_cell: Array = cells[start.x][start.y][start.z]
-	var target: int = start_cell[_face_color_slot(start_cell, normal)]
-	if target == current_color:
-		return
-	_push_undo()
-	var axes := _plane_axes(normal)     # the two in-plane axes, perpendicular to normal
-	var queue: Array[Vector3i] = [start]
-	var visited := {start: true}
-	while not queue.is_empty():
-		var pos: Vector3i = queue.pop_front()
-		var cell: Array = cells[pos.x][pos.y][pos.z]
-		cell[_face_color_slot(cell, normal)] = current_color
-		for a in axes:
-			for s in [1, -1]:
-				var np: Vector3i = pos + a * s
-				if not _in_bounds(np) or visited.has(np):
-					continue
-				var nc: Array = cells[np.x][np.y][np.z]
-				if nc[0] == CellTypes.Type.EMPTY:
-					continue
-				var front: Vector3i = np + normal
-				var exposed: bool = not _in_bounds(front) or cells[front.x][front.y][front.z][0] == CellTypes.Type.EMPTY
-				if exposed and nc[_face_color_slot(nc, normal)] == target:
-					visited[np] = true
-					queue.append(np)
-	_mark_dirty()
-	_rebuild_mesh()
-
-func _face_color_slot(cell: Array, normal: Vector3i) -> int:
-	if cell[0] == CellTypes.Type.PRISM:
-		return CellTypes.prism_paint_slot(cell[1], normal)
-	return CellTypes.face_index_from_normal(normal)
-
 func _plane_axes(normal: Vector3i) -> Array:
 	if absi(normal.x) == 1:
 		return [Vector3i(0, 1, 0), Vector3i(0, 0, 1)]
 	if absi(normal.y) == 1:
 		return [Vector3i(1, 0, 0), Vector3i(0, 0, 1)]
 	return [Vector3i(1, 0, 0), Vector3i(0, 1, 0)]
-
-func _eyedrop_color(target: Vector3i) -> void:
-	var cell: Array = cells[target.x][target.y][target.z]
-	var picked_color: int
-	var face_normal := _hit_normal
-	if face_normal == Vector3i.ZERO:
-		picked_color = cell[2]
-	elif cell[0] == CellTypes.Type.PRISM:
-		picked_color = cell[CellTypes.prism_paint_slot(cell[1], face_normal)]
-	else:
-		picked_color = cell[CellTypes.face_index_from_normal(face_normal)]
-	current_color = picked_color
-	_color_picker_btn.color = CellTypes.decode_color(picked_color)
 
 func _draw_mirror_cursors(cursor_pos: Vector3i) -> void:
 	if not _mirror_x and not _mirror_z:
@@ -1544,25 +1092,10 @@ func _on_file_menu(id: int) -> void:
 		0: _new()
 		1: _open()
 		2: _save()
-		3: _import_png()
-		4: _import_character_sprites()
-		5: _import_block_texture()
-		6: _export_obj()
+		5: _open_shape_library()
+		6: _export_model()
 		7: _save_as()
 		9: _export_slab_part()
-
-func _on_mode_pressed(btn: BaseButton) -> void:
-	var target_mode := EditMode.BLOCK if btn.text == "Block" else EditMode.CHARACTER
-	if target_mode == edit_mode:
-		return
-	if _unsaved_changes:
-		_pending_action = "mode_block" if target_mode == EditMode.BLOCK else "mode_character"
-		var buttons := mode_group.get_buttons()
-		buttons[0].button_pressed = edit_mode == EditMode.BLOCK
-		buttons[1].button_pressed = edit_mode == EditMode.CHARACTER
-		confirm_dialog.popup_centered()
-		return
-	_do_set_edit_mode(target_mode)
 
 func _on_tool_pressed(btn: BaseButton) -> void:
 	# Rect/Oval buttons append a center-draw suffix (" (C)"/" (J)") to their
@@ -1572,28 +1105,20 @@ func _on_tool_pressed(btn: BaseButton) -> void:
 		tool_name = tool_name.substr(0, tool_name.length() - 4)
 	match tool_name:
 		"Pencil": current_tool = ToolType.PENCIL
-		"Paint": current_tool = ToolType.PAINT
-		"Bucket": current_tool = ToolType.BUCKET
 		"Box Fill": current_tool = ToolType.BOX
 		"Eraser": current_tool = ToolType.ERASER
 		"Box Erase": current_tool = ToolType.BOX_ERASE
-		"Eyedrop": current_tool = ToolType.EYEDROP
 		"Extrude": current_tool = ToolType.EXTRUDE
 		"Line": current_tool = ToolType.LINE
 		"Rect": current_tool = ToolType.RECT
 		"Oval": current_tool = ToolType.OVAL
 		"Smooth": current_tool = ToolType.SMOOTH_EDGE
 		"Shift": current_tool = ToolType.SHIFT
-		"Rig Paint": current_tool = ToolType.RIG_PAINT
 	_cancel_box()
 	_cancel_extrude()
 	_cancel_smooth()
 	if shift_panel:
 		shift_panel.visible = current_tool == ToolType.SHIFT
-	if current_tool == ToolType.RIG_PAINT:
-		_enter_rig_paint()
-	else:
-		_exit_rig_paint()
 
 func _on_type_pressed(btn: BaseButton) -> void:
 	if btn.text == "Solid":
@@ -1603,16 +1128,6 @@ func _on_type_pressed(btn: BaseButton) -> void:
 		current_type = CellTypes.Type.PRISM
 		orient_container.visible = true
 	_update_raycast()
-
-func _on_color_pressed(btn: BaseButton) -> void:
-	var buttons := color_group.get_buttons()
-	for i in range(buttons.size()):
-		if buttons[i] == btn:
-			current_color = CellTypes.encode_rgb565(CellTypes.FAVORITES[i])
-			break
-
-func _on_color_picker_changed(color: Color) -> void:
-	current_color = CellTypes.encode_rgb565(color)
 
 func _cycle_orientation(delta: int) -> void:
 	current_orientation = (current_orientation + delta) % 12
@@ -1685,50 +1200,6 @@ func _set_edit_axis(axis: int) -> void:
 	_rebuild_grid()
 	_update_raycast()
 
-func _set_edit_mode(mode: int) -> void:
-	if mode == edit_mode:
-		return
-	if _unsaved_changes:
-		_pending_action = "mode_block" if mode == EditMode.BLOCK else "mode_character"
-		confirm_dialog.popup_centered()
-		return
-	_do_set_edit_mode(mode)
-
-func _do_set_edit_mode(mode: int) -> void:
-	if _has_ghost:
-		_clear_ghost()   # grid size changes; a stale ghost would misalign
-	edit_mode = mode
-	_undo_stack.clear()
-	if edit_mode == EditMode.BLOCK:
-		grid_x = 32; grid_y = 32; grid_z = 32
-		CELL_SIZE = 1.0 / BLOCK_RES
-	else:
-		grid_x = CHAR_GX; grid_y = CHAR_GY; grid_z = CHAR_GZ
-		CELL_SIZE = 1.0 / CHAR_RES
-	current_file_path = ""
-	_suggested_name = ""
-	_unsaved_changes = false
-	place_cell = Vector3i(-1, -1, -1)
-	target_cell = Vector3i(-1, -1, -1)
-	cursor_mesh_instance.visible = false
-	_cancel_box()
-	floor_y = 0
-	floor_slider.max_value = _axis_size(edit_axis) - 1
-	floor_slider.set_value_no_signal(0)
-	floor_value_label.text = "%s = 0" % _axis_letter()
-	ceiling_y = -1
-	ceiling_slider.max_value = _axis_size(edit_axis) - 1
-	ceiling_slider.set_value_no_signal(-1)
-	ceiling_value_label.text = "Off"
-	_ceiling_locked = false
-	ceiling_lock_btn.set_pressed_no_signal(false)
-	_init_cells()
-	_rebuild_mesh()
-	_rebuild_grid()
-	_rebuild_axis_overlay()
-	_center_camera()
-	_update_file_label()
-
 # ─── Input ───
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -1744,7 +1215,6 @@ func _unhandled_input(event: InputEvent) -> void:
 					get_viewport().set_input_as_handled(); return
 				KEY_O: _open(); get_viewport().set_input_as_handled(); return
 				KEY_N: _new(); get_viewport().set_input_as_handled(); return
-				KEY_I: _import_png(); get_viewport().set_input_as_handled(); return
 
 		match event.keycode:
 			KEY_TAB:
@@ -1766,14 +1236,6 @@ func _unhandled_input(event: InputEvent) -> void:
 				_cancel_box()
 				_cancel_extrude()
 				_cancel_smooth()
-			KEY_1: _select_color(0)
-			KEY_2: _select_color(1)
-			KEY_3: _select_color(2)
-			KEY_4: _select_color(3)
-			KEY_5: _select_color(4)
-			KEY_6: _select_color(5)
-			KEY_7: _select_color(6)
-			KEY_8: _select_color(7)
 
 	if event is InputEventKey and event.keycode == KEY_SHIFT:
 		if box_active and current_tool in [ToolType.LINE, ToolType.RECT, ToolType.OVAL]:
@@ -1816,13 +1278,6 @@ func _toggle_type() -> void:
 	buttons[0].button_pressed = current_type == CellTypes.Type.SOLID
 	buttons[1].button_pressed = current_type == CellTypes.Type.PRISM
 	_update_raycast()
-
-func _select_color(idx: int) -> void:
-	if idx < CellTypes.FAVORITES.size():
-		current_color = CellTypes.encode_rgb565(CellTypes.FAVORITES[idx])
-		var buttons := color_group.get_buttons()
-		if idx < buttons.size():
-			buttons[idx].button_pressed = true
 
 # ─── Raycasting ───
 
@@ -1901,7 +1356,7 @@ func _update_raycast() -> void:
 
 	# Update cursor display
 	var cursor_pos: Vector3i
-	if current_tool == ToolType.ERASER or current_tool == ToolType.BOX_ERASE or current_tool == ToolType.EXTRUDE or current_tool == ToolType.SMOOTH_EDGE or current_tool == ToolType.PAINT:
+	if current_tool == ToolType.ERASER or current_tool == ToolType.BOX_ERASE or current_tool == ToolType.EXTRUDE or current_tool == ToolType.SMOOTH_EDGE:
 		cursor_pos = target_cell
 	else:
 		cursor_pos = place_cell
@@ -2097,7 +1552,7 @@ func _on_left_click() -> void:
 		ToolType.PENCIL:
 			if _in_bounds(place_cell):
 				_push_undo()
-				_place_with_mirror(place_cell, current_type, current_orientation, current_color)
+				_place_with_mirror(place_cell, current_type, current_orientation)
 				_mark_dirty()
 				_mark_mirror_chunks_dirty(place_cell)
 		ToolType.BOX:
@@ -2107,7 +1562,7 @@ func _on_left_click() -> void:
 					box_active = true
 			else:
 				if _in_bounds(place_cell):
-					_fill_region(box_start, place_cell, current_type, current_orientation, current_color)
+					_fill_region(box_start, place_cell, current_type, current_orientation)
 				_cancel_box()
 		ToolType.ERASER:
 			if _in_bounds(target_cell) and cells[target_cell.x][target_cell.y][target_cell.z][0] != CellTypes.Type.EMPTY:
@@ -2115,37 +1570,6 @@ func _on_left_click() -> void:
 				_erase_with_mirror(target_cell)
 				_mark_dirty()
 				_mark_mirror_chunks_dirty(target_cell)
-		ToolType.PAINT:
-			if _in_bounds(target_cell) and cells[target_cell.x][target_cell.y][target_cell.z][0] != CellTypes.Type.EMPTY:
-				var face_normal := _hit_normal
-				if face_normal == Vector3i.ZERO:
-					return
-				var _pcell: Array = cells[target_cell.x][target_cell.y][target_cell.z]
-				var fi := CellTypes.prism_paint_slot(_pcell[1], face_normal) if _pcell[0] == CellTypes.Type.PRISM else CellTypes.face_index_from_normal(face_normal)
-				_push_undo()
-				cells[target_cell.x][target_cell.y][target_cell.z][fi] = current_color
-				if _mirror_x:
-					var mx := _mirror_pos_x(target_cell)
-					if _in_bounds(mx):
-						cells[mx.x][mx.y][mx.z][fi] = current_color
-				if _mirror_z:
-					var mz := _mirror_pos_z(target_cell)
-					if _in_bounds(mz):
-						cells[mz.x][mz.y][mz.z][fi] = current_color
-				if _mirror_x and _mirror_z:
-					var mxz := _mirror_pos_x(_mirror_pos_z(target_cell))
-					if _in_bounds(mxz):
-						cells[mxz.x][mxz.y][mxz.z][fi] = current_color
-				_mark_dirty()
-				_mark_mirror_chunks_dirty(target_cell)
-		ToolType.BUCKET:
-			if _in_bounds(target_cell) and cells[target_cell.x][target_cell.y][target_cell.z][0] != CellTypes.Type.EMPTY:
-				_bucket_fill(target_cell, _hit_normal)
-		ToolType.EYEDROP:
-			if _in_bounds(target_cell) and cells[target_cell.x][target_cell.y][target_cell.z][0] != CellTypes.Type.EMPTY:
-				_eyedrop_color(target_cell)
-		ToolType.RIG_PAINT:
-			_rig_paint_cell(target_cell)
 		ToolType.BOX_ERASE:
 			if not box_active:
 				if _in_bounds(target_cell):
@@ -2175,7 +1599,7 @@ func _on_left_click() -> void:
 						ToolType.RECT: shape_cells = _get_rect_cells(result[0], result[1], result[2])
 						ToolType.OVAL: shape_cells = _get_oval_cells(result[0], result[1], result[2])
 					for cell in shape_cells:
-						_place_with_mirror(cell, current_type, current_orientation, current_color)
+						_place_with_mirror(cell, current_type, current_orientation)
 					_mark_dirty()
 					_rebuild_mesh()
 				_cancel_box()
@@ -2437,8 +1861,7 @@ func _on_smooth_apply() -> void:
 			# Place prism at the chamfer surface
 			var prism_pos: Vector3i = ep - smooth_normal_a * i - smooth_normal_b * (depth - 1 - i)
 			if _in_bounds(prism_pos) and cells[prism_pos.x][prism_pos.y][prism_pos.z][0] != CellTypes.Type.EMPTY:
-				var old_color: int = cells[prism_pos.x][prism_pos.y][prism_pos.z][2]
-				cells[prism_pos.x][prism_pos.y][prism_pos.z] = CellTypes.make_cell(CellTypes.Type.PRISM, orientation, old_color)
+				cells[prism_pos.x][prism_pos.y][prism_pos.z] = CellTypes.make_cell(CellTypes.Type.PRISM, orientation)
 
 	smooth_path.clear()
 	box_preview_instance.visible = false
@@ -2541,8 +1964,6 @@ func _find_coplanar_surface(start: Vector3i, normal: Vector3i) -> Array:
 	var visited := {}
 	var queue: Array = [start]
 	visited[start] = true
-	var face_ci := CellTypes.face_index_from_normal(normal)
-	var start_color: int = cells[start.x][start.y][start.z][face_ci]
 
 	var dirs: Array = []
 	if normal.x != 0:
@@ -2557,8 +1978,6 @@ func _find_coplanar_surface(start: Vector3i, normal: Vector3i) -> Array:
 		if not _in_bounds(cell):
 			continue
 		if cells[cell.x][cell.y][cell.z][0] == CellTypes.Type.EMPTY:
-			continue
-		if cells[cell.x][cell.y][cell.z][face_ci] != start_color:
 			continue
 		var face_neighbor: Vector3i = cell + normal
 		if _in_bounds(face_neighbor) and cells[face_neighbor.x][face_neighbor.y][face_neighbor.z][0] != CellTypes.Type.EMPTY:
@@ -2627,14 +2046,14 @@ func _draw_extrude_preview() -> void:
 		mat.albedo_color = Color(1, 0, 0, 0.6)
 	box_preview_instance.visible = true
 
-func _fill_region(a: Vector3i, b: Vector3i, cell_type: int, orientation: int, color_idx: int) -> void:
+func _fill_region(a: Vector3i, b: Vector3i, cell_type: int, orientation: int) -> void:
 	_push_undo()
 	var mn := Vector3i(mini(a.x, b.x), mini(a.y, b.y), mini(a.z, b.z))
 	var mx := Vector3i(maxi(a.x, b.x), maxi(a.y, b.y), maxi(a.z, b.z))
 	for x in range(maxi(0, mn.x), mini(grid_x, mx.x + 1)):
 		for y in range(maxi(0, mn.y), mini(grid_y, mx.y + 1)):
 			for z in range(maxi(0, mn.z), mini(grid_z, mx.z + 1)):
-				_place_with_mirror(Vector3i(x, y, z), cell_type, orientation, color_idx)
+				_place_with_mirror(Vector3i(x, y, z), cell_type, orientation)
 	_mark_dirty()
 	_rebuild_mesh()
 
@@ -2967,8 +2386,8 @@ func _do_new() -> void:
 func _save_to_path(path: String) -> void:
 	DirAccess.make_dir_recursive_absolute(path.get_base_dir())
 	var def := VoxelDefinition.new()
-	def.set_from_cells(cells, grid_x, grid_y, grid_z, edit_mode)
-	def.block_shape = _current_block_tex_layout
+	def.set_from_cells(cells, grid_x, grid_y, grid_z)
+	def.block_shape = _shape_id
 	# Binary .res honours FLAG_COMPRESS (lossless); the mostly-empty cell grid
 	# shrinks from ~14 MB to ~30 KB. Text .tres ignores the flag but still works.
 	if ResourceSaver.save(def, path, ResourceSaver.FLAG_COMPRESS) == OK:
@@ -2986,299 +2405,94 @@ func _on_save_file_selected(path: String) -> void:
 func _on_open_file_selected(path: String) -> void:
 	_load_from_path(path)
 
-func _import_png() -> void:
-	import_dialog.popup_centered()
 
-func _on_import_file_selected(path: String) -> void:
-	var image := Image.new()
-	if image.load(path) != OK:
-		return
+# ─── Shape library ───
+# The predefined shapes are geometry now, so picking one is a direct choice of
+# shape plus orientation — no atlas, no import step.
 
-	if image.get_width() != grid_x or image.get_height() != grid_y:
-		image.resize(grid_x, grid_y, Image.INTERPOLATE_NEAREST)
+const _SHAPE_LIBRARY := ["cube", "ramp", "gable", "diagwall", "diamond",
+	"chamfered", "cross", "panel", "slab_quarter", "slab_half", "stairs_4",
+	"pipe_quarter", "octagon_full", "octagon_half"]
 
-	var has_alpha := CellTypes.image_has_alpha(image)
-	_push_undo()
-	for px in range(image.get_width()):
-		for py in range(image.get_height()):
-			var color := image.get_pixel(px, py)
-			if color.a < 0.5:
-				continue
-			var cell_x := px
-			var cell_y := grid_y - 1 - py
-			if cell_x >= 0 and cell_x < grid_x and cell_y >= 0 and cell_y < grid_y:
-				var encoded: int
-				if has_alpha:
-					encoded = CellTypes.encode_rgb5551(color)
-				else:
-					encoded = CellTypes.encode_rgb565(color)
-				cells[cell_x][cell_y][0] = CellTypes.make_cell(CellTypes.Type.SOLID, 0, encoded)
 
-	_mark_dirty()
-	_rebuild_mesh()
-
-func _import_block_texture() -> void:
-	if _unsaved_changes:
-		_pending_action = "import_block"
-		confirm_dialog.popup_centered()
-		return
-	_do_import_block_texture()
-
-# Strip a texture path down to the naming-convention base (block ID form):
-# drop the extension, then a trailing dimension token like "_64x32" / "_124x32".
-# e.g. "res://tex/wall_brick_new_64x32.png" -> "wall_brick_new".
-func _naming_basename(path: String) -> String:
-	var base := path.get_file().get_basename()
-	var re := RegEx.new()
-	re.compile("_\\d+x\\d+$")
-	var m := re.search(base)
-	if m:
-		base = base.substr(0, m.get_start())
-	return base
-
-func _do_import_block_texture() -> void:
-	if edit_mode != EditMode.BLOCK:
-		_do_set_edit_mode(EditMode.BLOCK)
-		var buttons := mode_group.get_buttons()
-		buttons[0].button_pressed = true
-	import_block_dialog.popup_centered()
-
-func _on_block_texture_selected(path: String) -> void:
-	var image := Image.new()
-	if image.load(path) != OK:
-		return
-	_block_tex_basename = _naming_basename(path)
-
-	var w := image.get_width()
-	var h := image.get_height()
-	var layout := CellTypes.validate_block_texture(w, h, grid_x, grid_y)
-	if layout == "":
-		_show_texture_size_error(w, h)
-		return
-	_block_tex_source_img = image
-	_block_tex_layout = layout
-
-	if layout in ["ramp", "gable", "diagwall", "diamond", "chamfered", "cross",
-			"panel", "slab_quarter", "slab_half", "stairs_4", "pipe_quarter"]:
-		_setup_shape_import(image, layout)
-		return
-
-	# Slice via the shared importer so manual and batch paths never diverge.
-	var faces := BlockImporter.slice_faces(image, layout, grid_x, grid_y)
-	var is_octagon := layout == "octagon_full" or layout == "octagon_half"
-	var octagon_fp := BlockImporter.octagon_footprint(layout, grid_x) if is_octagon else 0
-	var format_name := _block_tex_format_name(layout, w, h)
-
-	_block_tex_shape = ""
-	_block_tex_faces = faces
-	_block_tex_has_alpha = CellTypes.image_has_alpha(image)
-	_block_tex_is_octagon = is_octagon
-	_block_tex_octagon_footprint = octagon_fp
-	var color_mode := "RGB5551" if _block_tex_has_alpha else "RGB565"
-	_block_tex_format_label.text = "Detected: " + format_name + "  |  Color: " + color_mode
-
-	_rebuild_block_tex_preview(is_octagon)
-	for key in faces:
-		if key in _block_tex_previews:
-			var tex := ImageTexture.create_from_image(faces[key])
-			_block_tex_previews[key].texture = tex
-
-	block_tex_wizard.popup_centered()
-
-func _show_texture_size_error(w: int, h: int) -> void:
-	var full_w := CellTypes.octagon_atlas_width(grid_x)
-	var half_w := CellTypes.octagon_atlas_width(grid_x / 2)
-	var msg := "Unsupported texture size: %d×%d\n\nLegal sizes:\n" % [w, h]
-	msg += "  %d×%d  — Uniform cube\n" % [grid_x, grid_y]
-	msg += "  %d×%d  — Capped cube (four sides | top+bottom cap)\n" % [grid_x * 2, grid_y]
-	msg += "  %d×%d  — 6-face net cube\n" % [grid_x * 3, grid_y * 2]
-	msg += "  %d×%d — Full octagon (F=%d)\n" % [full_w, grid_y, grid_x]
-	msg += "  %d×%d  — Half octagon (F=%d)\n" % [half_w, grid_y, grid_x / 2]
-	if grid_x == 32 and grid_y == 32:
-		msg += "\nPredefined shapes (block mode):\n"
-		msg += "  96×32 diamond · 144×32 chamfered · 160×32 cross\n"
-		msg += "  128×64 ramp · 128×48 gable · 112×32 diagonal wall\n"
-		msg += "  64×34 panel · 64×48 slab_quarter · 64×64 slab_half\n"
-		msg += "  80×64 stairs_4 · 120×32 pipe_quarter\n"
-	var dlg := AcceptDialog.new()
-	dlg.title = "Unsupported Texture Size"
-	dlg.dialog_text = msg
-	dlg.confirmed.connect(dlg.queue_free)
-	dlg.canceled.connect(dlg.queue_free)
-	add_child(dlg)
-	dlg.popup_centered()
-
-func _setup_block_tex_wizard() -> void:
-	block_tex_wizard = AcceptDialog.new()
-	block_tex_wizard.title = "Import Block Texture"
-	block_tex_wizard.ok_button_text = "Apply"
-	block_tex_wizard.confirmed.connect(_on_block_tex_apply)
-	add_child(block_tex_wizard)
+func _setup_shape_library() -> void:
+	shape_dialog = AcceptDialog.new()
+	shape_dialog.title = "Shape Library"
+	shape_dialog.ok_button_text = "Build"
+	shape_dialog.confirmed.connect(_on_shape_library_confirmed)
+	add_child(shape_dialog)
 
 	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 6)
-	block_tex_wizard.add_child(vbox)
+	vbox.add_theme_constant_override("separation", 8)
+	shape_dialog.add_child(vbox)
 
-	_block_tex_format_label = Label.new()
-	_block_tex_format_label.add_theme_font_size_override("font_size", 13)
-	vbox.add_child(_block_tex_format_label)
+	var hint := Label.new()
+	hint.text = "Replaces the current model with a library shape."
+	vbox.add_child(hint)
 
-	var orient_row := HBoxContainer.new()
-	var orient_lbl := Label.new()
-	orient_lbl.text = "Orientation:"
-	orient_row.add_child(orient_lbl)
-	_block_tex_orient_option = OptionButton.new()
-	orient_row.add_child(_block_tex_orient_option)
-	orient_row.visible = false
-	vbox.add_child(orient_row)
-	_block_tex_orient_row = orient_row
+	var srow := HBoxContainer.new()
+	srow.add_child(_label("Shape"))
+	_shape_pick = OptionButton.new()
+	for id in _SHAPE_LIBRARY:
+		_shape_pick.add_item(id.replace("_", "-"))
+	_shape_pick.item_selected.connect(func(_i: int): _refresh_shape_orients())
+	srow.add_child(_shape_pick)
+	vbox.add_child(srow)
 
-	vbox.add_child(HSeparator.new())
+	_shape_orient_row = HBoxContainer.new()
+	_shape_orient_row.add_child(_label("Orientation"))
+	_shape_orient_pick = OptionButton.new()
+	_shape_orient_row.add_child(_shape_orient_pick)
+	vbox.add_child(_shape_orient_row)
 
-	_block_tex_previews = {}
-	_block_tex_preview_grid = GridContainer.new()
-	_block_tex_preview_grid.columns = 3
-	_block_tex_preview_grid.add_theme_constant_override("h_separation", 12)
-	_block_tex_preview_grid.add_theme_constant_override("v_separation", 8)
-	vbox.add_child(_block_tex_preview_grid)
 
-	_rebuild_block_tex_preview(false)
+func _label(text: String) -> Label:
+	var l := Label.new()
+	l.text = text
+	l.custom_minimum_size = Vector2(90, 0)
+	return l
 
-	vbox.add_child(HSeparator.new())
-	_block_tex_hint_label = Label.new()
-	_block_tex_hint_label.text = "Cubes: 32, 64 (capped), 96 net · Octagon 124/60 · Shapes (block mode): 96 diamond, 144 chamfered, 160 cross, 128×64 ramp, 128×48 gable, 112 diagwall, 64×34/48/64 panel/slabs, 80×64 stairs_4, 120 pipe_quarter"
-	_block_tex_hint_label.add_theme_font_size_override("font_size", 11)
-	_block_tex_hint_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.7))
-	_block_tex_hint_label.autowrap_mode = TextServer.AUTOWRAP_WORD
-	vbox.add_child(_block_tex_hint_label)
 
-func _rebuild_block_tex_preview(octagon: bool) -> void:
-	for child in _block_tex_preview_grid.get_children():
-		_block_tex_preview_grid.remove_child(child)
-		child.queue_free()
-	_block_tex_previews.clear()
+func _selected_shape() -> String:
+	var i: int = _shape_pick.selected
+	return _SHAPE_LIBRARY[i if i >= 0 else 0]
 
-	var names: Array
-	var labels: Array
-	if octagon:
-		_block_tex_preview_grid.columns = 3
-		names = ["east", "ne", "north", "nw", "west", "sw", "south", "se", "cap"]
-		labels = ["East (+X)", "NE", "North (+Z)", "NW", "West (-X)", "SW", "South (-Z)", "SE", "Cap (Top/Bot)"]
-	else:
-		_block_tex_preview_grid.columns = 3
-		names = ["top", "front", "right", "bottom", "back", "left"]
-		labels = ["Top (+Y)", "Front (+Z)", "Right (+X)", "Bottom (-Y)", "Back (-Z)", "Left (-X)"]
 
-	for i in range(names.size()):
-		var col := VBoxContainer.new()
-		col.add_theme_constant_override("separation", 2)
-		_block_tex_preview_grid.add_child(col)
-
-		var lbl := Label.new()
-		lbl.text = labels[i]
-		lbl.add_theme_font_size_override("font_size", 11)
-		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		col.add_child(lbl)
-
-		var tex_rect := TextureRect.new()
-		tex_rect.custom_minimum_size = Vector2(80, 80) if octagon else Vector2(96, 96)
-		tex_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		tex_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		tex_rect.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-		col.add_child(tex_rect)
-
-		_block_tex_previews[names[i]] = tex_rect
-
-func _on_block_tex_apply() -> void:
-	# An imported block texture is a fresh document; suggest its naming-convention
-	# name for Save/Export and drop any previously-open file path.
-	if not _block_tex_basename.is_empty():
-		_suggested_name = _block_tex_basename
-		current_file_path = ""
-
-	# Remember the applied atlas so the Texture Editor can open on it.
-	if _block_tex_source_img != null:
-		_current_block_tex = _block_tex_source_img
-		_current_block_tex_layout = _block_tex_layout
-
-	if _block_tex_shape != "":
-		_apply_shape_block()
-		return
-
-	if _block_tex_faces.is_empty():
-		return
-
-	var faces := _block_tex_faces
-	_block_tex_faces = {}
-
-	_push_undo()
-	_init_cells()
-	if _block_tex_is_octagon:
-		cells = BlockImporter.build_octagon(faces, _block_tex_octagon_footprint, grid_x, grid_y, grid_z, _block_tex_has_alpha)
-	else:
-		cells = BlockImporter.build_cube(faces, _block_tex_has_alpha, grid_x, grid_y, grid_z)
-	_mark_dirty()
-	_rebuild_mesh()
-
-func _block_tex_format_name(layout: String, w: int, h: int) -> String:
-	match layout:
-		"octagon_full": return "Full Octagon (%d×%d)" % [w, h]
-		"octagon_half": return "Half Octagon (%d×%d)" % [w, h]
-		"net": return "6-Face Net (%d×%d)" % [w, h]
-		"capped": return "Capped (%d×%d)" % [w, h]
-		_: return "Uniform (%d×%d)" % [w, h]
-
-func _setup_shape_import(image: Image, shape: String) -> void:
-	_block_tex_shape = shape
-	_block_tex_shape_img = image
-	_block_tex_is_octagon = false
-	_block_tex_faces = {}
-	_block_tex_has_alpha = CellTypes.image_has_alpha(image)
-	var color_mode := "RGB5551" if _block_tex_has_alpha else "RGB565"
-	var pretty := shape.capitalize()
-	_block_tex_format_label.text = "Detected: %s (%d×%d)  |  Color: %s" % [pretty, image.get_width(), image.get_height(), color_mode]
-
-	# Populate / show the orientation dropdown for shapes that need it.
-	_block_tex_orient_option.clear()
+# Only some shapes have a meaningful orientation choice; hide the row for the
+# rest rather than showing an empty dropdown.
+func _refresh_shape_orients() -> void:
+	var shape := _selected_shape()
+	_shape_orient_pick.clear()
 	if _SHAPE_ORIENTS.has(shape):
 		for entry in _SHAPE_ORIENTS[shape]:
-			_block_tex_orient_option.add_item(entry[0])
-		_block_tex_orient_row.visible = true
+			_shape_orient_pick.add_item(entry[0])
+		_shape_orient_pick.select(0)
+		_shape_orient_row.visible = true
 	else:
-		_block_tex_orient_row.visible = false
+		_shape_orient_row.visible = false
 
-	# Single atlas preview (shapes don't use the 6-face grid).
-	_rebuild_block_tex_preview(false)
-	for key in _block_tex_previews:
-		_block_tex_previews[key].texture = null
-	if _block_tex_previews.has("front"):
-		_block_tex_previews["front"].texture = ImageTexture.create_from_image(image)
 
-	block_tex_wizard.popup_centered()
+func _open_shape_library() -> void:
+	_refresh_shape_orients()
+	shape_dialog.popup_centered()
 
-func _current_shape_orient_opt() -> Dictionary:
-	if not _SHAPE_ORIENTS.has(_block_tex_shape):
-		return {}
-	var idx: int = _block_tex_orient_option.selected
-	if idx < 0:
-		idx = 0
-	var entry: Array = _SHAPE_ORIENTS[_block_tex_shape][idx]
-	return entry[1]
 
-func _apply_shape_block() -> void:
-	var shape := _block_tex_shape
-	if shape == "" or _block_tex_shape_img == null:
-		_block_tex_shape = ""
-		return
-	var opt := _current_shape_orient_opt()
-	_block_tex_shape = ""
+func _on_shape_library_confirmed() -> void:
+	var shape := _selected_shape()
+	var opt := {}
+	if _SHAPE_ORIENTS.has(shape):
+		var idx: int = maxi(_shape_orient_pick.selected, 0)
+		opt = _SHAPE_ORIENTS[shape][idx][1]
 	_push_undo()
 	_init_cells()
-	cells = ShapeBuilder.build(shape, _block_tex_shape_img, _block_tex_has_alpha, grid_x, grid_y, grid_z, opt)
+	cells = ShapeBuilder.build(shape, grid_x, grid_y, grid_z, opt)
+	# Record which shape this is, so save keeps it and export can name the file.
+	_shape_id = shape
+	_suggested_name = shape.replace("_", "-")
 	_mark_dirty()
 	_rebuild_mesh()
 
-func _export_obj() -> void:
+func _export_model() -> void:
 	export_dialog.current_dir = "res://definitions"
 	var base := _export_default_base()
 	if not base.is_empty():
@@ -3300,7 +2514,7 @@ func _export_default_base() -> String:
 		return current_file_path.get_file().get_basename()
 	return _suggested_name
 
-func _on_export_obj_selected(path: String) -> void:
+func _on_export_selected(path: String) -> void:
 	var slab := _export_slab_mode
 	_export_slab_mode = false
 	if slab:
@@ -3317,256 +2531,17 @@ func _on_export_obj_selected(path: String) -> void:
 		var tris := MeshExporter.export_glb_region(path, cells, grid_x, grid_y, grid_z, CELL_SIZE, bmin, bmax)
 		dims_label.text = "Exported part: %d triangles" % tris if tris > 0 else "Export failed (empty slab?)"
 		return
-	if path.get_extension().to_lower() == "obj":
-		var face_count := MeshExporter.export_obj(path, cells, grid_x, grid_y, grid_z, CELL_SIZE)
-		dims_label.text = "Exported %d faces (OBJ)" % face_count if face_count > 0 else "Export failed"
+	if path.get_extension() == "":
+		path += ".glb"
+	var tris := MeshExporter.export_glb(path, cells, grid_x, grid_y, grid_z, CELL_SIZE)
+	if tris > 0:
+		dims_label.text = "Exported %d triangles (glb)" % tris
+	elif tris < 0:
+		# Say which rule failed, not just that it failed — a bad export the
+		# user cannot diagnose is barely better than a silent one.
+		dims_label.text = "Export refused: %s" % MeshExporter.last_export_errors[0]
 	else:
-		if path.get_extension() == "":
-			path += ".glb"
-		var tris := MeshExporter.export_glb(path, cells, grid_x, grid_y, grid_z, CELL_SIZE)
-		dims_label.text = "Exported %d triangles (glb)" % tris if tris > 0 else "Export failed"
-
-func _import_character_sprites() -> void:
-	if _unsaved_changes:
-		_pending_action = "import_sprites"
-		confirm_dialog.popup_centered()
-		return
-	_do_import_character_sprites()
-
-func _do_import_character_sprites() -> void:
-	if edit_mode != EditMode.CHARACTER:
-		_do_set_edit_mode(EditMode.CHARACTER)
-		var buttons := mode_group.get_buttons()
-		buttons[1].button_pressed = true
-	_front_image = null
-	import_front_dialog.popup_centered()
-
-func _on_front_sprite_selected(path: String) -> void:
-	_front_image = Image.new()
-	if _front_image.load(path) != OK:
-		_front_image = null
-		return
-	_wizard_front_label.text = "Front: " + path.get_file()
-	import_side_dialog.popup_centered()
-
-func _on_side_sprite_selected(path: String) -> void:
-	if _front_image == null:
-		return
-	_side_image = Image.new()
-	if _side_image.load(path) != OK:
-		_side_image = null
-		return
-	_wizard_front_label.text = "Front"
-	_wizard_side_label.text = "Side"
-	_wizard_front_preview.texture = ImageTexture.create_from_image(_front_image)
-	_wizard_front_preview.flip_h = false
-	_wizard_front_preview.custom_minimum_size = Vector2(_front_image.get_width() * 2, _front_image.get_height() * 2)
-	_wizard_side_preview.texture = ImageTexture.create_from_image(_side_image)
-	_wizard_side_preview.flip_h = false
-	_wizard_side_preview.custom_minimum_size = Vector2(_side_image.get_width() * 2, _side_image.get_height() * 2)
-	var front_perfect := _front_image.get_width() == grid_x and _front_image.get_height() == grid_y
-	var side_perfect := _side_image.get_width() == grid_z and _side_image.get_height() == grid_y
-	_wizard_front_size_label.text = "%dx%d" % [_front_image.get_width(), _front_image.get_height()]
-	if front_perfect:
-		_wizard_front_size_label.add_theme_color_override("font_color", Color(0.5, 0.8, 0.5))
-	else:
-		_wizard_front_size_label.text += " (will scale to %dx%d)" % [grid_x, grid_y]
-		_wizard_front_size_label.add_theme_color_override("font_color", Color(0.9, 0.7, 0.3))
-	_wizard_side_size_label.text = "%dx%d" % [_side_image.get_width(), _side_image.get_height()]
-	if side_perfect:
-		_wizard_side_size_label.add_theme_color_override("font_color", Color(0.5, 0.8, 0.5))
-	else:
-		_wizard_side_size_label.text += " (will scale to %dx%d)" % [grid_z, grid_y]
-		_wizard_side_size_label.add_theme_color_override("font_color", Color(0.9, 0.7, 0.3))
-	_wizard_flip_side.button_pressed = false
-	sprite_wizard.popup_centered()
-
-func _setup_sprite_wizard() -> void:
-	sprite_wizard = AcceptDialog.new()
-	sprite_wizard.title = "Character Sprite Import"
-	sprite_wizard.ok_button_text = "Generate"
-	sprite_wizard.confirmed.connect(_on_wizard_generate)
-	add_child(sprite_wizard)
-
-	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 6)
-	sprite_wizard.add_child(vbox)
-
-	# Image previews side by side
-	var preview_row := HBoxContainer.new()
-	preview_row.add_theme_constant_override("separation", 12)
-	preview_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	vbox.add_child(preview_row)
-
-	# Front column
-	var front_col := VBoxContainer.new()
-	front_col.add_theme_constant_override("separation", 2)
-	preview_row.add_child(front_col)
-	_wizard_front_label = Label.new()
-	_wizard_front_label.text = "Front"
-	_wizard_front_label.add_theme_font_size_override("font_size", 13)
-	_wizard_front_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	front_col.add_child(_wizard_front_label)
-	_wizard_front_preview = TextureRect.new()
-	_wizard_front_preview.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	_wizard_front_preview.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	_wizard_front_preview.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	front_col.add_child(_wizard_front_preview)
-	_wizard_front_size_label = Label.new()
-	_wizard_front_size_label.add_theme_font_size_override("font_size", 10)
-	_wizard_front_size_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	front_col.add_child(_wizard_front_size_label)
-
-	# Side column with Front/Back edge labels
-	var side_col := VBoxContainer.new()
-	side_col.add_theme_constant_override("separation", 2)
-	preview_row.add_child(side_col)
-	_wizard_side_label = Label.new()
-	_wizard_side_label.text = "Side"
-	_wizard_side_label.add_theme_font_size_override("font_size", 13)
-	_wizard_side_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	side_col.add_child(_wizard_side_label)
-	var side_outer := HBoxContainer.new()
-	side_outer.add_theme_constant_override("separation", 4)
-	side_col.add_child(side_outer)
-	var side_left_lbl := Label.new()
-	side_left_lbl.text = "F\nr\no\nn\nt"
-	side_left_lbl.add_theme_font_size_override("font_size", 10)
-	side_left_lbl.add_theme_color_override("font_color", Color(0.5, 0.8, 0.5))
-	side_left_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	side_outer.add_child(side_left_lbl)
-	_wizard_side_preview = TextureRect.new()
-	_wizard_side_preview.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	_wizard_side_preview.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	_wizard_side_preview.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	side_outer.add_child(_wizard_side_preview)
-	var side_right_lbl := Label.new()
-	side_right_lbl.text = "B\na\nc\nk"
-	side_right_lbl.add_theme_font_size_override("font_size", 10)
-	side_right_lbl.add_theme_color_override("font_color", Color(0.8, 0.5, 0.5))
-	side_right_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	side_outer.add_child(side_right_lbl)
-	_wizard_side_size_label = Label.new()
-	_wizard_side_size_label.add_theme_font_size_override("font_size", 10)
-	_wizard_side_size_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	side_col.add_child(_wizard_side_size_label)
-
-	vbox.add_child(HSeparator.new())
-
-	# Flip control for side sprite only
-	_wizard_flip_front = CheckButton.new()
-	_wizard_flip_side = CheckButton.new()
-	_wizard_flip_side.text = "Flip side sprite"
-	_wizard_flip_side.toggled.connect(func(_on: bool): _wizard_side_preview.flip_h = _wizard_flip_side.button_pressed)
-	vbox.add_child(_wizard_flip_side)
-
-	var hint := Label.new()
-	hint.text = "Flip so the character's face points toward the \"Front\" label. Front sprite determines colors."
-	hint.add_theme_font_size_override("font_size", 11)
-	hint.add_theme_color_override("font_color", Color(0.6, 0.6, 0.7))
-	hint.autowrap_mode = TextServer.AUTOWRAP_WORD
-	vbox.add_child(hint)
-
-func _on_wizard_generate() -> void:
-	if _front_image == null or _side_image == null:
-		return
-
-	var front := _front_image
-	var side := _side_image
-	_front_image = null
-	_side_image = null
-
-	# The grid follows the sprite's own dimensions, so both the wide T-pose
-	# format and the original narrow format import correctly (their pixel sizes
-	# distinguish them). Depth comes from the side sprite's width.
-	edit_mode = EditMode.CHARACTER
-	CELL_SIZE = 1.0 / CHAR_RES
-	grid_x = clampi(front.get_width(), 1, 256)
-	grid_y = clampi(front.get_height(), 1, 256)
-	grid_z = clampi(side.get_width(), 1, 256)
-	if side.get_height() != grid_y:
-		side.resize(grid_z, grid_y, Image.INTERPOLATE_NEAREST)
-
-	var flip_side := _wizard_flip_side.button_pressed
-
-	_undo_stack.clear()   # fresh model (grid may change); import isn't undoable
-	_init_cells()
-
-	var front_has_alpha := CellTypes.image_has_alpha(front)
-	var side_has_alpha := CellTypes.image_has_alpha(side)
-	for x in range(grid_x):
-		for y in range(grid_y):
-			var front_pixel := front.get_pixel(grid_x - 1 - x, grid_y - 1 - y)
-			if front_pixel.a < 0.5:
-				continue
-			var color_idx: int
-			if front_has_alpha:
-				color_idx = CellTypes.encode_rgb5551(front_pixel)
-			else:
-				color_idx = CellTypes.encode_rgb565(front_pixel)
-			for z in range(grid_z):
-				var sz := z if flip_side else (grid_z - 1 - z)
-				var side_pixel := side.get_pixel(sz, grid_y - 1 - y)
-				if side_pixel.a >= 0.5:
-					cells[x][y][z] = CellTypes.make_cell(CellTypes.Type.SOLID, 0, color_idx)
-
-	# Recolor left/right surfaces from side sprite
-	for y in range(grid_y):
-		for z in range(grid_z):
-			var sz := z if flip_side else (grid_z - 1 - z)
-			var side_pixel := side.get_pixel(sz, grid_y - 1 - y)
-			if side_pixel.a < 0.5:
-				continue
-			var side_color: int
-			if side_has_alpha:
-				side_color = CellTypes.encode_rgb5551(side_pixel)
-			else:
-				side_color = CellTypes.encode_rgb565(side_pixel)
-			for x in range(grid_x):
-				if cells[x][y][z][0] != CellTypes.Type.EMPTY:
-					cells[x][y][z][CellTypes.FACE_LEFT] = side_color
-					break
-			for x in range(grid_x - 1, -1, -1):
-				if cells[x][y][z][0] != CellTypes.Type.EMPTY:
-					cells[x][y][z][CellTypes.FACE_RIGHT] = side_color
-					break
-
-	_ground_cells()
-	# Center narrower (original-format) imports into the standard character grid.
-	if grid_x < CHAR_GX or grid_y < CHAR_GY or grid_z < CHAR_GZ:
-		_embed_cells_centered(maxi(grid_x, CHAR_GX), maxi(grid_y, CHAR_GY), maxi(grid_z, CHAR_GZ))
-	var mbtns := mode_group.get_buttons()
-	mbtns[0].button_pressed = false
-	mbtns[1].button_pressed = true
-	floor_slider.max_value = _axis_size(edit_axis) - 1
-	ceiling_slider.max_value = _axis_size(edit_axis) - 1
-	_clear_chunks()
-	_mark_dirty()
-	_rebuild_mesh()
-	_rebuild_grid()
-	_center_camera()
-
-func _ground_cells() -> void:
-	var min_y := grid_y
-	for x in range(grid_x):
-		for y in range(grid_y):
-			if y >= min_y:
-				break
-			for z in range(grid_z):
-				if cells[x][y][z][0] != CellTypes.Type.EMPTY:
-					min_y = y
-					break
-	if min_y <= 0 or min_y >= grid_y:
-		return
-	for y in range(grid_y):
-		var src_y := y + min_y
-		for x in range(grid_x):
-			for z in range(grid_z):
-				if src_y < grid_y:
-					cells[x][y][z] = cells[x][src_y][z].duplicate()
-				else:
-					cells[x][y][z] = CellTypes.empty_cell()
-
+		dims_label.text = "Export failed"
 
 func _load_from_path(path: String) -> void:
 	if not ResourceLoader.exists(path):
@@ -3574,19 +2549,14 @@ func _load_from_path(path: String) -> void:
 	var def := ResourceLoader.load(path) as VoxelDefinition
 	if not def:
 		return
-	edit_mode = def.edit_mode
 	grid_x = def.grid_x
 	grid_y = def.grid_y
 	grid_z = def.grid_z
-	CELL_SIZE = 1.0 / CHAR_RES if edit_mode == EditMode.CHARACTER else 1.0 / BLOCK_RES
+	CELL_SIZE = 1.0 / BLOCK_RES
 	cells = def.to_cells()
 	# Texture Editor derives its atlas from these cells; carry the stored shape
 	# (may be empty for older saves — it then guesses from geometry).
-	_current_block_tex = null
-	_current_block_tex_layout = def.block_shape
-	# Legacy (narrower) character models are re-centered into the standard grid.
-	if edit_mode == EditMode.CHARACTER and (grid_x < CHAR_GX or grid_y < CHAR_GY or grid_z < CHAR_GZ):
-		_embed_cells_centered(maxi(grid_x, CHAR_GX), maxi(grid_y, CHAR_GY), maxi(grid_z, CHAR_GZ))
+	_shape_id = def.block_shape
 	_clear_chunks()
 	current_file_path = path
 	_suggested_name = ""
@@ -3606,9 +2576,6 @@ func _load_from_path(path: String) -> void:
 	ceiling_value_label.text = "Off"
 	_ceiling_locked = false
 	ceiling_lock_btn.set_pressed_no_signal(false)
-	var buttons := mode_group.get_buttons()
-	buttons[0].button_pressed = edit_mode == EditMode.BLOCK
-	buttons[1].button_pressed = edit_mode == EditMode.CHARACTER
 	_rebuild_mesh()
 	_rebuild_grid()
 	_rebuild_axis_overlay()
@@ -3669,16 +2636,6 @@ func _execute_pending_action() -> void:
 		"open":
 			open_dialog.current_dir = "res://definitions"
 			open_dialog.popup_centered()
-		"mode_block":
-			_do_set_edit_mode(EditMode.BLOCK)
-			var buttons := mode_group.get_buttons()
-			buttons[0].button_pressed = true
-		"mode_character":
-			_do_set_edit_mode(EditMode.CHARACTER)
-			var buttons := mode_group.get_buttons()
-			buttons[1].button_pressed = true
-		"import_sprites": _do_import_character_sprites()
-		"import_block": _do_import_block_texture()
 		"quit": get_tree().quit()
 
 func _notification(what: int) -> void:
@@ -3781,30 +2738,23 @@ func _rebuild_chunk(key: Vector3i) -> void:
 	mi.mesh = new_mesh
 	if new_mesh and new_mesh.get_surface_count() > 0:
 		mi.set_surface_override_material(0, _cached_opaque_mat)
-		if new_mesh.get_surface_count() > 1:
-			mi.set_surface_override_material(1, _cached_cutout_mat)
 	_update_chunk_ceiling(mi)
 
 func _invalidate_materials() -> void:
-	_cached_opaque_mat = _make_ceiling_shader(false)
-	_cached_cutout_mat = _make_ceiling_shader(true)
+	_cached_opaque_mat = _make_ceiling_shader()
 	for mi: MeshInstance3D in _chunk_meshes.values():
 		var mesh: ArrayMesh = mi.mesh
 		if mesh and mesh.get_surface_count() > 0:
 			mi.set_surface_override_material(0, _cached_opaque_mat)
-			if mesh.get_surface_count() > 1:
-				mi.set_surface_override_material(1, _cached_cutout_mat)
 	_update_ceiling_uniforms()
 
-func _make_ceiling_shader(cutout: bool) -> ShaderMaterial:
+func _make_ceiling_shader() -> ShaderMaterial:
 	var shader := Shader.new()
 	var code := "shader_type spatial;\nrender_mode "
 	if _preview_mode:
 		code += "diffuse_lambert"
 	else:
 		code += "unshaded"
-	if cutout:
-		code += ", cull_disabled"
 	code += ";\nuniform float ceiling_clip = -1.0;\n"
 	code += "uniform int clip_axis = 1;\n"
 	code += "uniform float cell_size = 0.015625;\n"
@@ -3851,8 +2801,6 @@ func _make_ceiling_shader(cutout: bool) -> ShaderMaterial:
 	code += "\t\tfloat line = 1.0 - smoothstep(0.05, 0.05 + aa, d);\n"
 	code += "\t\tALBEDO *= 1.0 - grid_lines * line;\n"
 	code += "\t}\n"
-	if cutout:
-		code += "\tALPHA = COLOR.a;\n\tALPHA_SCISSOR_THRESHOLD = %.1f;\n" % CellTypes.ALPHA_THRESHOLD
 	code += "}\n"
 	shader.code = code
 	var mat := ShaderMaterial.new()
@@ -3865,9 +2813,6 @@ func _update_ceiling_uniforms() -> void:
 		clip_val = (ceiling_y + 1) * CELL_SIZE
 	for mi: MeshInstance3D in _chunk_meshes.values():
 		_update_chunk_ceiling_val(mi, clip_val)
-	# The rig overlay's cap faces depend on ceiling_y + edit_axis, so rebuild it.
-	if current_tool == ToolType.RIG_PAINT and _rig_overlay and _rig_overlay.visible:
-		_refresh_rig_overlay()
 
 func _update_chunk_ceiling(mi: MeshInstance3D) -> void:
 	var clip_val: float = -1.0
